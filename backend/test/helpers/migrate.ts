@@ -34,7 +34,11 @@ export async function applyAllMigrations(): Promise<void> {
     "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
   );
   for (const m of MIGRATIONS) {
-    for (const stmt of splitStatements(m.sql)) await env.DB.exec(stmt);
+    // `.exec()` treats each `\n` as its own statement, which breaks on a
+    // multi-line `CREATE TABLE`. `.prepare(...).run()` parses the whole
+    // string as one statement, matching how the real D1 migration runner
+    // executes each statement it splits out.
+    for (const stmt of splitStatements(m.sql)) await env.DB.prepare(stmt).run();
     await env.DB.prepare("INSERT INTO d1_migrations (name) VALUES (?)").bind(m.name).run();
   }
 }

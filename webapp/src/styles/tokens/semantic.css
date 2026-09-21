@@ -1,0 +1,48 @@
+/* Semantic aliases — components reference these, never raw palette steps.
+   Each resolves through a --c-* triplet, so they follow the theme with
+   no dark-mode block of their own. */
+:root{
+  --bg-app:rgb(var(--c-slate-50));
+  --surface-card:rgb(var(--c-white));
+  --surface-sunken:rgb(var(--c-slate-100));
+  --surface-scrim:rgb(var(--c-slate-50) / 0.9);   /* header, backdrop-blur */
+  --surface-bar:rgb(var(--c-white) / 0.95);    /* tab bar */
+
+  /* Help is the app talking ABOUT itself, and every other surface in
+     the product is the app being itself. On --surface-card the two are
+     the same material, so a walkthrough popover reads as one more panel
+     of the thing it is explaining. Sky rather than the emerald accent:
+     accent means "act on this", and help is information. The step is
+     100, not 50 — 50 is within a few channel values of --bg-app in
+     light and reads as a printing error rather than a decision. */
+  --surface-help:rgb(var(--c-sky-100));
+  --border-help:rgb(var(--c-sky-200));
+
+  --text-strong:rgb(var(--c-slate-900));
+  --text-body:rgb(var(--c-slate-700));
+  --text-muted:rgb(var(--c-slate-500));
+  --text-faint:rgb(var(--c-slate-400));
+  --text-inverse:rgb(var(--c-white));
+
+  --border-default:rgb(var(--c-slate-200));
+  --border-strong:rgb(var(--c-slate-300));
+  --border-dashed:rgb(var(--c-slate-300));
+
+  --accent:rgb(var(--c-emerald-600));
+  --accent-hover:rgb(var(--c-emerald-700));
+  --accent-ring:rgb(var(--c-emerald-500));
+  --accent-soft-bg:rgb(var(--c-emerald-50));
+  --accent-soft-border:rgb(var(--c-emerald-200));
+  --accent-soft-text:rgb(var(--c-emerald-700));
+
+  --status-lead-bg:rgb(var(--c-slate-100));--status-lead-text:rgb(var(--c-slate-600));
+  --status-confirmed-bg:rgb(var(--c-sky-100));--status-confirmed-text:rgb(var(--c-sky-700));
+  --status-completed-bg:rgb(var(--c-amber-100));--status-completed-text:rgb(var(--c-amber-700));
+  --status-delivered-bg:rgb(var(--c-teal-100));--status-delivered-text:rgb(var(--c-teal-700));
+  --status-cancelled-bg:rgb(var(--c-violet-100));--status-cancelled-text:rgb(var(--c-violet-700));
+
+  --info-bg:rgb(var(--c-sky-50));--info-border:rgb(var(--c-sky-200));--info-text:rgb(var(--c-sky-700));
+  --warn-bg:rgb(var(--c-amber-50));--warn-text:rgb(var(--c-amber-800));--warn-value:rgb(var(--c-amber-700));
+  --danger-text:rgb(var(--c-red-600));--danger-border:rgb(var(--c-red-200));--danger-bg:rgb(var(--c-red-50));
+  --good-text:rgb(var(--c-emerald-700));
+}

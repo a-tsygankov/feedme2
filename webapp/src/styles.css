@@ -1,0 +1,23 @@
+/* Design tokens — copied from gigsy's design system. The feedme2
+ * palette replaces the emerald accent in Phase 1; the structure (R G B
+ * triplets, data-theme on <html>, no `dark:` utilities) stays. */
+@import "./styles/tokens/colors.css";
+@import "./styles/tokens/typography.css";
+@import "./styles/tokens/spacing.css";
+@import "./styles/tokens/radius.css";
+@import "./styles/tokens/elevation.css";
+@import "./styles/tokens/motion.css";
+@import "./styles/tokens/semantic.css";
+@import "./styles/tokens/shadcn.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Paint the root from the token so nothing white shows between first
+     paint and React mounting on the installed PWA. */
+  html {
+    background-color: rgb(var(--c-slate-50));
+  }
+}

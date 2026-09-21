@@ -1,7 +1,24 @@
 import { Hono } from "hono";
 import type { Bindings } from "./env.ts";
+import { log } from "./logger.ts";
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+// One JSON line per request. Skip the health probe and /api/debug/*
+// itself — the console polling for logs must not generate the logs it
+// displays.
+app.use("*", async (c, next) => {
+  const start = Date.now();
+  await next();
+  const path = new URL(c.req.url).pathname;
+  if (path === "/api/health" || path.startsWith("/api/debug")) return;
+  log.info("request", {
+    method: c.req.method,
+    path,
+    status: c.res.status,
+    durationMs: Date.now() - start,
+  });
+});
 
 app.get("/api/health", (c) => c.json({ ok: true, env: c.env.ENVIRONMENT, ts: Date.now() }));
 

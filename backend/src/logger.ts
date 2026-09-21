@@ -13,10 +13,12 @@ export interface LogSink {
 
 export class ConsoleSink implements LogSink {
   write(entry: LogEntry): void {
-    const line = JSON.stringify(entry);
-    if (entry.level === "error") console.error(line);
-    else if (entry.level === "warn") console.warn(line);
-    else console.log(line);
+    // An object, not JSON.stringify(entry): Workers Logs indexes the
+    // fields of an object argument, but a string argument becomes one
+    // opaque `message` and ts/level/data stop being searchable.
+    if (entry.level === "error") console.error(entry);
+    else if (entry.level === "warn") console.warn(entry);
+    else console.log(entry);
   }
 }
 

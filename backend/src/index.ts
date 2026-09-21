@@ -11,9 +11,23 @@ const app = new Hono<{ Bindings: Bindings }>();
 // displays.
 app.use("*", async (c, next) => {
   const start = Date.now();
-  await next();
   const path = new URL(c.req.url).pathname;
-  if (path === "/api/health" || path.startsWith("/api/debug")) return;
+  const skip = path === "/api/health" || path.startsWith("/api/debug");
+  // Hono's compose() catches a thrown handler error at the layer where
+  // it happens (converting it to a response via the default error
+  // handler) rather than rejecting next() here, so wrapping this in
+  // try/catch never sees the error — c.error is how it surfaces instead.
+  await next();
+  if (skip) return;
+  if (c.error) {
+    log.error("request failed", {
+      method: c.req.method,
+      path,
+      durationMs: Date.now() - start,
+      error: c.error.message,
+    });
+    return;
+  }
   log.info("request", {
     method: c.req.method,
     path,

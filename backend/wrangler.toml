@@ -6,12 +6,11 @@ compatibility_flags = ["nodejs_compat"]
 # Provisioned once with:
 #   wrangler d1 create feedme2-db
 #   wrangler r2 bucket create feedme2-firmware
-# database_id below is a placeholder until provisioning (Task 17 / follow-up commit).
 
 [[d1_databases]]
 binding = "DB"
 database_name = "feedme2-db"
-database_id = "PASTE-THE-UUID-FROM-STEP-3"
+database_id = "26f85bd9-ebb1-4bd3-9798-8cbd420481e3"
 migrations_dir = "migrations"
 
 [[r2_buckets]]

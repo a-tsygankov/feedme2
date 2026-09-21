@@ -7,7 +7,7 @@ For the next agent (or Andrey) picking up feedme2. Read this, then `handoff.md`,
 - Branch: `feat/phase0-foundation`, local only, not pushed. Base: `main` at `ddeda06`.
 - Plan: `docs/superpowers/plans/2026-09-20-phase0-foundation.md`. Spec: `docs/superpowers/specs/2026-09-20-feedme2-design.md`.
 - Tasks 1–16, 18 and 19 are implemented, spec-reviewed, quality-reviewed and fixed. Task 17 (repo, provisioning, secrets, first deploy) and Task 20 (PR, CI) are **not done**: they need Andrey's credentials.
-- Local verification is green: `pnpm -r typecheck`, `pnpm -r test` (shared 17, backend 10, webapp 29), `python -m unittest discover -s scripts` (42), `pio test -e native` (8), `pio run -e crowpanel`, `pio run -e simulator`, `pio run -e spike-sleep`, Playwright 9/9 against a local stack.
+- Local verification is green: `pnpm -r typecheck`, `pnpm -r test` (shared 17, backend 10, webapp 53), `python -m unittest discover -s scripts` (42), `pio test -e native` (8), `pio run -e crowpanel`, `pio run -e simulator`, `pio run -e spike-sleep`, Playwright 9/9 against a local stack.
 
 ## What Andrey must do by hand
 

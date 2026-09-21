@@ -1,0 +1,31 @@
+name: Version bump check
+
+# Fails the PR if any tier (webapp, worker, firmware, schema) was
+# modified without a version bump. Sources:
+#   webapp    webapp/package.json                ".version"
+#   worker    backend/package.json               ".version"
+#   firmware  firmware/src/application/Version.h kFirmwareVersion
+#   schema    backend/migrations/                new numbered .sql file
+# Doc-only PRs are exempt. Rules: scripts/version_rules.py.
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Verify patch bump
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the script can `git show base_ref:path`.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Version tooling unit tests
+        run: python3 -m unittest discover -s scripts
+      - name: Run version-bump check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 scripts/check_version_bump.py

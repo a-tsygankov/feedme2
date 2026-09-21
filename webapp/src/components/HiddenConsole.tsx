@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import type { LogEntry } from "@feedme2/shared";
+import { DebugLogsResponseSchema, type LogEntry } from "@feedme2/shared";
 import { clientLogBuffer } from "../lib/logger.ts";
 import { fetchTierVersions, type TierVersions } from "../lib/versions.ts";
 import { LogList } from "./LogList.tsx";
@@ -19,7 +19,8 @@ export function makeConsoleDataSource(fetchFn: typeof fetch = fetch): ConsoleDat
       try {
         const res = await fetchFn(`/api/debug/logs?limit=${limit}`);
         if (!res.ok) return null;
-        return ((await res.json()) as { entries: LogEntry[] }).entries;
+        const parsed = DebugLogsResponseSchema.safeParse(await res.json());
+        return parsed.success ? parsed.data.entries : null;
       } catch {
         return null;
       }
@@ -55,28 +56,41 @@ interface Props {
 
 const WORKER_LOG_LIMIT = 100;
 
+type WorkerFeed = { status: "loading" } | { status: "unreachable" } | { status: "ok"; entries: LogEntry[] };
+
 /** The hidden debug console — opened by 3 taps on the logo. Every
  * remote value degrades to an explicit marker so it works offline. */
 export function HiddenConsole({ onClose, dataSource }: Props) {
   const [versions, setVersions] = useState<TierVersions | null>(null);
-  const [workerLogs, setWorkerLogs] = useState<LogEntry[] | null>(null);
+  const [workerFeed, setWorkerFeed] = useState<WorkerFeed>({ status: "loading" });
   const [clientLogs, setClientLogs] = useState<LogEntry[]>([]);
 
   const refresh = useCallback(async () => {
     setClientLogs(dataSource.getClientLogs());
-    setVersions(await dataSource.getVersions());
-    setWorkerLogs(await dataSource.getWorkerLogs(WORKER_LOG_LIMIT));
+    const [v, w] = await Promise.all([dataSource.getVersions(), dataSource.getWorkerLogs(WORKER_LOG_LIMIT)]);
+    setVersions(v);
+    setWorkerFeed(w === null ? { status: "unreachable" } : { status: "ok", entries: w });
   }, [dataSource]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const unreachable = versions?.worker === null;
 
   return (
     <div
       data-testid="hidden-console"
+      role="dialog"
+      aria-label="Debug console"
       className="fixed inset-x-0 bottom-0 z-50 max-h-[75dvh] overflow-y-auto rounded-t-2xl border-t border-slate-300 bg-white p-4 shadow-2xl pb-[calc(1rem+env(safe-area-inset-bottom))]"
     >
       <div className="flex items-center justify-between">
@@ -113,10 +127,12 @@ export function HiddenConsole({ onClose, dataSource }: Props) {
 
       <Section title="Worker logs">
         <div data-testid="worker-logs">
-          {workerLogs === null ? (
+          {workerFeed.status === "loading" ? (
+            <p className="text-xs text-slate-500">Loading…</p>
+          ) : workerFeed.status === "unreachable" ? (
             <p className="text-xs text-slate-500">Worker unreachable.</p>
           ) : (
-            <LogList entries={workerLogs} emptyMessage="No worker logs yet." />
+            <LogList entries={workerFeed.entries} emptyMessage="No worker logs yet." />
           )}
         </div>
       </Section>

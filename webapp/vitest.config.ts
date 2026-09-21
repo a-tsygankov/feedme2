@@ -13,5 +13,6 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
+    // No DOM environment on purpose: component behaviour is covered by Playwright (e2e/). A render test needs `// @vitest-environment jsdom` at the top of its file.
   },
 });

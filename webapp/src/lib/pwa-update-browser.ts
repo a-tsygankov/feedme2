@@ -9,6 +9,7 @@ import { CLIENT_VERSION } from "./versions.ts";
 
 let waiting: ServiceWorker | null = null;
 let registration: ServiceWorkerRegistration | null = null;
+let swAvailable = false;
 
 export const updateStore: UpdateStore = createUpdateStore({
   skipWaiting: () => waiting?.postMessage({ type: "SKIP_WAITING" }),
@@ -33,38 +34,48 @@ async function servedVersion(): Promise<string | null> {
   }
 }
 
+// No service worker means no precache: a plain reload fetches the new
+// bundle, so "ready" can be honoured with reload() alone.
 async function checkNow(): Promise<void> {
-  if (registration === null) return;
-  if (isNewerBuildServed(await servedVersion(), CLIENT_VERSION)) {
-    appLog.info("newer build served, checking service worker");
+  const newer = isNewerBuildServed(await servedVersion(), CLIENT_VERSION);
+  if (registration !== null) {
+    if (newer) appLog.info("newer build served, checking service worker");
+    // Cheap and idempotent; run it on every visibility change regardless,
+    // the version poll only adds the log line above.
+    void registration.update();
+    return;
   }
-  // Cheap and idempotent; run it on every visibility change regardless,
-  // the version poll only adds the log line above.
-  void registration.update();
+  if (newer) {
+    appLog.info("newer build served, no service worker: offering reload");
+    updateStore.markReady("reload");
+  }
 }
 
-/** Start listening. A no-op where service workers are unavailable. */
+/** Start listening. Where service workers are unavailable, registration
+ * is skipped but the version poll still runs so a reload-only update
+ * can be offered. */
 export function startUpdateWatch(): void {
-  if (!("serviceWorker" in navigator)) return;
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("controllerchange", () => updateStore.onControllerChange());
 
-  navigator.serviceWorker.addEventListener("controllerchange", () => updateStore.onControllerChange());
-
-  void navigator.serviceWorker
-    .register("/sw.js", { scope: "/" })
-    .then((reg) => {
-      registration = reg;
-      offerIfUpdate(reg.waiting);
-      reg.addEventListener("updatefound", () => {
-        const installing = reg.installing;
-        if (installing === null) return;
-        installing.addEventListener("statechange", () => {
-          if (installing.state === "installed") offerIfUpdate(installing);
+    void navigator.serviceWorker
+      .register("/sw.js", { scope: "/" })
+      .then((reg) => {
+        registration = reg;
+        swAvailable = true;
+        offerIfUpdate(reg.waiting);
+        reg.addEventListener("updatefound", () => {
+          const installing = reg.installing;
+          if (installing === null) return;
+          installing.addEventListener("statechange", () => {
+            if (installing.state === "installed") offerIfUpdate(installing);
+          });
         });
+      })
+      .catch((error: unknown) => {
+        appLog.warn("service worker registration failed", { error: String(error) });
       });
-    })
-    .catch((error: unknown) => {
-      appLog.warn("service worker registration failed", { error: String(error) });
-    });
+  }
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void checkNow();

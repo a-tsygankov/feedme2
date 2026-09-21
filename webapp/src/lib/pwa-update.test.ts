@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { createUpdateStore, isNewerBuildServed } from "./pwa-update.ts";
+import { createUpdateStore, isNewerBuildServed, type UpdateStoreDeps } from "./pwa-update.ts";
 
 function make() {
-  const deps = { skipWaiting: vi.fn(), reload: vi.fn() };
+  const deps: UpdateStoreDeps = { skipWaiting: vi.fn(), reload: vi.fn() };
   return { deps, store: createUpdateStore(deps) };
 }
 
@@ -54,6 +54,42 @@ describe("createUpdateStore", () => {
     store.dismiss();
     expect(store.getSnapshot()).toBe("dismissed");
     store.markReady();
+    expect(store.getSnapshot()).toBe("ready");
+  });
+
+  it("reload mode applies by reloading immediately, without skipWaiting", () => {
+    const { store, deps } = make();
+    store.markReady("reload");
+    store.apply();
+    expect(deps.skipWaiting).not.toHaveBeenCalled();
+    expect(deps.reload).toHaveBeenCalledTimes(1);
+    store.onControllerChange();
+    expect(deps.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("a stalled worker apply can be retried after the timeout", () => {
+    let pending: (() => void) | null = null;
+    const deps = { skipWaiting: vi.fn(), reload: vi.fn(), setTimer: (fn: () => void) => { pending = fn; } };
+    const store = createUpdateStore(deps);
+    store.markReady();
+    store.apply();
+    store.apply();
+    expect(deps.skipWaiting).toHaveBeenCalledTimes(1);
+    pending!();
+    store.apply();
+    expect(deps.skipWaiting).toHaveBeenCalledTimes(2);
+    expect(deps.reload).not.toHaveBeenCalled();
+  });
+
+  it("a timeout that fires after the reload does nothing", () => {
+    let pending: (() => void) | null = null;
+    const deps = { skipWaiting: vi.fn(), reload: vi.fn(), setTimer: (fn: () => void) => { pending = fn; } };
+    const store = createUpdateStore(deps);
+    store.markReady();
+    store.apply();
+    store.onControllerChange();
+    pending!();
+    expect(deps.reload).toHaveBeenCalledTimes(1);
     expect(store.getSnapshot()).toBe("ready");
   });
 });

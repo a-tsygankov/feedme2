@@ -1,0 +1,20 @@
+{
+  "name": "feedme2",
+  "private": true,
+  "version": "0.0.1",
+  "description": "feedme2 — household cat-feeding tracker (PWA + Cloudflare Workers + ESP32 dial). See docs/superpowers/specs/2026-09-20-feedme2-design.md.",
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "dev:backend": "pnpm --filter feedme2-backend dev",
+    "dev:webapp": "pnpm --filter feedme2-webapp dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:migrate:local": "pnpm --filter feedme2-backend db:migrate:local",
+    "db:migrate:remote": "pnpm --filter feedme2-backend db:migrate:remote",
+    "deploy:backend": "pnpm --filter feedme2-backend deploy",
+    "deploy:webapp": "pnpm --filter feedme2-webapp deploy"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "engines": { "node": ">=20" }
+}

@@ -3,7 +3,7 @@
 Single page. Update at the end of any session that changes phase, adds a resource, or resolves a spec open question.
 
 ## Phase
-Phase 0 (foundation) implemented and merged to `main` (tasks 1–16, 18, 19); provisioning, first deploy and the PR (tasks 17, 20) wait on Andrey's credentials. Plan: `docs/superpowers/plans/2026-09-20-phase0-foundation.md`. Execution handoff: `docs/handoffs/2026-09-20-phase0-execution-handoff.md`.
+Phase 0 (foundation) **complete** on 2026-09-21: merged to `main`, provisioned, deployed by CI (run 35561561511 green across all tiers). Open item: the deep-sleep bench spike (`docs/spikes/2026-09-deep-sleep-touch-wake.md`). Next: Phase 1 plan. Plan: `docs/superpowers/plans/2026-09-20-phase0-foundation.md`. Execution handoff: `docs/handoffs/2026-09-20-phase0-execution-handoff.md`.
 
 ## Live resources (provisioned and first-deployed 2026-09-21)
 | Thing | Name / URL | Notes |
@@ -19,6 +19,7 @@ Phase 0 (foundation) implemented and merged to `main` (tasks 1–16, 18, 19); pr
 Q1 battery pin · Q2 touch-controller rail (spike: `docs/spikes/2026-09-deep-sleep-touch-wake.md`) · Q3 two new cat poses · Q4 web client id · Q5 can-size presets.
 
 ## Log
+- 2026-09-21 — CI secrets set; `workflow_dispatch` run green (shared, backend, webapp, firmware); Phase 0 complete. WOKWI_CLI_TOKEN not set, so the Wokwi step skips.
 - 2026-09-20 — spec approved; Phase 0 started.
 - 2026-09-20 — Phase 0 tasks 1–16, 18, 19 implemented and reviewed; merged to main.
-- 2026-09-21 — D1, R2 and the Pages project provisioned; first deploy from the workstation; /api/version live through the proxy; e2e 9/9 against production. GitHub repo, CI secrets and the first CI run still pending.
+- 2026-09-21 — D1, R2 and the Pages project provisioned; first deploy from the workstation; /api/version live through the proxy; e2e 9/9 against production. 

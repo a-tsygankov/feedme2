@@ -1,0 +1,75 @@
+/**
+ * The browser half of self-update: registration, update checks, and
+ * the events that drive the store. Deliberately logic-free — every
+ * decision lives in pwa-update.ts.
+ */
+import { createUpdateStore, isNewerBuildServed, VERSION_POLL_MS, type UpdateStore } from "./pwa-update.ts";
+import { appLog } from "./logger.ts";
+import { CLIENT_VERSION } from "./versions.ts";
+
+let waiting: ServiceWorker | null = null;
+let registration: ServiceWorkerRegistration | null = null;
+
+export const updateStore: UpdateStore = createUpdateStore({
+  skipWaiting: () => waiting?.postMessage({ type: "SKIP_WAITING" }),
+  reload: () => window.location.reload(),
+});
+
+/** Installed while another worker controls the page = an update. The
+ * same state with no controller is the first install: not news. */
+function offerIfUpdate(worker: ServiceWorker | null): void {
+  if (worker === null || navigator.serviceWorker.controller === null) return;
+  waiting = worker;
+  updateStore.markReady();
+}
+
+async function servedVersion(): Promise<string | null> {
+  try {
+    const res = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return ((await res.json()) as { webapp?: string }).webapp ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function checkNow(): Promise<void> {
+  if (registration === null) return;
+  if (isNewerBuildServed(await servedVersion(), CLIENT_VERSION)) {
+    appLog.info("newer build served, checking service worker");
+  }
+  // Cheap and idempotent; run it on every visibility change regardless,
+  // the version poll only adds the log line above.
+  void registration.update();
+}
+
+/** Start listening. A no-op where service workers are unavailable. */
+export function startUpdateWatch(): void {
+  if (!("serviceWorker" in navigator)) return;
+
+  navigator.serviceWorker.addEventListener("controllerchange", () => updateStore.onControllerChange());
+
+  void navigator.serviceWorker
+    .register("/sw.js", { scope: "/" })
+    .then((reg) => {
+      registration = reg;
+      offerIfUpdate(reg.waiting);
+      reg.addEventListener("updatefound", () => {
+        const installing = reg.installing;
+        if (installing === null) return;
+        installing.addEventListener("statechange", () => {
+          if (installing.state === "installed") offerIfUpdate(installing);
+        });
+      });
+    })
+    .catch((error: unknown) => {
+      appLog.warn("service worker registration failed", { error: String(error) });
+    });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void checkNow();
+  });
+  window.setInterval(() => {
+    if (document.visibilityState === "visible") void checkNow();
+  }, VERSION_POLL_MS);
+}

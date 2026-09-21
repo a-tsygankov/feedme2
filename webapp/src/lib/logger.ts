@@ -4,13 +4,15 @@
  * list. The singleton writes to the devtools console AND to a ring
  * buffer the console displays; Phase 1 adds the upload sink.
  */
-import { RingBuffer, type LogEntry, type LogLevel } from "@feedme2/shared";
+import { BufferSink, Logger, RingBuffer, type LogEntry, type LogSink } from "@feedme2/shared";
 
-export interface LogSink {
-  write(entry: LogEntry): void;
-}
+export { BufferSink, Logger };
+export type { LogSink };
 
 export class ConsoleSink implements LogSink {
+  // (msg, data) as separate console arguments, unlike the worker's
+  // object-passing sink: this targets the devtools object inspector,
+  // not the Workers Logs indexer.
   write(entry: LogEntry): void {
     const args = entry.data ? [entry.msg, entry.data] : [entry.msg];
     if (entry.level === "error") console.error(...args);
@@ -19,35 +21,13 @@ export class ConsoleSink implements LogSink {
   }
 }
 
-export class BufferSink implements LogSink {
-  constructor(private readonly buffer: RingBuffer<LogEntry>) {}
-  write(entry: LogEntry): void {
-    this.buffer.push(entry);
-  }
-}
-
-export class Logger {
-  constructor(
-    private readonly sinks: LogSink[],
-    private readonly clock: () => number = Date.now,
-  ) {}
-
-  debug(msg: string, data?: Record<string, unknown>): void {
-    this.write("debug", msg, data);
-  }
-  info(msg: string, data?: Record<string, unknown>): void {
-    this.write("info", msg, data);
-  }
-  warn(msg: string, data?: Record<string, unknown>): void {
-    this.write("warn", msg, data);
-  }
-  error(msg: string, data?: Record<string, unknown>): void {
-    this.write("error", msg, data);
-  }
-
-  private write(level: LogLevel, msg: string, data?: Record<string, unknown>): void {
-    const entry: LogEntry = { ts: this.clock(), level, source: "web", msg, ...(data ? { data } : {}) };
-    for (const sink of this.sinks) sink.write(entry);
+/** `String({})` is "[object Object]"; JSON is what a person can read. */
+function describe(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
   }
 }
 
@@ -58,13 +38,21 @@ export class Logger {
  */
 export function installGlobalErrorCapture(logger: Logger, target: EventTarget): () => void {
   const onError = (event: Event): void => {
-    const message = (event as ErrorEvent).message ?? "Unknown error";
-    logger.error(`Uncaught error: ${message}`);
+    const e = event as ErrorEvent;
+    const message = e.message ?? "Unknown error";
+    const data: Record<string, unknown> = {};
+    if (e.filename) data["filename"] = e.filename;
+    if (typeof e.lineno === "number") data["lineno"] = e.lineno;
+    if (typeof e.colno === "number") data["colno"] = e.colno;
+    const stack = (e.error as { stack?: unknown } | undefined)?.stack;
+    if (typeof stack === "string") data["stack"] = stack.slice(0, 2000);
+    logger.error(`Uncaught error: ${message}`, Object.keys(data).length ? data : undefined);
   };
   const onRejection = (event: Event): void => {
     const reason = (event as PromiseRejectionEvent).reason;
-    const message = reason instanceof Error ? reason.message : String(reason);
-    logger.error(`Unhandled rejection: ${message}`);
+    const message = reason instanceof Error ? reason.message : describe(reason);
+    const stack = reason instanceof Error && typeof reason.stack === "string" ? reason.stack.slice(0, 2000) : undefined;
+    logger.error(`Unhandled rejection: ${message}`, stack ? { stack } : undefined);
   };
   target.addEventListener("error", onError);
   target.addEventListener("unhandledrejection", onRejection);
@@ -75,4 +63,4 @@ export function installGlobalErrorCapture(logger: Logger, target: EventTarget): 
 }
 
 export const clientLogBuffer = new RingBuffer<LogEntry>(200);
-export const appLog = new Logger([new ConsoleSink(), new BufferSink(clientLogBuffer)]);
+export const appLog = new Logger("web", [new ConsoleSink(), new BufferSink(clientLogBuffer)]);

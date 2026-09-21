@@ -16,6 +16,11 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
 
   const init: RequestInit = {
     method: request.method,
+    // Forwarded verbatim, Host included. workerd rewrites Host to the
+    // upstream URL's authority (it is a forbidden header for fetch), so
+    // the *.workers.dev edge routes correctly; gigsy runs this exact
+    // proxy in production. Origin still names the Pages host — strip it
+    // here if the Worker ever starts checking Origin.
     headers: request.headers,
     body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
     // @ts-expect-error duplex is a valid fetch init key in workerd.

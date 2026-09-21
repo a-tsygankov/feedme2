@@ -11,6 +11,7 @@ export function Logo({ onTap }: Props) {
   return (
     <h1
       data-testid="app-logo"
+      // Intentionally pointer-only: a keyboard-focusable secret is not a secret.
       onClick={onTap}
       className="select-none text-xl font-bold tracking-tight text-slate-900"
     >

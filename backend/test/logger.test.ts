@@ -8,7 +8,7 @@ describe("Logger", () => {
     const seen: LogEntry[] = [];
     const sink: LogSink = { write: (e) => void seen.push(e) };
     const buffer = new RingBuffer<LogEntry>(10);
-    const log = new Logger([sink, new BufferSink(buffer)], () => 1234);
+    const log = new Logger("worker", [sink, new BufferSink(buffer)], () => 1234);
 
     log.info("hello", { a: 1 });
     log.error("boom");
@@ -24,7 +24,7 @@ describe("Logger", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const log = new Logger([new ConsoleSink()], () => 5);
+    const log = new Logger("worker", [new ConsoleSink()], () => 5);
     log.info("i");
     log.warn("w");
     log.error("e");
@@ -36,7 +36,7 @@ describe("Logger", () => {
 
   it("omits the data key entirely when no data is given", () => {
     const seen: LogEntry[] = [];
-    const log = new Logger([{ write: (e) => void seen.push(e) }], () => 1);
+    const log = new Logger("worker", [{ write: (e) => void seen.push(e) }], () => 1);
     log.info("bare");
     expect(Object.hasOwn(seen[0]!, "data")).toBe(false);
   });

@@ -87,6 +87,23 @@ class VersionExtractors(unittest.TestCase):
         out = vr.write_header_version(src, "0.3.3")
         self.assertEqual(out, "#pragma once\nconstexpr const char* kFirmwareVersion = \"0.3.3\";  // keep me\n")
 
+    def test_header_ignores_commented_out_copy(self):
+        src = (
+            "#pragma once\n"
+            '// old: constexpr const char* kFirmwareVersion = "0.1.0";\n'
+            'constexpr const char* kFirmwareVersion = "0.3.2";\n'
+        )
+        self.assertEqual(vr.read_header_version(src), "0.3.2")
+        out = vr.write_header_version(src, "0.3.3")
+        self.assertIn('// old: constexpr const char* kFirmwareVersion = "0.1.0";', out)
+        self.assertIn('\nconstexpr const char* kFirmwareVersion = "0.3.3";', out)
+
+    def test_header_with_two_declarations_is_rejected(self):
+        src = 'constexpr const char* kFirmwareVersion = "1";\nconstexpr const char* kFirmwareVersion = "2";\n'
+        self.assertIsNone(vr.read_header_version(src))
+        with self.assertRaises(RuntimeError):
+            vr.write_header_version(src, "3")
+
 
 def _header(version: str) -> str:
     return f'#pragma once\nnamespace feedme2::application {{\nconstexpr const char* kFirmwareVersion = "{version}";\n}}\n'
@@ -182,6 +199,18 @@ class FirmwareAndSharedBumps(BaseRepo):
         self.assertEqual(_staged_version(self.repo, "backend/package.json"), "0.0.2")
         header = _git(self.repo, "show", ":firmware/src/application/Version.h")
         self.assertIn('kFirmwareVersion = "0.0.1"', header)
+
+    def test_missing_version_file_warns_and_skips(self):
+        import io
+        from contextlib import redirect_stderr
+        _git(self.repo, "rm", "-q", "webapp/package.json")
+        _write(self.repo, "webapp/src/App.tsx", "export const b = 2\n")
+        _git(self.repo, "add", "webapp/src/App.tsx")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            bumped = bv.run(self.repo)
+        self.assertEqual(bumped, [])
+        self.assertIn("webapp/package.json missing or unparsable", err.getvalue())
 
 
 class BumpInRepo(BaseRepo):

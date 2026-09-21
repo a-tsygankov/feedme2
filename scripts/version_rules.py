@@ -85,15 +85,25 @@ def write_package_json_version(content: str, new_version: str) -> str:
     return replaced
 
 
-_HEADER_RE = re.compile(r'(kFirmwareVersion\s*=\s*")([^"]+)(")')
+# A declaration, not a mention: anchored to line start so a commented-out
+# or quoted copy (`// old: ... kFirmwareVersion = "0.1.0"`) can never be
+# read or rewritten instead of the real constant.
+_HEADER_RE = re.compile(
+    r'^(\s*constexpr\s+const\s+char\s*\*\s*kFirmwareVersion\s*=\s*")([^"]+)(")',
+    re.MULTILINE,
+)
 
 
 def read_header_version(content: str) -> Optional[str]:
-    m = _HEADER_RE.search(content)
-    return m.group(2) if m else None
+    matches = _HEADER_RE.findall(content)
+    if len(matches) != 1:
+        return None
+    return matches[0][1]
 
 
 def write_header_version(content: str, new_version: str) -> str:
+    if len(_HEADER_RE.findall(content)) != 1:
+        raise RuntimeError("expected exactly one kFirmwareVersion declaration")
     replaced, n = _HEADER_RE.subn(rf"\g<1>{new_version}\g<3>", content, count=1)
     if n != 1 or read_header_version(replaced) != new_version:
         raise RuntimeError("failed to rewrite kFirmwareVersion")

@@ -133,8 +133,13 @@ def run(repo: Path) -> list[str]:
         staged_v = tier.read(staged_src) if staged_src is not None else None
         head_v = tier.read(head_src) if head_src is not None else None
         if staged_v is None:
-            # Version file missing/unparsable in the index — leave it
-            # to the CI check to complain with full context.
+            # Version file missing/unparsable in the index - say so, then
+            # leave it to the CI check to complain with full context.
+            print(
+                f"[bump_versions] {tier.name}: {rel} missing or unparsable in "
+                f"the index - not bumped (CI version-check will flag it).",
+                file=sys.stderr,
+            )
             continue
         if head_v is None or staged_v != head_v:
             # New file, or already bumped in this commit — done.

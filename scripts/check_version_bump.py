@@ -6,6 +6,9 @@ Runs as the `version-check` GitHub Actions job (see
 
     BASE_REF=main python3 scripts/check_version_bump.py
 
+(a bare BASE_REF like "main" is resolved as origin/main; fetch first
+and use a remote named origin.)
+
 Tier definitions live in version_rules.py (shared with the pre-commit
 auto-bumper, scripts/bump_versions.py — with the hook installed this
 check should never fire; it's the backstop for commits made without

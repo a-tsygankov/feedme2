@@ -1,0 +1,4 @@
+# Copy to .dev.vars (gitignored) — wrangler dev overlays these on
+# wrangler.toml [vars] for LOCAL runs only.
+ENVIRONMENT=development
+AUTH_SECRET=local-dev-auth-secret-do-not-ship

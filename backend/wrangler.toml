@@ -1,0 +1,35 @@
+name = "feedme2-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Provisioned once with:
+#   wrangler d1 create feedme2-db
+#   wrangler r2 bucket create feedme2-firmware
+# database_id below is a placeholder until provisioning (Task 17 / follow-up commit).
+
+[[d1_databases]]
+binding = "DB"
+database_name = "feedme2-db"
+database_id = "PASTE-THE-UUID-FROM-STEP-3"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "FIRMWARE"
+bucket_name = "feedme2-firmware"
+
+# Hourly housekeeping (log retention, expired tokens) — the handler is
+# a no-op until Phase 1 gives it something to prune.
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+# What `wrangler deploy` ships. Local dev overrides via .dev.vars
+# (gitignored — copy .dev.vars.example); tests pin their own value in
+# vitest.config.ts miniflare bindings.
+ENVIRONMENT = "production"
+# Secrets — set via scripts/setup-secrets.local.ps1 -Cloudflare:
+#   AUTH_SECRET   HS256 signing key (Phase 1)
+
+[observability]
+enabled = true

@@ -20,9 +20,12 @@ pnpm db:migrate:local
 pnpm dev:backend                  # wrangler dev on :8787
 pnpm dev:webapp                   # vite on :5173, proxies /api to :8787
 pnpm test                         # shared + backend + webapp unit tests
+python -m unittest discover -s scripts   # version tooling
 cd webapp && pnpm test:e2e        # Playwright against E2E_BASE_URL (default: production)
 cd firmware && pio test -e native && pio run -e crowpanel && pio run -e simulator
 ```
+
+The pre-commit hook needs a working `python`/`python3`/`py`; without one it skips the bump and CI's version check catches it. PlatformIO (`pip install platformio`) provides `pio`.
 
 ## Versioning
 

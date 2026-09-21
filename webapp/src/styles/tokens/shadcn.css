@@ -3,7 +3,7 @@
  *
  * shadcn components reference --background, --primary and so on. Rather
  * than adopting a second palette that would have to be kept in step
- * with docs/design-system.md, each name is an alias for a --c-* triplet
+ * with src/styles/tokens/colors.css, each name is an alias for a --c-* triplet
  * that colors.css already defines and already swaps under
  * [data-theme="dark"]. So there is exactly one place where a colour is
  * chosen, and one place where the theme switches.

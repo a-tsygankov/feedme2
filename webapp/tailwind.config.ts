@@ -2,10 +2,10 @@ import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
 
 /**
- * The design tokens in src/styles/tokens/ are canonical
- * (docs/design-system.md). Every colour utility resolves through a CSS
- * variable holding an "R G B" triplet, so one `data-theme` attribute on
- * <html> re-themes all fourteen screens at once.
+ * The design tokens in src/styles/tokens/ are canonical. Every colour
+ * utility resolves through a CSS variable holding an "R G B" triplet,
+ * so one `data-theme` attribute on <html> re-themes every screen at
+ * once.
  *
  * `<alpha-value>` is the reason this works at all. Tailwind substitutes
  * the modifier into the rgb() call, so `bg-white/90` and `bg-slate-50/95`
@@ -14,8 +14,7 @@ import tailwindcssAnimate from "tailwindcss-animate";
  * routing Tailwind through var() the first time round.
  *
  * The names still mirror Tailwind's palette because the screens are
- * written in them; src/lib/design-tokens.test.ts fails if the light
- * values ever drift from Tailwind's own.
+ * written in them.
  */
 const withAlpha = (token: string) => `rgb(var(--c-${token}) / <alpha-value>)`;
 

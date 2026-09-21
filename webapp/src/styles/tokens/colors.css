@@ -1,5 +1,5 @@
-/* Palette — the exact Tailwind slate/emerald/sky/amber/red/violet/teal values used
-   in gigsy/webapp, stored as raw "R G B" channel triplets.
+/* Palette — the exact Tailwind slate/emerald/sky/amber/red/violet/teal values,
+   inherited from gigsy's design system, stored as raw "R G B" channel triplets.
 
    Triplets, not hex, because tailwind.config.ts consumes them as
    `rgb(var(--c-slate-50) / <alpha-value>)`. Tailwind substitutes the
@@ -9,9 +9,9 @@
    first time.
 
    Dark mode is one attribute on <html>. Because every utility resolves
-   through these variables, re-pointing them re-themes all fourteen
-   screens at once — no `dark:` variant anywhere, and no chance of a
-   screen drifting because someone forgot one. */
+   through these variables, re-pointing them re-themes every screen at
+   once — no `dark:` variant anywhere, and no chance of a screen
+   drifting because someone forgot one. */
 :root {
   --c-slate-50: 248 250 252;
   --c-slate-100: 241 245 249;

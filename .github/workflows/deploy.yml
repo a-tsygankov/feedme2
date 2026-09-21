@@ -189,9 +189,15 @@ jobs:
   # local D1 + vite). Nothing here touches production data.
   webapp-e2e-full:
     name: Webapp E2E (full stack)
-    needs: changes
+    needs: [changes, webapp-build]
+    # Also gated on webapp-build so a broken webapp build fails fast
+    # instead of burning an E2E run against last commit's dist. Checked
+    # against 'failure' rather than requiring 'success', because
+    # webapp-build itself is skipped (not success) when only backend
+    # changed — this job still needs to run in that case.
     if: >-
       github.event_name == 'pull_request' &&
+      needs.webapp-build.result != 'failure' &&
       (needs.changes.outputs.webapp == 'true' || needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     env:

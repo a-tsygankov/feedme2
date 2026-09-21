@@ -1,6 +1,7 @@
 // Single Unity entry point. Each test file declares `void test_*()`
-// functions; they are forward-declared here so a missing test is a
-// link error rather than a silently uncalled function.
+// functions; they are forward-declared and RUN_TEST-ed here. A stale
+// entry is a link error. A NEW test that is not added here is silently
+// uncalled — when you add a test function, add it below in both places.
 #include <unity.h>
 
 // test_version.cpp

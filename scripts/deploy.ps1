@@ -34,12 +34,12 @@ if (-not ($Backend -or $Webapp -or $Firmware)) {
 if ($Backend) {
     Write-Host '-- backend --' -ForegroundColor Cyan
     Invoke-Step 'db:migrate:remote' { pnpm --filter feedme2-backend db:migrate:remote }
-    Invoke-Step 'backend deploy' { pnpm --filter feedme2-backend deploy }
+    Invoke-Step 'backend deploy' { pnpm --filter feedme2-backend run deploy }
 }
 if ($Webapp) {
     Write-Host '-- webapp --' -ForegroundColor Cyan
     Invoke-Step 'webapp build' { pnpm --filter feedme2-webapp build }
-    Invoke-Step 'webapp deploy' { pnpm --filter feedme2-webapp deploy }
+    Invoke-Step 'webapp deploy' { pnpm --filter feedme2-webapp run deploy }
 }
 if ($Firmware) {
     Write-Host '-- firmware (USB) --' -ForegroundColor Cyan

@@ -25,12 +25,12 @@ done
 if [[ $do_backend -eq 1 ]]; then
   echo "── backend ──"
   pnpm --filter feedme2-backend db:migrate:remote
-  pnpm --filter feedme2-backend deploy
+  pnpm --filter feedme2-backend run deploy
 fi
 if [[ $do_webapp -eq 1 ]]; then
   echo "── webapp ──"
   pnpm --filter feedme2-webapp build
-  pnpm --filter feedme2-webapp deploy
+  pnpm --filter feedme2-webapp run deploy
 fi
 if [[ $do_firmware -eq 1 ]]; then
   echo "── firmware (USB) ──"

@@ -12,8 +12,8 @@
     "test": "pnpm -r test",
     "db:migrate:local": "pnpm --filter feedme2-backend db:migrate:local",
     "db:migrate:remote": "pnpm --filter feedme2-backend db:migrate:remote",
-    "deploy:backend": "pnpm --filter feedme2-backend deploy",
-    "deploy:webapp": "pnpm --filter feedme2-webapp deploy"
+    "deploy:backend": "pnpm --filter feedme2-backend run deploy",
+    "deploy:webapp": "pnpm --filter feedme2-webapp run deploy"
   },
   "packageManager": "pnpm@9.12.0",
   "engines": { "node": ">=20" }

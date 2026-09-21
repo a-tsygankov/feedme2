@@ -9,6 +9,12 @@ void test_version_numeric_ordering_beats_lexicographic();
 void test_version_missing_segments_treated_as_zero();
 void test_version_prerelease_sorts_before_release();
 
+// test_sim_input.cpp
+void test_sim_input_parses_known_commands();
+void test_sim_input_is_case_insensitive_and_trims();
+void test_sim_input_unknown_is_none();
+void test_sim_input_names_round_trip();
+
 extern "C" void setUp(void) {}
 extern "C" void tearDown(void) {}
 
@@ -18,5 +24,9 @@ int main(int, char**) {
     RUN_TEST(test_version_numeric_ordering_beats_lexicographic);
     RUN_TEST(test_version_missing_segments_treated_as_zero);
     RUN_TEST(test_version_prerelease_sorts_before_release);
+    RUN_TEST(test_sim_input_parses_known_commands);
+    RUN_TEST(test_sim_input_is_case_insensitive_and_trims);
+    RUN_TEST(test_sim_input_unknown_is_none);
+    RUN_TEST(test_sim_input_names_round_trip);
     return UNITY_END();
 }

@@ -1,0 +1,11 @@
+name: 'feedme2 boot and serial input channel'
+version: 1
+author: 'feedme2'
+steps:
+  - wait-serial: '[feedme2] boot ok'
+  - write-serial: "cw\n"
+  - wait-serial: '[feedme2] input=RotateCW'
+  - write-serial: "press\n"
+  - wait-serial: '[feedme2] input=Press'
+  - write-serial: "jump\n"
+  - wait-serial: '[feedme2] input=None'

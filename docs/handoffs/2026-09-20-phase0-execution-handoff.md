@@ -11,7 +11,7 @@ For the next agent (or Andrey) picking up feedme2. Read this, then `handoff.md`,
 
 ## What Andrey must do by hand
 
-Done on 2026-09-21: steps 1, 2, 3 and 6 (wrangler login, D1 `26f85bd9-ebb1-4bd3-9798-8cbd420481e3`, R2, Pages project, first deploy verified). Remaining: 4, 5, 7, 8.
+Done on 2026-09-21: steps 1, 2, 3 and 6 (wrangler login, D1 `26f85bd9-ebb1-4bd3-9798-8cbd420481e3`, R2, Pages project, first deploy verified), the worker `AUTH_SECRET`, and the push of `main` to the existing GitHub repo `a-tsygankov/feedme2` (which Andrey created as PUBLIC). Remaining: GitHub Actions secrets (`CLOUDFLARE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, optional `WOKWI_CLI_TOKEN`) via `scripts/setup-secrets.local.ps1 -GitHub`, then a green CI run, then step 8 (bench spike). The first two CI runs failed only at `Backend deploy` for lack of those secrets.
 
 1. **Re-authenticate wrangler** (the stored OAuth session expired and its refresh token is rejected):
    ```bash

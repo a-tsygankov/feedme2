@@ -99,6 +99,12 @@ function Resolve-SecretValue([string]$Name, [string]$Value) {
         Write-Warning "$Name still a placeholder - skipped"
         return $null
     }
+    if ($Value -imatch '^generate$') {
+        throw "${Name}: use exactly 'GENERATE' (case-sensitive) to mint a key"
+    }
+    if ($Value.Length -lt 16) {
+        throw "${Name}: value is shorter than 16 characters - refusing to set a weak secret"
+    }
     return $Value
 }
 
@@ -112,8 +118,11 @@ if ($Provision) {
         Push-Location backend
         try {
             pnpm exec wrangler d1 create feedme2-db
+            if ($LASTEXITCODE -ne 0) { throw 'wrangler d1 create feedme2-db failed (already exists? use `wrangler d1 list` for the id)' }
             pnpm exec wrangler r2 bucket create feedme2-firmware
+            if ($LASTEXITCODE -ne 0) { throw 'wrangler r2 bucket create feedme2-firmware failed (already exists? use `wrangler r2 bucket list` to check)' }
             pnpm exec wrangler pages project create feedme2-webapp --production-branch=main
+            if ($LASTEXITCODE -ne 0) { throw 'wrangler pages project create feedme2-webapp failed (already exists? use `wrangler pages project list` to check)' }
         } finally { Pop-Location }
         Write-Host ''
         Write-Host 'NOW: paste the printed database_id into backend/wrangler.toml' -ForegroundColor Yellow

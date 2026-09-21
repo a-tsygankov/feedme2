@@ -13,4 +13,8 @@ describe("LogEntrySchema", () => {
   it("caps msg at 500 chars", () => {
     expect(LogEntrySchema.safeParse({ ts: 1, level: "info", source: "web", msg: "x".repeat(501) }).success).toBe(false);
   });
+  it("accepts msg of exactly 500 chars and rejects a non-integer ts", () => {
+    expect(LogEntrySchema.safeParse({ ts: 1, level: "info", source: "web", msg: "x".repeat(500) }).success).toBe(true);
+    expect(LogEntrySchema.safeParse({ ts: 1.5, level: "info", source: "web", msg: "x" }).success).toBe(false);
+  });
 });

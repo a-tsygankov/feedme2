@@ -22,8 +22,9 @@ export function compareVersions(a: string, b: string): number {
     } else if (aNum !== bNum) {
       return aNum ? 1 : -1;
     } else {
-      const cmp = sa.localeCompare(sb);
-      if (cmp !== 0) return cmp < 0 ? -1 : 1;
+      // Ordinal, not localeCompare: the C++ mirror uses std::string::compare
+      // and locale-aware ordering is not stable across Node, CI and workerd.
+      if (sa !== sb) return sa < sb ? -1 : 1;
     }
   }
   return 0;

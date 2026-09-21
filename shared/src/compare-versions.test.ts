@@ -19,4 +19,12 @@ describe("compareVersions", () => {
     expect(sgn(compareVersions("1.4.2-rc1", "1.4.2"))).toBe(-1);
     expect(sgn(compareVersions("1.4.2", "1.4.2-rc1"))).toBe(1);
   });
+  it("a multi-digit pre-release segment still sorts before its release", () => {
+    expect(sgn(compareVersions("1.4.10-rc1", "1.4.10"))).toBe(-1);
+    expect(sgn(compareVersions("1.4.10-rc1", "1.4.9"))).toBe(-1);
+  });
+  it("non-numeric segments compare ordinally", () => {
+    expect(sgn(compareVersions("1.0.0-beta", "1.0.0-alpha"))).toBe(1);
+    expect(compareVersions("1.0.0-rc1", "1.0.0-rc1")).toBe(0);
+  });
 });

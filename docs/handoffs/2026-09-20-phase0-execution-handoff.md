@@ -4,7 +4,7 @@ For the next agent (or Andrey) picking up feedme2. Read this, then `handoff.md`,
 
 ## Where things are
 
-- Branch: `feat/phase0-foundation`, local only, not pushed. Base: `main` at `ddeda06`.
+- Merged into `main` (fast-forward, 2026-09-20). The repo is local only, not pushed; no remote exists yet. `feat/phase0-foundation` still points at the same commit.
 - Plan: `docs/superpowers/plans/2026-09-20-phase0-foundation.md`. Spec: `docs/superpowers/specs/2026-09-20-feedme2-design.md`.
 - Tasks 1–16, 18 and 19 are implemented, spec-reviewed, quality-reviewed and fixed. Task 17 (repo, provisioning, secrets, first deploy) and Task 20 (PR, CI) are **not done**: they need Andrey's credentials.
 - Local verification is green: `pnpm -r typecheck`, `pnpm -r test` (shared 17, backend 10, webapp 53), `python -m unittest discover -s scripts` (42), `pio test -e native` (8), `pio run -e crowpanel`, `pio run -e simulator`, `pio run -e spike-sleep`, Playwright 9/9 against a local stack.
@@ -35,7 +35,7 @@ For the next agent (or Andrey) picking up feedme2. Read this, then `handoff.md`,
    curl -s https://feedme2-api.atsyg-feedme.workers.dev/api/version
    curl -s https://feedme2-webapp.pages.dev/version.json
    ```
-7. **Open the PR** (plan Task 20 has the body) and watch CI. Then update `handoff.md` to "Phase 0 complete".
+7. Phase 0 is already on `main`, so Task 20 becomes: push `main`, confirm the deploy workflow runs green, then update `handoff.md` to "Phase 0 complete". Future phases go through PRs.
 8. **Bench spike** when the CrowPanel is on USB: follow `docs/spikes/2026-09-deep-sleep-touch-wake.md` and fill in the table. This answers spec Q2 and decides Phase 3's sleep design.
 
 ## Known loose ends (all deliberate, none blocking)

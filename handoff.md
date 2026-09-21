@@ -5,12 +5,12 @@ Single page. Update at the end of any session that changes phase, adds a resourc
 ## Phase
 Phase 0 (foundation) implemented and merged to `main` (tasks 1–16, 18, 19); provisioning, first deploy and the PR (tasks 17, 20) wait on Andrey's credentials. Plan: `docs/superpowers/plans/2026-09-20-phase0-foundation.md`. Execution handoff: `docs/handoffs/2026-09-20-phase0-execution-handoff.md`.
 
-## Resources (names are decided; nothing is provisioned or deployed yet — see the execution handoff)
+## Live resources (provisioned and first-deployed 2026-09-21)
 | Thing | Name / URL | Notes |
 |---|---|---|
 | Worker | `feedme2-api` → https://feedme2-api.atsyg-feedme.workers.dev | deployed by `.github/workflows/deploy.yml` on push to main |
 | Pages | `feedme2-webapp` → https://feedme2-webapp.pages.dev | per-branch previews `<branch>.feedme2-webapp.pages.dev` |
-| D1 | `feedme2-db` (id in `backend/wrangler.toml`) | migrations via `wrangler d1 migrations apply` |
+| D1 | `feedme2-db` (`26f85bd9-ebb1-4bd3-9798-8cbd420481e3`) | migrations via `wrangler d1 migrations apply` |
 | R2 | `feedme2-firmware` | OTA binaries (Phase 3) |
 | GitHub secrets | `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `WOKWI_CLI_TOKEN` | set with `scripts/setup-secrets.local.ps1 -GitHub` |
 | Worker secrets | `AUTH_SECRET` | set with `scripts/setup-secrets.local.ps1 -Cloudflare` |
@@ -20,4 +20,5 @@ Q1 battery pin · Q2 touch-controller rail (spike: `docs/spikes/2026-09-deep-sle
 
 ## Log
 - 2026-09-20 — spec approved; Phase 0 started.
-- 2026-09-20 — Phase 0 tasks 1–16, 18, 19 implemented and reviewed; wrangler session expired, so D1/R2/Pages provisioning and the first deploy are pending.
+- 2026-09-20 — Phase 0 tasks 1–16, 18, 19 implemented and reviewed; merged to main.
+- 2026-09-21 — D1, R2 and the Pages project provisioned; first deploy from the workstation; /api/version live through the proxy; e2e 9/9 against production. GitHub repo, CI secrets and the first CI run still pending.

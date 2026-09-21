@@ -11,6 +11,8 @@ For the next agent (or Andrey) picking up feedme2. Read this, then `handoff.md`,
 
 ## What Andrey must do by hand
 
+Done on 2026-09-21: steps 1, 2, 3 and 6 (wrangler login, D1 `26f85bd9-ebb1-4bd3-9798-8cbd420481e3`, R2, Pages project, first deploy verified). Remaining: 4, 5, 7, 8.
+
 1. **Re-authenticate wrangler** (the stored OAuth session expired and its refresh token is rejected):
    ```bash
    cd C:/Workspaces/feedme2/backend && pnpm exec wrangler login && pnpm exec wrangler whoami

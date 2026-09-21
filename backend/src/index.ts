@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "./env.ts";
 import { log } from "./logger.ts";
+import { debugRouter } from "./routes/debug.ts";
 import { versionRouter } from "./routes/version.ts";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -24,6 +25,7 @@ app.use("*", async (c, next) => {
 app.get("/api/health", (c) => c.json({ ok: true, env: c.env.ENVIRONMENT, ts: Date.now() }));
 
 app.route("/api/version", versionRouter);
+app.route("/api/debug", debugRouter);
 
 export { app };
 

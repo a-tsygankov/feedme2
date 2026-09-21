@@ -9,7 +9,6 @@ import { CLIENT_VERSION } from "./versions.ts";
 
 let waiting: ServiceWorker | null = null;
 let registration: ServiceWorkerRegistration | null = null;
-let swAvailable = false;
 
 export const updateStore: UpdateStore = createUpdateStore({
   skipWaiting: () => waiting?.postMessage({ type: "SKIP_WAITING" }),
@@ -62,7 +61,6 @@ export function startUpdateWatch(): void {
       .register("/sw.js", { scope: "/" })
       .then((reg) => {
         registration = reg;
-        swAvailable = true;
         offerIfUpdate(reg.waiting);
         reg.addEventListener("updatefound", () => {
           const installing = reg.installing;

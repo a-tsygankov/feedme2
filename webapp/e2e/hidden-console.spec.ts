@@ -2,9 +2,9 @@ import { test, expect, type Page } from "@playwright/test";
 
 async function openConsole(page: Page) {
   const logo = page.getByRole("heading", { name: "feedme2" });
-  await logo.click();
-  await logo.click();
-  await logo.click();
+  // One triple-click: three separate awaited clicks can exceed the 600 ms
+  // multi-tap window on a slow runner.
+  await logo.click({ clickCount: 3 });
   return page.getByTestId("hidden-console");
 }
 
@@ -16,8 +16,9 @@ test("3 taps on the logo open the hidden console", async ({ page }) => {
 test("fewer than 3 taps keep the console hidden", async ({ page }) => {
   await page.goto("/");
   const logo = page.getByRole("heading", { name: "feedme2" });
-  await logo.click();
-  await logo.click();
+  // One triple-click: three separate awaited clicks can exceed the 600 ms
+  // multi-tap window on a slow runner.
+  await logo.click({ clickCount: 2 });
   await expect(page.getByTestId("hidden-console")).toHaveCount(0);
 });
 
@@ -41,5 +42,13 @@ test("console closes via its close button", async ({ page }) => {
   await page.goto("/");
   const panel = await openConsole(page);
   await page.getByTestId("console-close").click();
+  await expect(panel).toHaveCount(0);
+});
+
+test("Escape closes the console", async ({ page }) => {
+  await page.goto("/");
+  const panel = await openConsole(page);
+  await expect(panel).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(panel).toHaveCount(0);
 });

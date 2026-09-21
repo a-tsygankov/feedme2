@@ -19,11 +19,33 @@ test("client-routed URLs are served by the SPA fallback", async ({ page }) => {
 test("no update bar on an ordinary load, nor after a reload", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("shell")).toBeVisible();
-  await page.waitForTimeout(2000);
+  // Wait for the worker to control the page rather than for a clock: the
+  // negative assertion is only meaningful once the first-install branch of
+  // offerIfUpdate had its chance to run.
+  await page.evaluate(() =>
+    "serviceWorker" in navigator
+      ? Promise.race([
+          navigator.serviceWorker.ready.then(() => "ready"),
+          new Promise((r) => setTimeout(() => r("timeout"), 5000)),
+        ])
+      : "unsupported",
+  );
+  await page.waitForTimeout(500);
   await expect(page.getByTestId("update-bar")).toHaveCount(0);
 
   await page.reload();
   await expect(page.getByTestId("shell")).toBeVisible();
-  await page.waitForTimeout(2000);
+  // Wait for the worker to control the page rather than for a clock: the
+  // negative assertion is only meaningful once the first-install branch of
+  // offerIfUpdate had its chance to run.
+  await page.evaluate(() =>
+    "serviceWorker" in navigator
+      ? Promise.race([
+          navigator.serviceWorker.ready.then(() => "ready"),
+          new Promise((r) => setTimeout(() => r("timeout"), 5000)),
+        ])
+      : "unsupported",
+  );
+  await page.waitForTimeout(500);
   await expect(page.getByTestId("update-bar")).toHaveCount(0);
 });

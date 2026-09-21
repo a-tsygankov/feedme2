@@ -2,7 +2,7 @@ name: Deploy
 
 # Tests every tier a change touches; deploys backend (D1 migrations +
 # Worker) and webapp (Pages) on push to main; builds firmware and runs
-# it in Wokwi on PRs. Firmware is never flashed from CI.
+# it in Wokwi on PRs, pushes and manual runs. Firmware is never flashed from CI.
 #
 # Required secrets (scripts/setup-secrets.local.ps1 -GitHub):
 #   CLOUDFLARE_API_KEY     — Cloudflare API *token* with Workers, D1 and
@@ -51,7 +51,7 @@ jobs:
   shared-test:
     name: Shared test + typecheck
     needs: changes
-    if: needs.changes.outputs.shared == 'true'
+    if: needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: shared } }
     steps:
@@ -69,7 +69,7 @@ jobs:
   backend-test:
     name: Backend test + typecheck
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: backend } }
     steps:
@@ -85,9 +85,13 @@ jobs:
   backend-deploy:
     name: Backend deploy
     needs: [changes, backend-test]
+    # A custom if: replaces the implicit success() gate on needs, so the
+    # test result must be checked explicitly — otherwise a red test job
+    # still deploys.
     if: |
-      (github.event_name == 'push' && needs.changes.outputs.backend == 'true') ||
-      github.event_name == 'workflow_dispatch'
+      needs.backend-test.result == 'success' &&
+      ((github.event_name == 'push' && needs.changes.outputs.backend == 'true') ||
+       github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: backend } }
     steps:
@@ -113,7 +117,7 @@ jobs:
   webapp-build:
     name: Webapp test + typecheck + build
     needs: changes
-    if: needs.changes.outputs.webapp == 'true'
+    if: needs.changes.outputs.webapp == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: webapp } }
     steps:
@@ -129,6 +133,8 @@ jobs:
 
   # PRs: deploy this branch to a Pages preview so the smoke e2e runs
   # against the code under review.
+  # Fork PRs receive no secrets, so this and the preview e2e fail rather
+  # than skip; this is a single-maintainer repo and that is accepted.
   webapp-preview-deploy:
     name: Webapp preview deploy (PR)
     needs: [changes, webapp-build]
@@ -201,26 +207,39 @@ jobs:
       - name: Local worker config
         working-directory: backend
         run: cp .dev.vars.example .dev.vars
+      # The placeholder database_id in wrangler.toml is fine here: --local
+      # and wrangler dev use Miniflare's SQLite and never validate the id.
       - name: Migrate the local D1
         working-directory: backend
         run: pnpm exec wrangler d1 migrations apply feedme2-db --local
       - name: Start the worker
         working-directory: backend
-        # Restart loop + health watchdog: wrangler dev has been seen to
-        # go silent minutes into a run (gigsy, 2026-09-18/19). Playwright's
-        # CI retries turn a five-second outage into a pass.
+        # Health watchdog restarts wrangler by PID: wrangler dev has been
+        # seen to go silent minutes into a run (gigsy, 2026-09-18/19), and
+        # Playwright's CI retries turn a five-second outage into a pass.
+        # wrangler is launched directly (no `until ... done` restart-loop
+        # wrapper) so its PID is stable and the watchdog can kill and
+        # relaunch it precisely, instead of pattern-matching a process
+        # name — a `wrangler.* dev` pattern would also match the
+        # watchdog/loop's own shell command line.
         run: |
           export WRANGLER_SEND_METRICS=false
-          nohup sh -c 'until pnpm exec wrangler dev --port 8787; do
-            echo "[ci] $(date -u +%T) wrangler dev exited with $?; restarting"; sleep 2
-          done' > /tmp/wrangler.log 2>&1 &
+          start_worker() {
+            nohup pnpm exec wrangler dev --port 8787 >> /tmp/wrangler.log 2>&1 &
+            echo $! > /tmp/wrangler.pid
+          }
+          start_worker
           nohup sh -c 'fails=0; while true; do
             sleep 5
             if curl -sf -m 5 http://127.0.0.1:8787/api/health > /dev/null; then fails=0; continue; fi
             fails=$((fails + 1)); echo "[watchdog] $(date -u +%T) health miss $fails"
             if [ "$fails" -ge 3 ]; then
+              echo "[watchdog] restarting worker"
               pkill -x workerd || true
-              pkill -f "^node .*wrangler.* dev" || true
+              kill "$(cat /tmp/wrangler.pid)" 2>/dev/null || true
+              sleep 1
+              nohup pnpm exec wrangler dev --port 8787 >> /tmp/wrangler.log 2>&1 &
+              echo $! > /tmp/wrangler.pid
               fails=0
             fi
           done' > /tmp/watchdog.log 2>&1 &
@@ -258,9 +277,13 @@ jobs:
   webapp-deploy:
     name: Webapp deploy
     needs: [changes, webapp-build]
+    # A custom if: replaces the implicit success() gate on needs, so the
+    # test result must be checked explicitly — otherwise a red test job
+    # still deploys.
     if: |
-      (github.event_name == 'push' && needs.changes.outputs.webapp == 'true') ||
-      github.event_name == 'workflow_dispatch'
+      needs.webapp-build.result == 'success' &&
+      ((github.event_name == 'push' && needs.changes.outputs.webapp == 'true') ||
+       github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: webapp } }
     steps:

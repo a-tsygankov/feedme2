@@ -1,0 +1,367 @@
+name: Deploy
+
+# Tests every tier a change touches; deploys backend (D1 migrations +
+# Worker) and webapp (Pages) on push to main; builds firmware and runs
+# it in Wokwi on PRs. Firmware is never flashed from CI.
+#
+# Required secrets (scripts/setup-secrets.local.ps1 -GitHub):
+#   CLOUDFLARE_API_KEY     — Cloudflare API *token* with Workers, D1 and
+#                            Pages edit scopes (mapped to CLOUDFLARE_API_TOKEN)
+#   CLOUDFLARE_ACCOUNT_ID  — 32-char hex from the dashboard sidebar
+#   WOKWI_CLI_TOKEN        — optional; the HIL-2 job skips without it
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend:  ${{ steps.filter.outputs.backend }}
+      webapp:   ${{ steps.filter.outputs.webapp }}
+      firmware: ${{ steps.filter.outputs.firmware }}
+      shared:   ${{ steps.filter.outputs.shared }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'shared/**'
+            webapp:
+              - 'webapp/**'
+              - 'shared/**'
+            firmware:
+              - 'firmware/**'
+              - 'fixtures/**'
+            shared:
+              - 'shared/**'
+
+  shared-test:
+    name: Shared test + typecheck
+    needs: changes
+    if: needs.changes.outputs.shared == 'true'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: shared } }
+    steps:
+      - uses: actions/checkout@v4
+      # pnpm version comes from packageManager in root package.json;
+      # setting `version:` here would clash with it.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  backend-test:
+    name: Backend test + typecheck
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  backend-deploy:
+    name: Backend deploy
+    needs: [changes, backend-test]
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.backend == 'true') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - name: Apply D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm db:migrate:remote
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:  ${{ secrets.CLOUDFLARE_API_KEY }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: backend
+          command: deploy
+
+  webapp-build:
+    name: Webapp test + typecheck + build
+    needs: changes
+    if: needs.changes.outputs.webapp == 'true'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: webapp } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  # PRs: deploy this branch to a Pages preview so the smoke e2e runs
+  # against the code under review.
+  webapp-preview-deploy:
+    name: Webapp preview deploy (PR)
+    needs: [changes, webapp-build]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.webapp == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      preview_url: ${{ steps.deploy.outputs.deployment-url }}
+    defaults: { run: { working-directory: webapp } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm build
+      - name: Deploy to Pages (branch preview)
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:  ${{ secrets.CLOUDFLARE_API_KEY }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: webapp
+          command: pages deploy dist --project-name=feedme2-webapp --branch=${{ github.head_ref }} --commit-dirty=true
+
+  webapp-e2e-preview:
+    name: Webapp E2E (preview smoke)
+    needs: [changes, webapp-preview-deploy]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.webapp == 'true'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: webapp } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run E2E against branch preview
+        env:
+          E2E_BASE_URL: ${{ needs.webapp-preview-deploy.outputs.preview_url }}
+        run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-preview
+          path: webapp/playwright-report
+          retention-days: 7
+
+  # The whole suite against a hermetic local stack (wrangler dev + a
+  # local D1 + vite). Nothing here touches production data.
+  webapp-e2e-full:
+    name: Webapp E2E (full stack)
+    needs: changes
+    if: >-
+      github.event_name == 'pull_request' &&
+      (needs.changes.outputs.webapp == 'true' || needs.changes.outputs.backend == 'true')
+    runs-on: ubuntu-latest
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: webapp
+      - name: Local worker config
+        working-directory: backend
+        run: cp .dev.vars.example .dev.vars
+      - name: Migrate the local D1
+        working-directory: backend
+        run: pnpm exec wrangler d1 migrations apply feedme2-db --local
+      - name: Start the worker
+        working-directory: backend
+        # Restart loop + health watchdog: wrangler dev has been seen to
+        # go silent minutes into a run (gigsy, 2026-09-18/19). Playwright's
+        # CI retries turn a five-second outage into a pass.
+        run: |
+          export WRANGLER_SEND_METRICS=false
+          nohup sh -c 'until pnpm exec wrangler dev --port 8787; do
+            echo "[ci] $(date -u +%T) wrangler dev exited with $?; restarting"; sleep 2
+          done' > /tmp/wrangler.log 2>&1 &
+          nohup sh -c 'fails=0; while true; do
+            sleep 5
+            if curl -sf -m 5 http://127.0.0.1:8787/api/health > /dev/null; then fails=0; continue; fi
+            fails=$((fails + 1)); echo "[watchdog] $(date -u +%T) health miss $fails"
+            if [ "$fails" -ge 3 ]; then
+              pkill -x workerd || true
+              pkill -f "^node .*wrangler.* dev" || true
+              fails=0
+            fi
+          done' > /tmp/watchdog.log 2>&1 &
+          for _ in $(seq 1 90); do
+            curl -sf http://127.0.0.1:8787/api/health > /dev/null && exit 0
+            sleep 1
+          done
+          echo "::error::worker never came up"; cat /tmp/wrangler.log; exit 1
+      - name: Start the webapp
+        working-directory: webapp
+        run: |
+          nohup pnpm dev --port 5192 --host 127.0.0.1 > /tmp/vite.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf http://127.0.0.1:5192 > /dev/null && exit 0
+            sleep 1
+          done
+          echo "::error::vite never came up"; cat /tmp/vite.log; exit 1
+      - name: Run the full E2E suite
+        working-directory: webapp
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5192
+        run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-full
+          path: webapp/playwright-report
+          retention-days: 7
+      - name: Server logs on failure
+        if: failure()
+        run: |
+          tail -n 100 /tmp/wrangler.log /tmp/vite.log /tmp/watchdog.log || true
+          for f in "$HOME"/.config/.wrangler/logs/*.log; do [ -f "$f" ] && { echo "--- $f"; tail -n 200 "$f"; }; done || true
+
+  webapp-deploy:
+    name: Webapp deploy
+    needs: [changes, webapp-build]
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.webapp == 'true') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: webapp } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm build
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:  ${{ secrets.CLOUDFLARE_API_KEY }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: webapp
+          command: pages deploy dist --project-name=feedme2-webapp --branch=main
+
+  firmware-build:
+    name: Firmware native tests + builds
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: firmware } }
+    outputs:
+      sim_built: ${{ steps.simbuild.outputs.ok }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install --upgrade platformio
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            firmware/.pio
+          key: ${{ runner.os }}-pio-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-
+      - name: Native domain + application tests (HIL-1)
+        run: pio test -e native
+      - name: Build (crowpanel)
+        run: pio run -e crowpanel
+      - name: Build (simulator — Wokwi)
+        id: simbuild
+        run: |
+          pio run -e simulator
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      - name: Upload simulator artifacts
+        if: steps.simbuild.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-simulator
+          path: |
+            firmware/.pio/build/simulator/firmware.elf
+            firmware/.pio/build/simulator/firmware-merged.bin
+            firmware/diagram.json
+            firmware/wokwi.toml
+            firmware/wokwi/boot.scenario.yaml
+          retention-days: 1
+
+  firmware-hil2:
+    name: Firmware HIL-2 (Wokwi scenario)
+    needs: firmware-build
+    if: needs.firmware-build.outputs.sim_built == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The artifact keeps the `firmware/...` subtree; downloading to the
+      # workspace root recreates it where wokwi-cli expects it.
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware-simulator
+          path: .
+      # `secrets.*` cannot be read in a job-level `if:`; the env
+      # round-trip is the standard workaround.
+      - name: Check WOKWI_CLI_TOKEN presence
+        id: tok
+        env:
+          T: ${{ secrets.WOKWI_CLI_TOKEN }}
+        run: |
+          if [ -z "$T" ]; then
+            echo "::warning::WOKWI_CLI_TOKEN not set — HIL-2 will skip"
+            echo "have=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+      - name: HIL-2 boot + input scenario (Wokwi)
+        if: steps.tok.outputs.have == 'true'
+        uses: wokwi/wokwi-ci-action@v1
+        with:
+          token: ${{ secrets.WOKWI_CLI_TOKEN }}
+          path: firmware
+          timeout: 20000
+          scenario: wokwi/boot.scenario.yaml
+          serial_log_file: firmware/serial.log
+      - name: Upload serial log
+        if: always() && steps.tok.outputs.have == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hil2-serial-log
+          path: firmware/serial.log
+          retention-days: 7
+          if-no-files-found: ignore

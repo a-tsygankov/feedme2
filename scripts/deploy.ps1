@@ -18,6 +18,8 @@ $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 
 function Invoke-Step([string]$Label, [scriptblock]$Command) {
+    # Reset first: a stale non-zero code from an earlier native call must not fail a step whose last statement is not native.
+    $global:LASTEXITCODE = 0
     # $ErrorActionPreference = 'Stop' does not cover native executables:
     # a failed pnpm/pio call would otherwise fall through to the next step.
     & $Command

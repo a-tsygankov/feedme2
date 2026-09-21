@@ -9,7 +9,7 @@ Firmware: `firmware/src/spike/sleep_touch/main.cpp`, env `spike-sleep`.
 ## Procedure
 1. `cd firmware && pio run -e spike-sleep -t upload && pio device monitor`
 2. While awake (10 s), touch the screen: the `touch INT=` line should show `0` pulses.
-3. Wait for `deep sleep now`, then touch the screen. Read the next boot's `cause=`.
+3. Wait for `deep sleep now`, then touch the screen; try 2–3 separate touches before concluding that touch cannot wake it. Read the next boot's `cause=`.
 4. Edit `platformio.ini` `[env:spike-sleep]` to `-DSPIKE_HOLD_LCD_RAIL=1`, repeat 1–3.
 5. If a USB power meter is available, note the sleeping current for each run.
 
@@ -22,5 +22,7 @@ Firmware: `firmware/src/spike/sleep_touch/main.cpp`, env `spike-sleep`.
 ## Conclusion
 (Which rail powers the touch controller; whether ext0 wake works; which of the
 §5.5 fallbacks Phase 3 must take.)
+
+Note: ext0 wake keeps the RTC_PERIPH power domain on, so the measured sleep current includes that overhead; Phase 3 can revisit ext1 if the idle budget is tight.
 
 Status: bench run not yet performed (no board attached on 2026-09-20).

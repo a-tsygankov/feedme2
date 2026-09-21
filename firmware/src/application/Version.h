@@ -7,6 +7,6 @@
 
 namespace feedme2::application {
 
-constexpr const char* kFirmwareVersion = "0.1.3";
+constexpr const char* kFirmwareVersion = "0.1.4";
 
 }  // namespace feedme2::application

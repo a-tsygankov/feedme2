@@ -21,9 +21,12 @@ constexpr int LCD_POWER_PIN = 1;
 
 TFT_eSPI tft;
 
-// Partial render: 40 lines of 240 px at 16 bpp.
+// Partial render: 40 lines of 240 px at 16 bpp. Bytes, not lv_color_t:
+// in LVGL 9 lv_color_t is always the 3-byte RGB888 struct, so sizing a
+// 16-bpp buffer with it wastes half again as much RAM and silently
+// changes the line count LVGL derives from sizeof().
 constexpr uint32_t kBufLines = 40;
-lv_color_t g_drawBuf[240 * kBufLines];
+alignas(4) uint8_t g_drawBuf[240 * kBufLines * 2];
 
 lv_obj_t* g_status = nullptr;
 

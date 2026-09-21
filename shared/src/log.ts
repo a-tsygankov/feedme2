@@ -21,3 +21,7 @@ export const LogEntrySchema = z.object({
 export type LogLevel = z.infer<typeof LogLevelSchema>;
 export type LogSource = z.infer<typeof LogSourceSchema>;
 export type LogEntry = z.infer<typeof LogEntrySchema>;
+
+/** GET /api/debug/logs — the hidden console's worker feed. */
+export const DebugLogsResponseSchema = z.object({ entries: z.array(LogEntrySchema) });
+export type DebugLogsResponse = z.infer<typeof DebugLogsResponseSchema>;

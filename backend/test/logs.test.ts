@@ -238,7 +238,7 @@ describe("logs", () => {
     expect((await rowsFor(cid)).map((r) => r.msg)).toEqual(["request"]);
   });
 
-  it("the cron prunes by server time (created_at), not the client's ts, and drops expired refresh tokens", async () => {
+  it("the cron prunes by server time (created_at), not the client's ts, and drops expired refresh tokens and expired pairings", async () => {
     const s = await signup();
     const now = Date.now();
     const old = now - 8 * DAY;
@@ -250,7 +250,14 @@ describe("logs", () => {
       ins.bind(crypto.randomUUID(), s.houseId, old, "skewed-client-clock", now),
     ]);
     await env.DB.prepare("UPDATE refresh_tokens SET expires_at = 1 WHERE house_id = ?").bind(s.houseId).run();
+    // One pairing past its 10 minutes (it still holds a plaintext token), one fresh.
+    const pair = env.DB.prepare("INSERT INTO pending_pairings (device_id, pair_code, hw_model, fw_version, requested_at, expires_at) VALUES (?, ?, 'device-sim', '0.2.0', ?, ?)");
+    const stale = "a".repeat(32);
+    const fresh = "b".repeat(32);
+    await env.DB.batch([pair.bind(stale, "100001", now - 20 * 60_000, now - 10 * 60_000), pair.bind(fresh, "100002", now, now + 10 * 60_000)]);
     await runCron();
+    const pairs = await env.DB.prepare("SELECT device_id FROM pending_pairings WHERE device_id IN (?, ?)").bind(stale, fresh).all<{ device_id: string }>();
+    expect(pairs.results.map((r) => r.device_id)).toEqual([fresh]);
     const left = await env.DB.prepare("SELECT msg FROM log_entries WHERE house_id = ? AND source = 'web'").bind(s.houseId).all<{ msg: string }>();
     expect(left.results.map((r) => r.msg)).toEqual(["skewed-client-clock"]);
     const tokens = await env.DB.prepare("SELECT count(*) AS n FROM refresh_tokens WHERE house_id = ?").bind(s.houseId).first<{ n: number }>();

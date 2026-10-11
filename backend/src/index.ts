@@ -14,6 +14,7 @@ import { debugRouter } from "./routes/debug.ts";
 import { feedingsRouter } from "./routes/feedings.ts";
 import { houseRouter } from "./routes/house.ts";
 import { logsRouter } from "./routes/logs.ts";
+import { pairRouter } from "./routes/pair.ts";
 import { versionRouter } from "./routes/version.ts";
 
 /** Keeps a worker row's data under the repo's 1 KB cap with room for the other fields. */
@@ -113,6 +114,7 @@ app.route("/api/house", houseRouter);
 app.route("/api/cats", catsRouter);
 app.route("/api/feedings", feedingsRouter);
 app.route("/api/logs", logsRouter);
+app.route("/api/pair", pairRouter);
 
 export { app };
 

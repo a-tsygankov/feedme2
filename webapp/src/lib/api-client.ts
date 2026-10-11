@@ -4,7 +4,7 @@
  * after a 401, and turns every other non-2xx into ApiError.
  */
 import {
-  CatSchema, DeviceSchema, DevicesResponseSchema, FeedingSchema, FeedingsPageSchema, HouseSchema, DebugLogsResponseSchema,
+  CatSchema, DeviceResponseSchema, DevicesResponseSchema, FeedingSchema, FeedingsPageSchema, HouseSchema, DebugLogsResponseSchema,
   PairConfirmResponseSchema, TokensResponseSchema,
   type Cat, type CatCreate, type CatPatch, type DebugLogsQuery, type Feeding, type FeedingCreate, type FeedingPatch,
   type DevicePatch, type FeedingsPage, type House, type HousePatch, type LogEntry, type LogUploadEntry, type PairConfirmBody, type TokensResponse,
@@ -166,7 +166,7 @@ export const api = {
   },
   listDevices: () => apiFetch("/api/devices").then((r) => json(r, DevicesResponseSchema)),
   patchDevice: (id: string, patch: DevicePatch) =>
-    apiFetch(`/api/devices/${id}`, { method: "PATCH", body: JSON.stringify(patch) }).then((r) => json(r, z.object({ device: DeviceSchema }))),
+    apiFetch(`/api/devices/${id}`, { method: "PATCH", body: JSON.stringify(patch) }).then((r) => json(r, DeviceResponseSchema)),
   deleteDevice: (id: string): Promise<void> => apiFetch(`/api/devices/${id}`, { method: "DELETE" }).then(() => undefined),
   confirmPair: (body: PairConfirmBody) =>
     apiFetch("/api/pair/confirm", { method: "POST", body: JSON.stringify(body) }).then((r) => json(r, PairConfirmResponseSchema)),

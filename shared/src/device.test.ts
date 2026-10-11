@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import sample from "../../fixtures/device-state.sample.json";
 import {
-  DeviceFeedingCreateSchema, DeviceIdSchema, DeviceStateSchema, HeartbeatBodySchema, PairCheckResponseSchema,
+  DeviceFeedingCreateSchema, DeviceIdSchema, DeviceResponseSchema, DeviceStateSchema, HeartbeatBodySchema, PairCheckResponseSchema,
   PairCodeSchema, PairConfirmBodySchema, PairStartBodySchema,
 } from "./device.ts";
 
 const DEV = "0123456789abcdef0123456789abcdef";
 
 describe("device contracts", () => {
+  it("a single-device response wraps the device", () => {
+    const device = { id: DEV, houseId: "h", name: "Kitchen", hwModel: "crowpanel-1.28", fwVersion: "0.2.3", lastSeenAt: null, batteryPct: 0, resetReason: null, autoInstall: false, createdAt: 1, revokedAt: null };
+    expect(DeviceResponseSchema.parse({ device }).device.batteryPct).toBe(0);
+    expect(DeviceResponseSchema.safeParse(device).success).toBe(false);
+  });
   it("device ids are 32 lowercase hex", () => {
     expect(DeviceIdSchema.safeParse(DEV).success).toBe(true);
     expect(DeviceIdSchema.safeParse(DEV.toUpperCase()).success).toBe(false);

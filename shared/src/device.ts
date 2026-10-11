@@ -31,6 +31,7 @@ export const DeviceSchema = z.object({
   revokedAt: epochMs.nullable(),
 });
 export type Device = z.infer<typeof DeviceSchema>;
+export const DeviceResponseSchema = z.object({ device: DeviceSchema });
 export const DevicesResponseSchema = z.object({ devices: z.array(DeviceSchema) });
 
 export const DevicePatchSchema = z

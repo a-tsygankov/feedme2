@@ -8,6 +8,9 @@ describe("devices ui helpers", () => {
     expect(pairErrorMessage(new ApiError(409, { error: "pair_code_used" }))).toBe("That code was already used.");
     expect(pairErrorMessage(new ApiError(409, { error: "device_in_use" }))).toBe("That device still belongs to another house. Forget it there first.");
     expect(pairErrorMessage(new ApiError(400, { error: "invalid_request", issues: [] }))).toBe("Enter the six digits shown on the device.");
+    // A bare 404 (route missing, proxy hiccup) is not "code not found"; only the server's own code says that.
+    expect(pairErrorMessage(new ApiError(404, { error: "not_found" }))).toBe("Something went wrong. Try again.");
+    expect(pairErrorMessage(new ApiError(404, null))).toBe("Something went wrong. Try again.");
     expect(pairErrorMessage(new NetworkError())).toBe("Check your connection.");
     expect(pairErrorMessage(new Error("boom"))).toBe("Something went wrong. Try again.");
   });

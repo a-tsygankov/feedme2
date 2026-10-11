@@ -5,6 +5,7 @@ import { api } from "../lib/api-client.ts";
 export const devicesKey = ["devices"] as const;
 
 export function useDevices() {
+  // 15 s: last-seen and battery drift while the page is open, but the list is not worth refetching on every mount.
   return useQuery({ queryKey: devicesKey, queryFn: () => api.listDevices().then((r) => r.devices), staleTime: 15_000 });
 }
 

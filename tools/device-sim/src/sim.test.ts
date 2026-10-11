@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import sample from "../../../fixtures/device-state.sample.json";
-import { DeviceSim, SimError } from "./sim.ts";
+import { DeviceSim, SimError, type SimSnapshot } from "./sim.ts";
 
 /** Minimal in-memory server honouring the device API contract. */
 function fakeApi() {
@@ -9,6 +9,8 @@ function fakeApi() {
   let confirmed = false;
   let etag = 'W/"0000000000000001"';
   let failNext: number | null = null;
+  const failOn = new Map<string, number>();
+  let checkStatus: "pending" | "expired" | "unknown" = "pending";
   const fetchFn: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
@@ -17,7 +19,8 @@ function fakeApi() {
     if (failNext !== null) { const s = failNext; failNext = null; return new Response(JSON.stringify({ error: "internal" }), { status: s }); }
     const json = (b: unknown, status = 200, h: Record<string, string> = {}) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json", ...h } });
     if (url.pathname === "/api/pair/start") { pairings++; return json({ pairCode: "123456", expiresAt: Date.now() + 600_000, pollAfterSec: 3 }); }
-    if (url.pathname === "/api/pair/check") return confirmed ? json({ status: "confirmed", deviceToken: "tok", houseId: "h", houseName: "H", deviceName: "Kitchen" }) : json({ status: "pending" });
+    if (url.pathname === "/api/pair/check") return confirmed ? json({ status: "confirmed", deviceToken: "tok", houseId: "h", houseName: "H", deviceName: "Kitchen" }) : json({ status: checkStatus });
+    if (failOn.has(url.pathname)) return json({ error: "boom" }, failOn.get(url.pathname)!);
     if (headers.authorization !== "Bearer tok") return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/api/device/state") {
       if (headers["if-none-match"] === etag) return new Response(null, { status: 304, headers: { etag } });
@@ -28,7 +31,8 @@ function fakeApi() {
     if (url.pathname === "/api/device/heartbeat") return json({ now: Date.now() });
     return json({ error: "not_found" }, 404);
   };
-  return { fetchFn, calls, confirm: () => { confirmed = true; }, bumpEtag: () => { etag = 'W/"0000000000000002"'; }, failNext: (s: number) => { failNext = s; }, pairings: () => pairings };
+  return { fetchFn, calls, confirm: () => { confirmed = true; }, bumpEtag: () => { etag = 'W/"0000000000000002"'; }, failNext: (s: number) => { failNext = s; }, failOn: (path: string, s: number) => { failOn.set(path, s); },
+    setCheckStatus: (s: "pending" | "expired" | "unknown") => { checkStatus = s; }, pairings: () => pairings };
 }
 
 describe("DeviceSim", () => {
@@ -86,5 +90,104 @@ describe("DeviceSim", () => {
     const api = fakeApi();
     const sim = DeviceSim.fromSnapshot({ apiBase: "http://x", fetchFn: api.fetchFn }, { deviceId: "a".repeat(32), token: "wrong", houseId: "h", etag: null, state: null, queue: [], logs: [] });
     await expect(sim.fetchState()).rejects.toBeInstanceOf(SimError);
+  });
+  const paired = async (api: ReturnType<typeof fakeApi>, extra: Partial<ConstructorParameters<typeof DeviceSim>[0]> = {}) => {
+    const sim = new DeviceSim({ apiBase: "http://x", fetchFn: api.fetchFn, ...extra });
+    await sim.pairStart(); api.confirm(); await sim.pairUntilConfirmed({ timeoutMs: 1000, intervalMs: 1 });
+    await sim.fetchState();
+    return sim;
+  };
+
+  it("pairUntilConfirmed gives up with a timeout, and reports an expired or unknown code", async () => {
+    const api = fakeApi();
+    const sim = new DeviceSim({ apiBase: "http://x", fetchFn: api.fetchFn });
+    await expect(sim.pairUntilConfirmed({ timeoutMs: 30, intervalMs: 5 })).rejects.toMatchObject({ name: "SimError", status: 408 });
+    api.setCheckStatus("expired");
+    await expect(sim.pairUntilConfirmed({ timeoutMs: 1000, intervalMs: 1 })).rejects.toMatchObject({ status: 410, message: "pairing expired" });
+    api.setCheckStatus("unknown");
+    await expect(sim.pairUntilConfirmed({ timeoutMs: 1000, intervalMs: 1 })).rejects.toMatchObject({ status: 410, message: "pairing unknown" });
+  });
+
+  it("a 401 in the middle of a sync round is a SimError, with the unsent work kept", async () => {
+    const api = fakeApi();
+    const sim = await paired(api);
+    sim.feed("Mochi");
+    sim.log("info", "hello");
+    api.failOn("/api/device/logs", 401);
+    await expect(sim.syncRound()).rejects.toMatchObject({ name: "SimError", status: 401 });
+    expect(sim.snapshot().queue).toEqual([]);
+    expect(sim.snapshot().logs).toHaveLength(1);
+  });
+
+  it("a non-transient 4xx leaves the item at the head of the queue", async () => {
+    const api = fakeApi();
+    const sim = await paired(api);
+    sim.feed("Mochi");
+    api.failOn("/api/device/feedings", 422);
+    await expect(sim.syncRound()).rejects.toMatchObject({ status: 422 });
+    expect(sim.snapshot().queue).toHaveLength(1);
+  });
+
+  it("rejects bad input before it is queued", async () => {
+    const api = fakeApi();
+    const sim = await paired(api);
+    expect(() => sim.feed("Mochi", 0)).toThrow(/amountMg/);
+    expect(() => sim.feed("Mochi", 1.5)).toThrow(/amountMg/);
+    expect(() => sim.feed("Mochi", 5_000_001)).toThrow(/amountMg/);
+    expect(() => sim.feed("Mochi", Number.NaN)).toThrow(/amountMg/);
+    expect(() => sim.feed("Mochi", 40_000, { unit: "g", value: "" })).toThrow(/entered value/);
+    expect(() => sim.feed("Mochi", 40_000, { unit: "g", value: "   " })).toThrow(/entered value/);
+    expect(() => sim.log("loud" as never, "x")).toThrow(/log level/);
+    expect(() => sim.log("info", "x".repeat(501))).toThrow(/500/);
+    expect(sim.snapshot().queue).toEqual([]);
+    expect(sim.snapshot().logs).toEqual([]);
+    expect(() => sim.feed("Mochi", 5_000_000)).not.toThrow();
+    expect(() => sim.log("info", "x".repeat(500))).not.toThrow();
+  });
+
+  it("derives a readable entered value from the amount: whole grams when close, else one decimal", async () => {
+    const api = fakeApi();
+    const sim = await paired(api);
+    expect(sim.feed("Mochi", 51_974).enteredValue).toBe("52");
+    expect(sim.feed("Mochi", 51_500).enteredValue).toBe("51.5");
+    expect(sim.feed("Mochi", 800).enteredValue).toBe("0.8");
+  });
+
+  it("heartbeat reports the configured battery level", async () => {
+    const api = fakeApi();
+    const sim = await paired(api, { batteryPct: 0 });
+    await sim.heartbeat();
+    expect(api.calls.at(-1)!.body).toMatchObject({ batteryPct: 0 });
+    const api2 = fakeApi();
+    const bare = await paired(api2);
+    await bare.heartbeat();
+    expect(api2.calls.at(-1)!.body).not.toHaveProperty("batteryPct");
+  });
+
+  it("keeps logs that arrive during an upload, even when the buffer trims the uploaded ones", async () => {
+    const api = fakeApi();
+    let sim!: DeviceSim;
+    const sent: string[] = [];
+    let injected = false;
+    const fetchFn: typeof fetch = async (input, init) => {
+      if (new URL(String(input)).pathname === "/api/device/logs") {
+        for (const e of JSON.parse(String(init!.body)) as Array<{ msg: string }>) sent.push(e.msg);
+        if (!injected) { injected = true; for (let i = 0; i < 500; i++) sim.log("info", `late ${i}`); }
+        return new Response(null, { status: 202 });
+      }
+      return api.fetchFn(input, init);
+    };
+    sim = await paired(api, { fetchFn });
+    for (let i = 0; i < 50; i++) sim.log("info", `early ${i}`);
+    await sim.syncRound();
+    expect(sent.filter((m) => m.startsWith("late"))).toHaveLength(500);
+    expect(sim.snapshot().logs).toEqual([]);
+  });
+
+  it("persists the api base in its snapshot", () => {
+    const sim = new DeviceSim({ apiBase: "http://x/" });
+    expect(sim.snapshot().apiBase).toBe("http://x");
+    const snap: SimSnapshot = { ...sim.snapshot() };
+    expect(DeviceSim.fromSnapshot({ apiBase: "http://y" }, snap).snapshot().apiBase).toBe("http://y");
   });
 });

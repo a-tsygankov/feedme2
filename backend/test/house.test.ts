@@ -1,3 +1,4 @@
+import { SELF } from "cloudflare:test";
 import { HouseSchema } from "@feedme2/shared";
 import { beforeAll, describe, expect, it } from "vitest";
 import { applyAllMigrations } from "./helpers/migrate.ts";
@@ -30,5 +31,24 @@ describe("/api/house", () => {
     const r = await b.fetchAuthed("/api/house", { method: "PATCH", body: JSON.stringify({ name: "alpha flat" }) });
     expect(r.status).toBe(409);
     expect(a.house.name).toBe("Alpha Flat");
+  });
+
+  it("an empty PATCH is a 400 invalid_request", async () => {
+    const s = await signup();
+    const r = await s.fetchAuthed("/api/house", { method: "PATCH", body: "{}" });
+    expect(r.status).toBe(400);
+    expect(((await r.json()) as { error: string }).error).toBe("invalid_request");
+  });
+
+  it("a case-only rename of your own house is allowed", async () => {
+    const s = await signup("Gamma Flat");
+    const r = await s.fetchAuthed("/api/house", { method: "PATCH", body: JSON.stringify({ name: "GAMMA FLAT" }) });
+    expect(r.status).toBe(200);
+    expect(HouseSchema.parse(((await r.json()) as { house: unknown }).house).name).toBe("GAMMA FLAT");
+  });
+
+  it("requires authentication", async () => {
+    expect((await SELF.fetch("http://feedme2/api/house")).status).toBe(401);
+    expect((await SELF.fetch("http://feedme2/api/house", { method: "PATCH", body: "{}" })).status).toBe(401);
   });
 });

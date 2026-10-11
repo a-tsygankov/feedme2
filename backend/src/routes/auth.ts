@@ -4,6 +4,7 @@ import { z } from "zod";
 import { HouseNameSchema, LoginBodySchema, PinChangeBodySchema, RefreshBodySchema, SetupBodySchema, type TokensResponse } from "@feedme2/shared";
 import type { Bindings } from "../env.ts";
 import { db } from "../db/client.ts";
+import { isUniqueViolation } from "../db/errors.ts";
 import { verifyPin } from "../auth/pin.ts";
 import { ACCESS_TTL_SEC, clock, signAccessToken } from "../auth/tokens.ts";
 import { requireHouse, type AuthVars } from "../middleware/auth.ts";
@@ -41,10 +42,6 @@ async function issueTokens(env: Bindings, house: HouseRow, nowMs: number, rotate
     refreshToken: token,
     house: toApiHouse(house),
   };
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  return err instanceof Error && /UNIQUE/i.test(err.message);
 }
 
 export const authRouter = new Hono<Env>()

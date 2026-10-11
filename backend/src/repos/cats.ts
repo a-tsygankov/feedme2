@@ -1,5 +1,5 @@
-import { and, asc, count, eq, isNull } from "drizzle-orm";
-import type { Cat, CatCreate, CatPatch } from "@feedme2/shared";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { MAX_CATS, type Cat, type CatCreate, type CatPatch } from "@feedme2/shared";
 import type { Db } from "../db/client.ts";
 import { cats } from "../db/schema.ts";
 
@@ -23,13 +23,17 @@ export function toApiCat(r: Row): Cat {
   };
 }
 
+/** The D1 run() result carries the affected-row count in meta.changes. */
+const changesOf = (res: unknown): number => (res as { meta?: { changes?: number } }).meta?.changes ?? 0;
+
 const live = (houseId: string) => and(eq(cats.houseId, houseId), isNull(cats.deletedAt));
 
 export class CatsRepo {
   constructor(private readonly db: Db) {}
 
   list(houseId: string): Promise<Row[]> {
-    return this.db.query.cats.findMany({ where: live(houseId), orderBy: [asc(cats.sortOrder), asc(cats.createdAt)] });
+    // id last so equal (sortOrder, createdAt) pairs still order deterministically.
+    return this.db.query.cats.findMany({ where: live(houseId), orderBy: [asc(cats.sortOrder), asc(cats.createdAt), asc(cats.id)] });
   }
 
   get(houseId: string, id: string): Promise<Row | undefined> {
@@ -41,24 +45,23 @@ export class CatsRepo {
     return this.db.query.cats.findFirst({ where: eq(cats.id, id) });
   }
 
-  async countLive(houseId: string): Promise<number> {
-    const [row] = await this.db.select({ n: count() }).from(cats).where(live(houseId));
-    return row?.n ?? 0;
-  }
-
-  async create(houseId: string, input: CatCreate, hungryAfterSecDefault: number, nowMs: number): Promise<Row> {
-    const n = await this.countLive(houseId);
-    await this.db.insert(cats).values({
-      id: input.id,
-      houseId,
-      name: input.name,
-      color: input.color,
-      avatarPose: input.avatarPose,
-      hungryAfterSec: input.hungryAfterSec ?? hungryAfterSecDefault,
-      sortOrder: n,
-      createdAt: nowMs,
-      modifiedAt: nowMs,
-    });
+  /**
+   * Inserts the cat unless the house already holds MAX_CATS live cats, in
+   * which case it returns null. The cap check and the next sort_order
+   * (max live + 1, so deleting a middle cat never causes a collision) live
+   * in the same INSERT ... SELECT: D1 has no interactive transactions, and
+   * a count-then-insert let concurrent requests slip past the cap or pick
+   * the same sort_order. Throws the D1 UNIQUE error when the id already
+   * exists in another house (the route maps it to 409).
+   */
+  async create(houseId: string, input: CatCreate, hungryAfterSecDefault: number, nowMs: number): Promise<Row | null> {
+    const res = await this.db.run(sql`
+      INSERT INTO cats (id, house_id, name, color, avatar_pose, hungry_after_sec, sort_order, created_at, modified_at)
+      SELECT ${input.id}, ${houseId}, ${input.name}, ${input.color}, ${input.avatarPose}, ${input.hungryAfterSec ?? hungryAfterSecDefault},
+        (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM cats WHERE house_id = ${houseId} AND deleted_at IS NULL),
+        ${nowMs}, ${nowMs}
+      WHERE (SELECT COUNT(*) FROM cats WHERE house_id = ${houseId} AND deleted_at IS NULL) < ${MAX_CATS}`);
+    if (changesOf(res) === 0) return null;
     return (await this.get(houseId, input.id))!;
   }
 
@@ -67,7 +70,17 @@ export class CatsRepo {
     return this.get(houseId, id);
   }
 
-  async softDelete(houseId: string, id: string, nowMs: number): Promise<void> {
-    await this.db.update(cats).set({ deletedAt: nowMs, modifiedAt: nowMs }).where(and(live(houseId), eq(cats.id, id)));
+  /**
+   * Soft-deletes unless it would leave the house with no live cat. One
+   * statement so two concurrent deletes of the last two cats cannot both
+   * pass a separate count check. Returns whether a row changed; the caller
+   * works out why not (missing, already deleted, or last cat).
+   */
+  async softDeleteUnlessLast(houseId: string, id: string, nowMs: number): Promise<boolean> {
+    const res = await this.db.run(sql`
+      UPDATE cats SET deleted_at = ${nowMs}, modified_at = ${nowMs}
+      WHERE house_id = ${houseId} AND id = ${id} AND deleted_at IS NULL
+        AND (SELECT COUNT(*) FROM cats WHERE house_id = ${houseId} AND deleted_at IS NULL) > 1`);
+    return changesOf(res) > 0;
   }
 }

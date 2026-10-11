@@ -64,4 +64,70 @@ describe("auth store", () => {
     t = 14 * 60 * 1000 + 1;
     expect(store.getAccessToken()).toBeNull();
   });
+
+  it("concurrent refresh() calls share one request and one outcome", async () => {
+    const storage = memStorage();
+    storage.setItem("feedme2:refresh", "r9");
+    storage.setItem("feedme2:house", JSON.stringify(house));
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(tokens(2)), { status: 200 }));
+    const store = createAuthStore({ storage, fetchFn: fetchFn as unknown as typeof fetch, now: () => 0 });
+    const outcomes = await Promise.all([store.refresh(), store.refresh(), store.refresh()]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(outcomes).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
+  });
+
+  it("corrupt house JSON starts signed out and clears both keys", () => {
+    const storage = memStorage();
+    storage.setItem("feedme2:refresh", "r9");
+    storage.setItem("feedme2:house", "{not json");
+    const store = createAuthStore({ storage, fetchFn: vi.fn() as unknown as typeof fetch, now: () => 0 });
+    expect(store.getSnapshot()).toEqual({ status: "signedOut" });
+    expect(storage.getItem("feedme2:refresh")).toBeNull();
+    expect(storage.getItem("feedme2:house")).toBeNull();
+  });
+
+  it("a house that parses as JSON but fails the schema also starts signed out", () => {
+    const storage = memStorage();
+    storage.setItem("feedme2:refresh", "r9");
+    storage.setItem("feedme2:house", JSON.stringify({ id: 1 }));
+    const store = createAuthStore({ storage, fetchFn: vi.fn() as unknown as typeof fetch, now: () => 0 });
+    expect(store.getSnapshot()).toEqual({ status: "signedOut" });
+    expect(storage.getItem("feedme2:refresh")).toBeNull();
+  });
+
+  it("still constructs and signs in (in memory) when storage throws on every call", () => {
+    const boom = () => { throw new DOMException("denied", "SecurityError"); };
+    const store = createAuthStore({ storage: { getItem: boom, setItem: boom, removeItem: boom }, fetchFn: vi.fn() as unknown as typeof fetch, now: () => 0 });
+    expect(store.getSnapshot()).toEqual({ status: "signedOut" });
+    store.applyTokens(tokens(1));
+    expect(store.getSnapshot().status).toBe("signedIn");
+    expect(store.getAccessToken()).toBe("a1");
+  });
+
+  it("a 200 with a non-JSON body is unreachable, not an unhandled rejection", async () => {
+    const storage = memStorage();
+    storage.setItem("feedme2:refresh", "r9");
+    storage.setItem("feedme2:house", JSON.stringify(house));
+    // A captive portal or an edge error page answers 200 with HTML.
+    const fetchFn = (async () => new Response("<html>portal</html>", { status: 200 })) as unknown as typeof fetch;
+    const store = createAuthStore({ storage, fetchFn, now: () => 0 });
+    expect(await store.refresh()).toEqual({ ok: false, reason: "unreachable" });
+    expect(store.getSnapshot().status).toBe("signedIn");
+  });
+
+  it("signOut during an in-flight refresh stays signed out", async () => {
+    const storage = memStorage();
+    storage.setItem("feedme2:refresh", "r9");
+    storage.setItem("feedme2:house", JSON.stringify(house));
+    let release!: (r: Response) => void;
+    const fetchFn = vi.fn(() => new Promise<Response>((res) => { release = res; })) as unknown as typeof fetch;
+    const store = createAuthStore({ storage, fetchFn, now: () => 0 });
+    const pending = store.refresh();
+    store.signOut();
+    release(new Response(JSON.stringify(tokens(2)), { status: 200 }));
+    expect(await pending).toEqual({ ok: false, reason: "rejected" });
+    expect(store.getSnapshot()).toEqual({ status: "signedOut" });
+    expect(store.getAccessToken()).toBeNull();
+    expect(storage.getItem("feedme2:refresh")).toBeNull();
+  });
 });

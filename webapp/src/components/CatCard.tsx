@@ -19,7 +19,7 @@ export function CatCard({ cat, house, todays, nowMs, onFeed }: Props) {
     <article className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4" data-testid="cat-card" data-cat-id={cat.id} data-level={state.level}>
       <Link to={`/cats/${cat.id}`} aria-label={`${cat.name} details`}>
         <HungerRing ratio={state.ratio} level={state.level} size={104}>
-          <CatFigure pose={poseForLevel(state.level, cat.avatarPose)} color={cat.color} size={72} title={cat.name} />
+          <CatFigure pose={poseForLevel(state.level, cat.avatarPose)} color={cat.color} size={72} label={cat.name} />
         </HungerRing>
       </Link>
       <div className="min-w-0 flex-1">

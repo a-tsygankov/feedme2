@@ -6,6 +6,7 @@
  * once turned a flaky connection into a sign-out.
  */
 import { HouseSchema, TokensResponseSchema, type House, type TokensResponse } from "@feedme2/shared";
+import { safeStorage, type KeyValueStorage } from "./safe-storage.ts";
 
 export type AuthSnapshot = { status: "signedOut" } | { status: "signedIn"; house: House };
 export type RefreshOutcome = { ok: true } | { ok: false; reason: "rejected" | "unreachable" };
@@ -23,7 +24,7 @@ export interface AuthStore {
 }
 
 interface Deps {
-  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">;
+  storage: KeyValueStorage;
   fetchFn: typeof fetch;
   now: () => number;
 }
@@ -42,10 +43,23 @@ export function createAuthStore(deps: Deps): AuthStore {
   const read = (k: string) => { try { return deps.storage.getItem(k); } catch { return null; } };
   const write = (k: string, v: string | null) => { try { v === null ? deps.storage.removeItem(k) : deps.storage.setItem(k, v); } catch { /* private mode */ } };
 
+  // Bumped by signOut so a refresh that was already in flight cannot sign the
+  // user back in with the tokens the server rotated for them a moment ago.
+  let epoch = 0;
+
+  const storedRefresh = read(REFRESH_KEY);
   const storedHouse = read(HOUSE_KEY);
-  if (read(REFRESH_KEY) && storedHouse) {
-    const parsed = HouseSchema.safeParse(JSON.parse(storedHouse));
-    if (parsed.success) snapshot = { status: "signedIn", house: parsed.data };
+  if (storedRefresh && storedHouse) {
+    try {
+      const parsed = HouseSchema.safeParse(JSON.parse(storedHouse));
+      if (parsed.success) snapshot = { status: "signedIn", house: parsed.data };
+    } catch { /* corrupt snapshot: handled below */ }
+  }
+  if (snapshot.status === "signedOut" && (storedRefresh || storedHouse)) {
+    // A half-written or corrupt pair can never sign in; keeping it would
+    // re-fail on every launch (and used to throw at import, blanking the app).
+    write(REFRESH_KEY, null);
+    write(HOUSE_KEY, null);
   }
 
   function set(next: AuthSnapshot): void {
@@ -68,6 +82,7 @@ export function createAuthStore(deps: Deps): AuthStore {
       set({ status: "signedIn", house });
     },
     signOut() {
+      epoch++;
       accessToken = null;
       accessExpiresAt = 0;
       write(REFRESH_KEY, null);
@@ -83,6 +98,7 @@ export function createAuthStore(deps: Deps): AuthStore {
       // One refresh at a time: concurrent 401s must not each rotate.
       if (inflight) return inflight;
       inflight = (async (): Promise<RefreshOutcome> => {
+        const startedEpoch = epoch;
         const refreshToken = read(REFRESH_KEY);
         if (!refreshToken) { store.signOut(); return { ok: false, reason: "rejected" }; }
         let res: Response;
@@ -93,8 +109,16 @@ export function createAuthStore(deps: Deps): AuthStore {
         }
         if (res.status === 401 || res.status === 400) { store.signOut(); return { ok: false, reason: "rejected" }; }
         if (!res.ok) return { ok: false, reason: "unreachable" };
-        const parsed = TokensResponseSchema.safeParse(await res.json());
+        let body: unknown;
+        try {
+          body = await res.json();
+        } catch {
+          // A captive portal or edge error page can answer 200 with HTML.
+          return { ok: false, reason: "unreachable" };
+        }
+        const parsed = TokensResponseSchema.safeParse(body);
         if (!parsed.success) return { ok: false, reason: "unreachable" };
+        if (epoch !== startedEpoch) return { ok: false, reason: "rejected" };
         store.applyTokens(parsed.data);
         return { ok: true };
       })().finally(() => { inflight = null; });
@@ -104,4 +128,4 @@ export function createAuthStore(deps: Deps): AuthStore {
   return store;
 }
 
-export const authStore: AuthStore = createAuthStore({ storage: localStorage, fetchFn: (...a) => fetch(...a), now: Date.now });
+export const authStore: AuthStore = createAuthStore({ storage: safeStorage(), fetchFn: (...a) => fetch(...a), now: Date.now });

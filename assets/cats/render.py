@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Render the cat masters into the sizes each tier needs. Requires Pillow."""
 from __future__ import annotations
+import math
 from pathlib import Path
 from PIL import Image
 
@@ -12,13 +13,17 @@ WEB_PX = 256
 MARGIN = 0.06
 
 
-def square_crop(img: Image.Image) -> Image.Image:
+def square_crop(img: Image.Image, name: str) -> Image.Image:
     img = img.convert("RGBA")
-    bbox = img.getchannel("A").getbbox()
+    # Threshold the alpha: anti-aliasing fringe and stray near-transparent
+    # pixels would otherwise inflate the bbox and shrink the cat inside its square.
+    alpha = img.getchannel("A").point(lambda a: 255 if a > 8 else 0)
+    bbox = alpha.getbbox()
     if bbox is None:
-        raise SystemExit(f"empty alpha in {img.filename}")
+        raise SystemExit(f"{name}: empty alpha")
     img = img.crop(bbox)
-    side = int(max(img.size) * (1 + 2 * MARGIN))
+    # ceil, not int(): truncation could leave the margin fractionally under MARGIN.
+    side = math.ceil(max(img.size) * (1 + 2 * MARGIN))
     canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
     canvas.paste(img, ((side - img.width) // 2, (side - img.height) // 2), img)
     return canvas
@@ -27,8 +32,8 @@ def square_crop(img: Image.Image) -> Image.Image:
 def main() -> None:
     WEB.mkdir(parents=True, exist_ok=True)
     for pose in POSES:
-        master = Image.open(SRC / f"{pose}.png")
-        sq = square_crop(master).resize((WEB_PX, WEB_PX), Image.LANCZOS)
+        with Image.open(SRC / f"{pose}.png") as master:
+            sq = square_crop(master, pose).resize((WEB_PX, WEB_PX), Image.LANCZOS)
         # Alpha mask: colour is irrelevant for mask-image, keep it black.
         out = Image.new("RGBA", sq.size, (0, 0, 0, 0))
         out.putalpha(sq.getchannel("A"))

@@ -1,4 +1,5 @@
-import type { InputHTMLAttributes, ReactNode } from "react";
+import { useId, type InputHTMLAttributes, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 interface Props extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
@@ -7,18 +8,27 @@ interface Props extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 /** Label + input + optional error, the one text-input shape in the app. */
-export function Field({ label, error, hint, id, ...input }: Props) {
-  const inputId = id ?? `f-${label.toLowerCase().replace(/\W+/g, "-")}`;
+export function Field({ label, error, hint, id, className, "aria-describedby": describedBy, ...input }: Props) {
+  const autoId = useId();
+  const inputId = id ?? autoId;
+  const noteId = `${inputId}-note`;
+  // The note is a sibling of the label (not inside it) so the input's accessible
+  // name stays just the label text; aria-describedby announces the note after it.
+  const describedByIds = [describedBy, error || hint ? noteId : undefined].filter(Boolean).join(" ") || undefined;
   return (
-    <label htmlFor={inputId} className="block">
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+    <div className="block">
+      <label htmlFor={inputId} className="text-sm font-medium text-slate-700">{label}</label>
       <input
-        id={inputId}
         {...input}
+        id={inputId}
+        aria-describedby={describedByIds}
         aria-invalid={error ? true : undefined}
-        className="mt-1 block w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        className={cn(
+          "mt-1 block w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500",
+          className,
+        )}
       />
-      {error ? <span className="mt-1 block text-xs text-red-600" role="alert">{error}</span> : hint ? <span className="mt-1 block text-xs text-slate-500">{hint}</span> : null}
-    </label>
+      {error ? <p id={noteId} className="mt-1 text-xs text-red-600" role="alert">{error}</p> : hint ? <p id={noteId} className="mt-1 text-xs text-slate-500">{hint}</p> : null}
+    </div>
   );
 }

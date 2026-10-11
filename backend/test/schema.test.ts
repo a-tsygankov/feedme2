@@ -190,6 +190,8 @@ describe("migration 0001", () => {
       ["feedings", feedings],
       ["refresh_tokens", refreshTokens],
       ["log_entries", logEntries],
+      ["devices", devices],
+      ["pending_pairings", pendingPairings],
     ] as const)("%s matches PRAGMA table_info", async (table, drizzleTable) => {
       const info = (
         await env.DB.prepare(`PRAGMA table_info(${table})`).all<{ name: string; notnull: number; pk: number }>()

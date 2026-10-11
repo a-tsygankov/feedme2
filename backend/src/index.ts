@@ -4,6 +4,7 @@ import type { Bindings } from "./env.ts";
 import { runHousekeeping } from "./cron.ts";
 import { db } from "./db/client.ts";
 import { log } from "./logger.ts";
+import { verifyDeviceToken } from "./auth/device-tokens.ts";
 import { verifyAccessToken } from "./auth/tokens.ts";
 import type { AuthVars } from "./middleware/auth.ts";
 import { beginFinalLine, flushRequestLogs, parseClientId, runWithRequestContext } from "./request-context.ts";
@@ -37,9 +38,13 @@ app.use("*", async (c, next) => {
   const skip = path === "/api/health" || path.startsWith("/api/debug");
   // Same scheme parsing as requireHouse: the scheme is case-insensitive.
   const token = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("Authorization") ?? "")?.[1] ?? "";
-  const auth = token ? await verifyAccessToken(token, c.env.AUTH_SECRET) : null;
+  // A house access token or a device token (spec §3.2): both attribute the
+  // request to a house; only a device token also names the device.
+  const houseAuth = token ? await verifyAccessToken(token, c.env.AUTH_SECRET) : null;
+  const deviceAuth = token && !houseAuth ? await verifyDeviceToken(token, c.env.AUTH_SECRET) : null;
+  const auth = houseAuth ?? deviceAuth;
   const clientId = parseClientId(c.req.header("x-client-id"));
-  await runWithRequestContext({ houseId: auth?.houseId ?? null, clientId }, async () => {
+  await runWithRequestContext({ houseId: auth?.houseId ?? null, clientId, deviceId: deviceAuth?.deviceId }, async () => {
     // Hono's compose() hands a thrown handler error to app.onError and
     // records it on c.error rather than rejecting next(), so a
     // try/catch here would never see it.

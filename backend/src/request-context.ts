@@ -14,6 +14,8 @@ export interface RequestStore {
   houseId: string | null;
   /** The caller's x-client-id when it is well-formed, so worker rows can be correlated with its web uploads. */
   clientId: string | undefined;
+  /** Set when the token was a device token, so the console's device filter shows the worker lines a device caused. */
+  deviceId: string | undefined;
   pending: LogEntry[];
   /** Handler lines refused by the cap; reported as one warn line at flush so a flood is visible, not silent. */
   dropped: number;
@@ -34,9 +36,9 @@ export function parseClientId(raw: string | undefined | null): string | undefine
 
 const storage = new AsyncLocalStorage<RequestStore>();
 
-export function runWithRequestContext<T>(origin: { houseId: string | null; clientId?: string | undefined }, fn: () => Promise<T>): Promise<T> {
+export function runWithRequestContext<T>(origin: { houseId: string | null; clientId?: string | undefined; deviceId?: string | undefined }, fn: () => Promise<T>): Promise<T> {
   return storage.run(
-    { houseId: origin.houseId, clientId: origin.clientId, pending: [], dropped: 0, finalising: false, flushed: false },
+    { houseId: origin.houseId, clientId: origin.clientId, deviceId: origin.deviceId, pending: [], dropped: 0, finalising: false, flushed: false },
     fn,
   );
 }
@@ -90,7 +92,7 @@ export async function flushRequestLogs(d: Db, ctx: Pick<ExecutionContext, "waitU
   if (store.houseId === null) entries = entries.filter((e) => e.level === "warn" || e.level === "error");
   if (entries.length === 0) return;
   const write = new LogsRepo(d)
-    .insertMany(store.houseId, entries, { ...(store.clientId ? { clientId: store.clientId } : {}) }, Date.now())
+    .insertMany(store.houseId, entries, { ...(store.clientId ? { clientId: store.clientId } : {}), ...(store.deviceId ? { deviceId: store.deviceId } : {}) }, Date.now())
     .catch((err: unknown) => console.error("log flush failed", err instanceof Error ? err.message : String(err)));
   if (ctx) ctx.waitUntil(write);
   else await write;

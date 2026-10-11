@@ -36,7 +36,7 @@ Run from the repo root on the branch tip (before the docs commit) on 2026-10-11:
 pnpm install --frozen-lockfile && pnpm -r typecheck && pnpm -r test && python -m unittest discover -s scripts && (cd firmware && pio test -e native) && BASE_REF=origin/main python scripts/check_version_bump.py
 ```
 
-- typecheck: shared, backend, webapp all clean.
+- typecheck: shared, backend, webapp all clean. The whole-branch reviewer independently got the same counts on the final tree (shared 57, backend 153 in 13 files, webapp 368 in 32 files, scripts 42, version check green).
 - shared: 8 files, **57** tests passed. backend: 13 files, **153** passed. webapp: 32 files, **368** passed.
 - scripts (version tooling): **42** tests OK. firmware native: **8** test cases succeeded.
 - `check_version_bump.py`: "All touched tiers bumped their version."
@@ -61,7 +61,7 @@ pnpm install --frozen-lockfile && pnpm -r typecheck && pnpm -r test && python -m
 
 ## Decisions pending for Andrey
 
-1. **Future `fedAt`: reject or clamp?** Today it is rejected (400) beyond now + 5 min; the webapp also guards client-side. A device with a wrong clock would be rejected rather than corrected.
+1. **Future `fedAt`: reject or clamp?** `fedat_in_future` rejects `fedAt` beyond now + 5 min (`backend/src/routes/feedings.ts`, about lines 32 to 60); the webapp also guards client-side. A phone clock more than 5 minutes ahead gets its feedings dropped with only a count banner. The alternative is clamping to now.
 2. **"A house keeps at least one cat" is not in the spec.** Signup starts with zero cats; once one exists the last cannot be deleted (409). Keep, drop, or put it in the spec?
 3. **No login rate limiting.** A 4 to 12 digit PIN (often 4) is brute-forceable by a patient attacker (uniform cost helps timing only). Needs a spec-level decision (per-house attempt counter in D1, or Cloudflare rate limiting); not in the Phase 1 plan.
 4. **"1,000" parses as 1.0** (a comma is a decimal separator). Accepted; revisit if users type thousands separators.
@@ -69,9 +69,25 @@ pnpm install --frozen-lockfile && pnpm -r typecheck && pnpm -r test && python -m
 6. **Dead outbox rows are never revived or purged.** After 10 failed attempts a row is parked and surfaced as a sync problem; nothing retries or clears it automatically. Decide whether Settings gets "retry/discard".
 7. **Console fans out one `/api/debug/logs` request per level** until the endpoint grows a `minLevel` param (cheap backend change; Phase 2 or cleanup).
 
+## Security and accepted risks (whole-branch review)
+
+Verdict of the whole-branch review: mergeable, no code must-fixes. Accepted for Phase 1:
+- **No rate limiting anywhere.** Login brute force is slowed only by PBKDF2; `/auth/setup` is unlimited; request body size is capped only on `/api/logs`. Suggested follow-up: a Workers rate-limit binding on `/auth/login` and `/auth/setup`, plus a global `bodyLimit` of about 256 KB.
+- **Access tokens stay valid up to 15 minutes** after logout or PIN change (by design: stateless JWT; refresh tokens are revoked immediately).
+- **drizzle-orm is on `^0.36.0`** (a caret on 0.x stays within 0.36.x). Keep it there or add a comment before upgrading: 0.44+ embeds bound parameters (pin hashes, tokens) in error messages, and the `unhandled` log row would capture them.
+
+## Deploy watch items
+
+- **PBKDF2 CPU time.** 100k iterations on setup, login and PIN change may exceed the Workers Free-plan 10 ms CPU limit. Check the first production login (and setup) right after the merge deploy; if it fails with a CPU-limit error, the options are a lower iteration count (`ITERATIONS` in `backend/src/auth/pin.ts` is one constant and hashes do not record it, so changing it needs a stored-format change or a migration of existing hashes) or a paid plan.
+- **`AUTH_SECRET`** was set in production during Phase 0 provisioning; the worker refuses to sign with fewer than 32 characters, so confirm the first `POST /api/auth/setup` succeeds.
+
 ## Known follow-ups (nits, none blocking)
 
 Webapp
+- **Bug to fix next:** Settings sign-out reads the refresh token before `api.logout`. If `apiFetch` rotates the token first, the server revokes the OLD row and the new child stays valid 30 days server-side (the client discards it). Fix: build the body at send time, or revoke the children of the presented token.
+- PATCH 404 on a feeding deleted elsewhere should count as sent in the sync engine (as DELETE 404 already does).
+- House rename 409 shows the generic message instead of "name taken".
+- Bare `crypto.randomUUID()` in CatEditor, FeedSheet and Dashboard throws on plain-http LAN dev; share one `newId()` with the client-id fallback.
 - Sync: banner count of unsynced/dropped feedings is React state only (lost on reload); a poison 5xx at the head of the queue blocks about 33 minutes before parking; cross-tab coalesce into an in-flight row is unguarded (narrow).
 - Sheet and console share one `inert` counter; Sheet should restore the body overflow class only if it added it.
 - `FeedSheet` edit mode should not touch `fedAt` unless the time changed (CatPage already does this).
@@ -82,6 +98,8 @@ Webapp
 - Response envelope schemas for house/cats/feedings were not added to `shared`; routes and the client define them locally.
 
 Backend
+- Malformed JSON gives a text/plain 400; it could be JSON like every other error.
+- Rate limiting and a global body limit (see Security and accepted risks).
 - `GET /api/debug/logs` `minLevel` param (see decision 7).
 - Error strings: `not found`, `name taken`, `id conflict`, `a house keeps at least one cat` are phrases, the rest are snake_case codes. Normalise (and update the webapp, which matches on some of them) when next touched.
 - Auth cleanup: `PATCH /pin` on a pinless (test-login) house should allow setting a PIN without `currentPin` (dev only); test-login on a soft-deleted house name should map the unique violation to 409; document the stolen-token trade-off next to `GRACE_MS`.

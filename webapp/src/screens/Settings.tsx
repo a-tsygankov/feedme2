@@ -53,7 +53,8 @@ export function Settings() {
   // once the house has loaded, so the browser's own anchor jump cannot do it.
   useEffect(() => {
     if (!ready || !location.hash) return;
-    document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: "start" });
+    const el = document.getElementById(location.hash.slice(1));
+    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "start" });
   }, [ready, location.hash]);
 
   // Two-tap delete: the "Really delete?" state reverts on its own so a stray tap later cannot confirm it.

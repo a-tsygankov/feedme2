@@ -33,7 +33,9 @@ export function DevicesSection() {
     const fromLink = codeFromParam(pairParam);
     if (!fromLink) return;
     setCode(fromLink);
-    root.current?.closest("section")?.scrollIntoView({ block: "start" });
+    // jsdom has no scrollIntoView; a mounted test with ?pair= must not throw.
+    const el = root.current?.closest("section");
+    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "start" });
   }, [pairParam]);
 
   // Two-tap forget, same pattern as deleting a cat: the armed state reverts so a stray later tap cannot confirm it.

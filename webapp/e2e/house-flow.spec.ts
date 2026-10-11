@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { requireTestAuth, signInAsTestHouse, uniqueHouseName } from "./helpers/test-auth.ts";
+import { addCat } from "./helpers/ui.ts";
 
 /**
  * The Phase 1 exit test: a real house, real cats and real feedings against a local worker and D1.
@@ -11,17 +12,6 @@ test.describe("Phase 1 flow", () => {
     await page.goto("/login");
     await requireTestAuth(page);
   });
-
-  /** Settings → Add a cat → back to the dashboard, where the card must be showing. */
-  async function addCat(page: Page, name: string) {
-    await page.getByTestId("tab-settings").click();
-    await page.getByTestId("cat-add").click();
-    await page.getByTestId("cat-name").fill(name);
-    await page.getByTestId("cat-save").click();
-    await expect(page.getByTestId("cat-row").filter({ hasText: name })).toBeVisible();
-    await page.getByTestId("tab-home").click();
-    await expect(page.getByTestId("cat-card").filter({ hasText: name })).toBeVisible();
-  }
 
   /** First feeding of a cat that has no default yet: "Feed" opens the sheet, one "+" step on the 40 g fallback makes 45 g. */
   async function feed45FromSheet(page: Page) {

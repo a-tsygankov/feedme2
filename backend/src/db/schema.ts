@@ -4,7 +4,16 @@
  * `drizzle-kit push`. Column names stay snake_case in the database and
  * camelCase in TypeScript.
  */
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { foreignKey, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+
+/*
+ * Not expressible here, enforced by the SQL only: every CHECK constraint
+ * (positive amounts/intervals, enum columns, the cats default triple being
+ * all-set-or-all-NULL). Index declarations below omit DESC/ordering
+ * direction because drizzle-kit is never run (migrations are hand-written)
+ * and SQLite scans an index backwards at no cost; the migration keeps the
+ * DESC for fidelity with the cursor-paging queries.
+ */
 
 export const houses = sqliteTable("houses", {
   id: text("id").primaryKey(),
@@ -44,7 +53,11 @@ export const cats = sqliteTable(
     modifiedAt: integer("modified_at").notNull(),
     deletedAt: integer("deleted_at"),
   },
-  (t) => ({ houseIdx: index("cats_house").on(t.houseId, t.sortOrder) }),
+  (t) => ({
+    houseIdx: index("cats_house").on(t.houseId, t.sortOrder),
+    // Target of feedings' composite tenancy FK.
+    houseCat: unique().on(t.houseId, t.id),
+  }),
 );
 
 export const feedings = sqliteTable(
@@ -52,7 +65,7 @@ export const feedings = sqliteTable(
   {
     id: text("id").primaryKey(),
     houseId: text("house_id").notNull().references(() => houses.id),
-    catId: text("cat_id").notNull().references(() => cats.id),
+    catId: text("cat_id").notNull(),
     fedAt: integer("fed_at").notNull(),
     amountMg: integer("amount_mg").notNull(),
     enteredUnit: text("entered_unit", { enum: ["g", "oz", "can"] }).notNull(),
@@ -66,8 +79,10 @@ export const feedings = sqliteTable(
     deletedAt: integer("deleted_at"),
   },
   (t) => ({
-    houseTime: index("feedings_house_time").on(t.houseId, t.fedAt),
-    catTime: index("feedings_cat_time").on(t.houseId, t.catId, t.fedAt),
+    houseTime: index("feedings_house_time").on(t.houseId, t.fedAt, t.id),
+    catTime: index("feedings_cat_time").on(t.houseId, t.catId, t.fedAt, t.id),
+    // A feeding can only reference a cat of its own house.
+    catInHouse: foreignKey({ columns: [t.houseId, t.catId], foreignColumns: [cats.houseId, cats.id] }),
   }),
 );
 
@@ -81,7 +96,10 @@ export const refreshTokens = sqliteTable(
     expiresAt: integer("expires_at").notNull(),
     rotatedFrom: text("rotated_from"),
   },
-  (t) => ({ houseIdx: index("refresh_tokens_house").on(t.houseId) }),
+  (t) => ({
+    houseIdx: index("refresh_tokens_house").on(t.houseId),
+    rotatedFromIdx: index("refresh_tokens_rotated_from").on(t.rotatedFrom),
+  }),
 );
 
 export const logEntries = sqliteTable(
@@ -98,5 +116,9 @@ export const logEntries = sqliteTable(
     data: text("data"),
     createdAt: integer("created_at").notNull(),
   },
-  (t) => ({ houseTs: index("log_entries_house_ts").on(t.houseId, t.ts) }),
+  (t) => ({
+    houseTs: index("log_entries_house_ts").on(t.houseId, t.ts),
+    // Retention prunes by server-set created_at, not client ts.
+    createdAtIdx: index("log_entries_created_at").on(t.createdAt),
+  }),
 );

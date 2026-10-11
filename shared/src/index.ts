@@ -6,3 +6,4 @@ export { DebugLogsResponseSchema, LogEntrySchema, LogLevelSchema, LogSourceSchem
 export type { DebugLogsResponse, LogEntry, LogLevel, LogSource } from "./log.ts";
 export { VersionResponseSchema } from "./version.ts";
 export type { VersionResponse } from "./version.ts";
+export * from "./api.ts";

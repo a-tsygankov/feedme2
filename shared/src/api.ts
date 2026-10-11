@@ -4,6 +4,8 @@ import { LogEntrySchema } from "./log.ts";
 /** Spec §1.4 — the house's units and device settings. */
 export const FoodUnitSchema = z.enum(["g", "oz", "can"]);
 export const CanFractionStepSchema = z.enum(["1/4", "1/3", "1/2"]);
+export type FoodUnit = z.infer<typeof FoodUnitSchema>;
+export type CanFractionStep = z.infer<typeof CanFractionStepSchema>;
 /** Spec §1.7 — the five calm poses offered as identities. */
 export const AvatarPoseSchema = z.enum(["A1", "A4", "B1", "C1", "C2"]);
 

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { MAX_CATS, type Cat, type CatCreate, type CatPatch } from "@feedme2/shared";
 import type { Db } from "../db/client.ts";
 import { cats } from "../db/schema.ts";
@@ -43,6 +43,25 @@ export class CatsRepo {
   /** Any row with this id, including a soft-deleted one (idempotency check). */
   getAny(id: string): Promise<Row | undefined> {
     return this.db.query.cats.findFirst({ where: eq(cats.id, id) });
+  }
+
+  /**
+   * Which of `ids` are cats of this house, deleted or not. Feedings may
+   * reference a soft-deleted cat (history stays reachable and an outbox
+   * replay after a deletion must not fail), so this deliberately ignores
+   * deleted_at. Chunked at 90 ids: D1 allows 100 bound parameters per
+   * statement and the house id takes one.
+   */
+  async idsInHouse(houseId: string, ids: string[]): Promise<Set<string>> {
+    const found = new Set<string>();
+    for (let i = 0; i < ids.length; i += 90) {
+      const rows = await this.db
+        .select({ id: cats.id })
+        .from(cats)
+        .where(and(eq(cats.houseId, houseId), inArray(cats.id, ids.slice(i, i + 90))));
+      for (const r of rows) found.add(r.id);
+    }
+    return found;
   }
 
   /**

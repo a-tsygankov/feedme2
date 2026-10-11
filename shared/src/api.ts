@@ -26,6 +26,8 @@ export type CatColor = z.infer<typeof CatColorSchema>;
 const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, "lowercase uuid");
 /** Capped at 2100-01-01 so a far-future fedAt is a 400, and D1 integers stay safe. */
 const epochMs = z.number().int().nonnegative().max(4_102_444_800_000);
+/** feedings.fed_at is CHECK (fed_at > 0): reject 0 here so the DB never answers with a 500. */
+const fedAtMs = epochMs.min(1);
 /** A 5 kg feeding is a typo. */
 const amountMg = z.number().int().positive().max(5_000_000);
 
@@ -126,7 +128,7 @@ export const FeedingSchema = z.object({
   id: uuid,
   houseId: uuid,
   catId: uuid,
-  fedAt: epochMs,
+  fedAt: fedAtMs,
   amountMg,
   enteredUnit: FoodUnitSchema,
   enteredValue: EnteredValueSchema,
@@ -143,7 +145,7 @@ export type Feeding = z.infer<typeof FeedingSchema>;
 export const FeedingCreateSchema = z.object({
   id: uuid,
   catId: uuid,
-  fedAt: epochMs,
+  fedAt: fedAtMs,
   amountMg,
   enteredUnit: FoodUnitSchema,
   enteredValue: EnteredValueSchema,
@@ -153,7 +155,7 @@ export type FeedingCreate = z.infer<typeof FeedingCreateSchema>;
 export const FeedingPatchSchema = z
   .object({
     catId: uuid,
-    fedAt: epochMs,
+    fedAt: fedAtMs,
     amountMg,
     enteredUnit: FoodUnitSchema,
     enteredValue: EnteredValueSchema,

@@ -3,7 +3,10 @@ import { TokensResponseSchema } from "@feedme2/shared";
 import { sign } from "hono/jwt";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { verifyPin } from "../src/auth/pin.ts";
-import { clock, signAccessToken } from "../src/auth/tokens.ts";
+import { clock, hashToken, signAccessToken } from "../src/auth/tokens.ts";
+import { db } from "../src/db/client.ts";
+import { refreshTokens } from "../src/db/schema.ts";
+import { eq } from "drizzle-orm";
 import { app } from "../src/index.ts";
 import { applyAllMigrations } from "./helpers/migrate.ts";
 import { signup } from "./helpers/api.ts";
@@ -85,14 +88,26 @@ describe("auth", () => {
   });
 
   it("login runs the pin hash for an unknown house and for a pinless one (uniform cost)", async () => {
-    const spy = vi.mocked(verifyPin);
+    // singleWorker shares one module cache across test files: when another
+    // file (a slower feedings suite, say) already loaded the app, the
+    // file-level vi.mock never reached it and the spy saw 0 calls. A fresh
+    // graph imported after resetModules always gets the mock.
+    vi.resetModules();
+    const { app: freshApp } = await import("../src/index.ts");
+    const { verifyPin: freshVerify } = await import("../src/auth/pin.ts");
+    const spy = vi.mocked(freshVerify);
+    const login = (houseName: string) =>
+      freshApp.fetch(
+        new Request("http://feedme2/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ houseName, pin: "1111" }) }),
+        env,
+      );
     spy.mockClear();
-    expect((await postApp("/api/auth/login", { houseName: "Nobody At All", pin: "1111" })).status).toBe(401);
+    expect((await login("Nobody At All")).status).toBe(401);
     expect(spy).toHaveBeenCalledTimes(1);
 
     await post("/api/auth/test-login", { houseName: "Pinless Login" });
     spy.mockClear();
-    expect((await postApp("/api/auth/login", { houseName: "Pinless Login", pin: "1111" })).status).toBe(401);
+    expect((await login("Pinless Login")).status).toBe(401);
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
@@ -125,6 +140,13 @@ describe("auth", () => {
     expect(again.status).toBe(200);
     const second = await tokensOf(again);
     expect(second.refreshToken).not.toBe(first.refreshToken);
+
+    // Both children chain to the presented token, so the family stays traceable.
+    const rowOf = async (token: string) =>
+      (await db(env.DB).select().from(refreshTokens).where(eq(refreshTokens.tokenHash, await hashToken(token))))[0]!;
+    const parent = await rowOf(s.refresh);
+    expect((await rowOf(first.refreshToken)).rotatedFrom).toBe(parent.id);
+    expect((await rowOf(second.refreshToken)).rotatedFrom).toBe(parent.id);
 
     now.mockReturnValue(t0 + 7_000);
     expect((await postApp("/api/auth/refresh", { refreshToken: first.refreshToken })).status).toBe(200);
@@ -172,12 +194,41 @@ describe("auth", () => {
     expect((await post("/api/auth/refresh", { refreshToken: fresh.refreshToken })).status).toBe(200);
   });
 
+  it("a pinless (test-login) house can set its first pin without a current one", async () => {
+    const t = await tokensOf(await post("/api/auth/test-login", { houseName: "Pinless Setter" }));
+    const authed = { "content-type": "application/json", authorization: `Bearer ${t.accessToken}` };
+    const res = await SELF.fetch("http://feedme2/api/auth/pin", {
+      method: "PATCH", headers: authed, body: JSON.stringify({ currentPin: "0000", newPin: "5678" }),
+    });
+    expect(res.status).toBe(200);
+    expect((await tokensOf(res)).house.id).toBe(t.house.id);
+    expect((await post("/api/auth/login", { houseName: "Pinless Setter", pin: "5678" })).status).toBe(200);
+    // From now on the pin is real: a wrong current pin is refused.
+    const again = await SELF.fetch("http://feedme2/api/auth/pin", {
+      method: "PATCH", headers: authed, body: JSON.stringify({ currentPin: "0000", newPin: "9999" }),
+    });
+    expect(again.status).toBe(403);
+  });
+
   it("setup fails before inserting anything when the signing secret is weak", async () => {
     const name = `Weak Secret ${Date.now()}`;
     const res = await postApp("/api/auth/setup", { houseName: name, pin: "1234" }, { AUTH_SECRET: "short" });
     expect(res.status).toBe(500);
     // The name is still free: nothing was inserted.
     expect((await post("/api/auth/setup", { houseName: name, pin: "1234" })).status).toBe(201);
+  });
+});
+
+describe("issueTokens ordering", () => {
+  beforeAll(applyAllMigrations);
+
+  it("a login that cannot sign leaves no refresh row behind", async () => {
+    const s = await signup();
+    const count = async () => (await db(env.DB).select().from(refreshTokens).where(eq(refreshTokens.houseId, s.houseId))).length;
+    const before = await count();
+    const res = await postApp("/api/auth/login", { houseName: s.name, pin: s.pin }, { AUTH_SECRET: "short" });
+    expect(res.status).toBe(500);
+    expect(await count()).toBe(before);
   });
 });
 

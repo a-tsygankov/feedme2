@@ -61,6 +61,13 @@ describe("api contracts: hardening", () => {
     expect(FeedingCreateSchema.safeParse({ ...feeding, fedAt: 4_102_444_800_001 }).success).toBe(false);
   });
 
+  it("rejects fedAt 0 (the DB CHECK fed_at > 0 must never be the one to say no)", () => {
+    expect(FeedingCreateSchema.safeParse({ ...feeding, fedAt: 0 }).success).toBe(false);
+    expect(FeedingCreateSchema.safeParse({ ...feeding, fedAt: -1 }).success).toBe(false);
+    expect(FeedingPatchSchema.safeParse({ fedAt: 0 }).success).toBe(false);
+    expect(FeedingPatchSchema.safeParse({ fedAt: 1 }).success).toBe(true);
+  });
+
   it("rejects an absurd amountMg", () => {
     expect(FeedingCreateSchema.safeParse({ ...feeding, amountMg: 1e300 }).success).toBe(false);
     expect(FeedingCreateSchema.safeParse({ ...feeding, amountMg: 5_000_000 }).success).toBe(true);

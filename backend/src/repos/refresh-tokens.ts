@@ -6,7 +6,8 @@ import { REFRESH_TTL_MS, hashToken, mintRefreshToken } from "../auth/tokens.ts";
 /**
  * - ok:       first use of a live token; the caller issues the child.
  * - grace:    a token consumed < GRACE_MS ago, presented again (a lost
- *             response, a second tab). Issue a fresh child, revoke nothing.
+ *             response, a second tab). Issue a fresh child (rotated_from =
+ *             the presented token's id, like ok), revoke nothing.
  * - replayed: a token consumed longer ago. Likely stolen: the caller
  *             revokes the house's whole chain.
  * - expired:  a live token past its 30 days (row deleted).
@@ -14,7 +15,7 @@ import { REFRESH_TTL_MS, hashToken, mintRefreshToken } from "../auth/tokens.ts";
  */
 export type ConsumeResult =
   | { kind: "ok"; houseId: string; id: string }
-  | { kind: "grace"; houseId: string }
+  | { kind: "grace"; houseId: string; id: string }
   | { kind: "replayed"; houseId: string }
   | { kind: "expired" }
   | { kind: "unknown" };
@@ -26,7 +27,9 @@ const TOMBSTONE_TTL_MS = 24 * 60 * 60 * 1000;
  * A rotation response can be lost (flaky mobile link) or two tabs can
  * refresh at once; both present the same token twice within seconds.
  * Treating that as theft would sign the family out, so a re-presentation
- * this soon after consumption just gets a fresh child.
+ * this soon after consumption just gets a fresh child. Trade-off: a stolen
+ * token presented within 60 s of the legitimate rotation also gets a child;
+ * bounded by the window, accepted for the sake of lost-response recovery.
  */
 export const GRACE_MS = 60_000;
 
@@ -48,10 +51,12 @@ export class RefreshTokensRepo {
    * be attributed to a house.
    *
    * The transition is ONE conditional UPDATE ... RETURNING, so two
-   * concurrent requests with the same token cannot both win: SQLite
+   * concurrent requests with the same token cannot both win ("ok"): SQLite
    * serialises the statements and the loser matches zero rows. A
-   * read-then-write here would let both through and mint two live
-   * children from one parent. Only the losing path reads afterwards.
+   * read-then-write here would let both be "ok". The losers are not
+   * rejected though: inside GRACE_MS each gets its own "grace" child, by
+   * design (lost response / second tab), so one parent can end up with
+   * several live children. Only the losing path reads afterwards.
    */
   async consume(token: string, nowMs: number): Promise<ConsumeResult> {
     const tokenHash = await hashToken(token);
@@ -72,7 +77,7 @@ export class RefreshTokensRepo {
     if (!row) return { kind: "unknown" };
     if (row.rotatedFrom === TOMBSTONE) {
       const consumedAt = row.expiresAt - TOMBSTONE_TTL_MS;
-      return nowMs - consumedAt <= GRACE_MS ? { kind: "grace", houseId: row.houseId } : { kind: "replayed", houseId: row.houseId };
+      return nowMs - consumedAt <= GRACE_MS ? { kind: "grace", houseId: row.houseId, id: row.id } : { kind: "replayed", houseId: row.houseId };
     }
     // A live row that lapsed: nothing to attribute, drop it.
     await this.db.delete(refreshTokens).where(eq(refreshTokens.id, row.id));

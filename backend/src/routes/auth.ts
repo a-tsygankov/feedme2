@@ -35,9 +35,12 @@ export function testAuthEnabled(env: Bindings): boolean {
 }
 
 async function issueTokens(env: Bindings, house: HouseRow, nowMs: number, rotatedFrom?: string): Promise<TokensResponse> {
+  // Sign first: a misconfigured secret throws here, before any refresh row
+  // exists, so a failed login/refresh leaves no orphan token behind.
+  const accessToken = await signAccessToken(house.id, env.AUTH_SECRET, nowMs);
   const { token } = await new RefreshTokensRepo(db(env.DB)).issue(house.id, nowMs, rotatedFrom);
   return {
-    accessToken: await signAccessToken(house.id, env.AUTH_SECRET, nowMs),
+    accessToken,
     expiresIn: ACCESS_TTL_SEC,
     refreshToken: token,
     house: toApiHouse(house),
@@ -91,8 +94,10 @@ export const authRouter = new Hono<Env>()
     const house = await new HousesRepo(db(c.env.DB)).findById(result.houseId);
     if (!house) return c.json(UNAUTHORIZED, 401);
     // grace: a fresh child for the same house, nothing revoked, so a lost
-    // response or a second tab recovers instead of being signed out.
-    return c.json(await issueTokens(c.env, house, now, result.kind === "ok" ? result.id : undefined));
+    // response or a second tab recovers instead of being signed out. Both
+    // kinds chain the child to the presented token.
+    if (result.kind === "grace") log.info("refresh grace", { houseId: result.houseId });
+    return c.json(await issueTokens(c.env, house, now, result.id));
   })
 
   .post("/logout", requireHouse(), zValidator("json", RefreshBodySchema, validationHook), async (c) => {
@@ -113,9 +118,13 @@ export const authRouter = new Hono<Env>()
     const repo = new HousesRepo(d);
     const house = await repo.findById(c.var.houseId);
     if (!house) return c.json(UNAUTHORIZED, 401);
+    // A pinless house exists only through the dev/e2e test-login, so there is
+    // no current PIN to prove: the first PIN can be set without one (the body
+    // schema still wants a well-formed currentPin, which is ignored here).
     // 403, not 401: the webapp reads any 401 as an expired session and
     // signs out, which a mistyped current PIN must not do.
-    if (!(await verifyPin(currentPin, house.pinSalt, house.pinHash))) return c.json({ error: "wrong_pin" }, 403);
+    const pinless = house.pinHash === "";
+    if (!pinless && !(await verifyPin(currentPin, house.pinSalt, house.pinHash))) return c.json({ error: "wrong_pin" }, 403);
     const now = clock.now();
     await repo.setPin(house.id, newPin, now);
     // Other devices must sign in again with the new pin; so must this one,

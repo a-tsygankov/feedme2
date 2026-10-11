@@ -1,5 +1,6 @@
 import { CatSchema, FeedingsPageSchema } from "@feedme2/shared";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { clock } from "../src/auth/tokens.ts";
 import { applyAllMigrations } from "./helpers/migrate.ts";
 import { signup } from "./helpers/api.ts";
 
@@ -22,7 +23,9 @@ async function houseWithCat() {
   return { s, catId };
 }
 
-type CatRow = { id: string; lastFedAt: number | null; defaultAmountMg: number | null };
+type CatRow = {
+  id: string; modifiedAt: number; lastFedAt: number | null; defaultAmountMg: number | null; defaultEnteredUnit: string | null; defaultEnteredValue: string | null;
+};
 async function listCats(s: Session) {
   return ((await (await s.fetchAuthed("/api/cats")).json()) as { cats: CatRow[] }).cats;
 }
@@ -30,8 +33,12 @@ async function listCats(s: Session) {
 const post = (s: Session, items: unknown[]) => s.fetchAuthed("/api/feedings", { method: "POST", body: JSON.stringify(items) });
 const pageOf = async (s: Session, qs: string) => FeedingsPageSchema.parse(await (await s.fetchAuthed(`/api/feedings?${qs}`)).json());
 
+const patch = (s: Session, fid: string, body: unknown) => s.fetchAuthed(`/api/feedings/${fid}`, { method: "PATCH", body: JSON.stringify(body) });
+const del = (s: Session, fid: string) => s.fetchAuthed(`/api/feedings/${fid}`, { method: "DELETE" });
+
 describe("/api/feedings", () => {
   beforeAll(applyAllMigrations);
+  afterEach(() => vi.mocked(clock.now).mockRestore?.());
 
   it("batch create is idempotent and updates the cat's last_fed_at and defaults", async () => {
     const { s, catId } = await houseWithCat();
@@ -125,7 +132,8 @@ describe("/api/feedings", () => {
     expect((await s.fetchAuthed(`/api/feedings/${f.id}`, { method: "DELETE" })).status).toBe(204);
     const after = await listCats(s);
     expect(after.find((c) => c.id === other)?.lastFedAt).toBeNull();
-    expect((await s.fetchAuthed(`/api/feedings/${f.id}`, { method: "DELETE" })).status).toBe(404);
+    // DELETE is idempotent: the feeding is gone either way.
+    expect((await s.fetchAuthed(`/api/feedings/${f.id}`, { method: "DELETE" })).status).toBe(204);
     expect((await pageOf(s, "limit=10")).items).toHaveLength(0);
   });
 
@@ -149,7 +157,7 @@ describe("/api/feedings", () => {
     const mine = await addCat(s2, "Mine");
     const r = await post(s2, [feeding(mine, 5), feeding(catId, 1)]);
     expect(r.status).toBe(404);
-    expect(await r.json()).toEqual({ error: "cat_not_found" });
+    expect(await r.json()).toEqual({ error: "cat_not_found", catIds: [catId] });
     expect((await pageOf(s2, "limit=10")).items).toHaveLength(0);
     expect((await pageOf(s, "limit=10")).items).toHaveLength(0);
   });
@@ -162,9 +170,244 @@ describe("/api/feedings", () => {
     await post(s, [f]);
     const r = await s.fetchAuthed(`/api/feedings/${f.id}`, { method: "PATCH", body: JSON.stringify({ catId: foreign }) });
     expect(r.status).toBe(404);
-    expect(await r.json()).toEqual({ error: "cat_not_found" });
+    expect(await r.json()).toEqual({ error: "cat_not_found", catIds: [foreign] });
     expect((await s2.fetchAuthed(`/api/feedings/${f.id}`, { method: "PATCH", body: JSON.stringify({ note: "x" }) })).status).toBe(404);
     expect((await s2.fetchAuthed(`/api/feedings/${f.id}`, { method: "DELETE" })).status).toBe(404);
+  });
+
+  describe("soft-deleted cats", () => {
+    it("still accept feedings: an outbox replay after a cat deletion must not poison the batch", async () => {
+      const { s, catId } = await houseWithCat();
+      const keep = await addCat(s, "Keeper");
+      const f = feeding(catId, 1_000);
+      expect((await post(s, [f])).status).toBe(201);
+      expect((await s.fetchAuthed(`/api/cats/${catId}`, { method: "DELETE" })).status).toBe(204);
+
+      // Same item again plus a fresh one for the deleted cat and one for a live cat.
+      const fresh = feeding(catId, 2_000);
+      const other = feeding(keep, 3_000);
+      const r = await post(s, [f, fresh, other]);
+      expect(r.status).toBe(201);
+      const body = (await r.json()) as { accepted: string[]; feedings: Array<{ id: string }> };
+      expect(body.accepted.sort()).toEqual([fresh.id, other.id].sort());
+      expect(body.feedings.map((x) => x.id)).toEqual([f.id, fresh.id, other.id]);
+
+      const replay = await post(s, [f]);
+      expect(replay.status).toBe(201);
+      expect(((await replay.json()) as { accepted: string[] }).accepted).toEqual([]);
+    });
+
+    it("can be the target of a PATCH move (history stays reachable)", async () => {
+      const { s, catId } = await houseWithCat();
+      const keep = await addCat(s, "Keeper");
+      await s.fetchAuthed(`/api/cats/${catId}`, { method: "DELETE" });
+      const f = feeding(keep, 1_000);
+      await post(s, [f]);
+      expect((await patch(s, f.id, { catId })).status).toBe(200);
+    });
+  });
+
+  it("reports every missing cat id and writes nothing", async () => {
+    const { s, catId } = await houseWithCat();
+    const ghost1 = id();
+    const ghost2 = id();
+    const r = await post(s, [feeding(catId, 1), feeding(ghost1, 2), feeding(ghost2, 3), feeding(ghost1, 4)]);
+    expect(r.status).toBe(404);
+    const body = (await r.json()) as { error: string; catIds: string[] };
+    expect(body.error).toBe("cat_not_found");
+    expect(body.catIds.sort()).toEqual([ghost1, ghost2].sort());
+    expect((await pageOf(s, "limit=10")).items).toHaveLength(0);
+  });
+
+  describe("fedAt bounds", () => {
+    it("rejects fedAt 0 on POST and PATCH with 400 invalid_request (the DB CHECK must never answer)", async () => {
+      const { s, catId } = await houseWithCat();
+      const r = await post(s, [feeding(catId, 0)]);
+      expect(r.status).toBe(400);
+      expect(((await r.json()) as { error: string }).error).toBe("invalid_request");
+      const f = feeding(catId, 1_000);
+      await post(s, [f]);
+      const p = await patch(s, f.id, { fedAt: 0 });
+      expect(p.status).toBe(400);
+      expect(((await p.json()) as { error: string }).error).toBe("invalid_request");
+    });
+
+    it("rejects a fedAt more than 5 minutes ahead of the server clock, whole batch, listing offenders", async () => {
+      const { s, catId } = await houseWithCat();
+      const now = 10_000_000;
+      vi.spyOn(clock, "now").mockReturnValue(now);
+      const ok = feeding(catId, now + 300_000);
+      const bad = feeding(catId, now + 300_001);
+      const r = await post(s, [ok, bad]);
+      expect(r.status).toBe(400);
+      expect(await r.json()).toEqual({ error: "fedat_in_future", maxMs: now + 300_000, ids: [bad.id] });
+      expect((await pageOf(s, "limit=10")).items).toHaveLength(0);
+      // The boundary itself is fine.
+      expect((await post(s, [ok])).status).toBe(201);
+
+      const p = await patch(s, ok.id, { fedAt: now + 300_001 });
+      expect(p.status).toBe(400);
+      expect(await p.json()).toEqual({ error: "fedat_in_future", maxMs: now + 300_000 });
+      expect((await patch(s, ok.id, { fedAt: now + 300_000 })).status).toBe(200);
+    });
+  });
+
+  it("answers 409 id_conflict when an id belongs to another house, writing nothing and leaving their row alone", async () => {
+    const { s, catId } = await houseWithCat();
+    const theirs = feeding(catId, 1_000, 11000);
+    await post(s, [theirs]);
+    const s2 = await signup();
+    const mine = await addCat(s2, "Mine");
+    const innocent = feeding(mine, 5_000);
+    const r = await post(s2, [innocent, { ...theirs, catId: mine, amountMg: 99000, enteredValue: "99" }]);
+    expect(r.status).toBe(409);
+    expect(await r.json()).toEqual({ error: "id_conflict", ids: [theirs.id] });
+    expect((await pageOf(s2, "limit=10")).items).toHaveLength(0);
+    const back = await pageOf(s, "limit=10");
+    expect(back.items).toHaveLength(1);
+    expect(back.items[0]).toMatchObject({ id: theirs.id, amountMg: 11000, houseId: s.houseId });
+  });
+
+  describe("delete", () => {
+    it("is idempotent for own deleted feedings and 404 for unknown or foreign ids", async () => {
+      const { s, catId } = await houseWithCat();
+      const f = feeding(catId, 1_000);
+      await post(s, [f]);
+      expect((await del(s, f.id)).status).toBe(204);
+      expect((await del(s, f.id)).status).toBe(204);
+      expect((await del(s, id())).status).toBe(404);
+      const s2 = await signup();
+      expect((await del(s2, f.id)).status).toBe(404);
+    });
+
+    it("a replay of a soft-deleted id lands in neither accepted nor feedings (no resurrection)", async () => {
+      const { s, catId } = await houseWithCat();
+      const f = feeding(catId, 1_000);
+      await post(s, [f]);
+      await del(s, f.id);
+      const r = await post(s, [f]);
+      expect(r.status).toBe(201);
+      expect(await r.json()).toEqual({ accepted: [], feedings: [] });
+      expect((await pageOf(s, "limit=10")).items).toHaveLength(0);
+    });
+
+    it("deleting the last feeding nulls lastFedAt and all three defaults", async () => {
+      const { s, catId } = await houseWithCat();
+      const f = feeding(catId, 1_000);
+      await post(s, [f]);
+      expect((await listCats(s))[0]).toMatchObject({ lastFedAt: 1_000, defaultAmountMg: 40000, defaultEnteredUnit: "g", defaultEnteredValue: "40" });
+      await del(s, f.id);
+      expect((await listCats(s))[0]).toMatchObject({ lastFedAt: null, defaultAmountMg: null, defaultEnteredUnit: null, defaultEnteredValue: null });
+    });
+  });
+
+  it("stores a valid x-client-id with source web and ignores a malformed one", async () => {
+    const { s, catId } = await houseWithCat();
+    const a = feeding(catId, 1_000);
+    const b = feeding(catId, 2_000);
+    const c = feeding(catId, 3_000);
+    const send = (f: unknown, clientId: string) =>
+      s.fetchAuthed("/api/feedings", { method: "POST", headers: { "x-client-id": clientId }, body: JSON.stringify([f]) });
+    await send(a, "tab-7_A");
+    await send(b, "has spaces!");
+    await send(c, "x".repeat(65));
+    const items = (await pageOf(s, "limit=10")).items;
+    const by = (fid: string) => items.find((i) => i.id === fid);
+    expect(by(a.id)).toMatchObject({ clientId: "tab-7_A", source: "web", deviceId: null });
+    expect(by(b.id)).toMatchObject({ clientId: null, source: "web" });
+    expect(by(c.id)).toMatchObject({ clientId: null, source: "web" });
+  });
+
+  it("a pure replay does not bump the cat's modifiedAt, a real change does", async () => {
+    const { s, catId } = await houseWithCat();
+    const now = vi.spyOn(clock, "now");
+    const f = feeding(catId, 1_000);
+    now.mockReturnValue(1_000_000_000_000);
+    await post(s, [f]);
+    expect((await listCats(s))[0]?.modifiedAt).toBe(1_000_000_000_000);
+    now.mockReturnValue(1_000_000_001_000);
+    await post(s, [f]);
+    expect((await patch(s, f.id, { note: "same defaults" })).status).toBe(200);
+    expect((await listCats(s))[0]?.modifiedAt).toBe(1_000_000_000_000);
+    now.mockReturnValue(1_000_000_002_000);
+    await patch(s, f.id, { amountMg: 1234, enteredUnit: "g", enteredValue: "1.2" });
+    expect((await listCats(s))[0]?.modifiedAt).toBe(1_000_000_002_000);
+  });
+
+  it("returns feedings in request order", async () => {
+    const { s, catId } = await houseWithCat();
+    const items = [5, 1, 4, 2, 3].map((n) => feeding(catId, n * 1000));
+    const body = (await (await post(s, items)).json()) as { feedings: Array<{ id: string }> };
+    expect(body.feedings.map((f) => f.id)).toEqual(items.map((i) => i.id));
+  });
+
+  it("ties on fedAt for one cat take the defaults from the larger id", async () => {
+    const { s, catId } = await houseWithCat();
+    const small = { ...feeding(catId, 4_000, 10000), id: "00000000-0000-4000-8000-000000000001" };
+    const large = { ...feeding(catId, 4_000, 20000), id: "00000000-0000-4000-8000-000000000002" };
+    // Insert the larger id first so insertion order cannot be what decides it.
+    await post(s, [large]);
+    await post(s, [small]);
+    expect((await listCats(s))[0]).toMatchObject({ lastFedAt: 4_000, defaultAmountMg: 20000 });
+  });
+
+  it("a multi-cat batch refreshes each cat with its own latest feeding", async () => {
+    const { s, catId } = await houseWithCat();
+    const other = await addCat(s);
+    await post(s, [feeding(catId, 1_000, 10000), feeding(other, 2_000, 20000), feeding(catId, 3_000, 30000), feeding(other, 1_500, 15000)]);
+    const cats = await listCats(s);
+    expect(cats.find((c) => c.id === catId)).toMatchObject({ lastFedAt: 3_000, defaultAmountMg: 30000 });
+    expect(cats.find((c) => c.id === other)).toMatchObject({ lastFedAt: 2_000, defaultAmountMg: 20000 });
+  });
+
+  it("concurrent identical POSTs accept each item exactly once between them", async () => {
+    const { s, catId } = await houseWithCat();
+    const items = Array.from({ length: 10 }, (_, n) => feeding(catId, 1_000 + n));
+    const [a, b] = await Promise.all([post(s, items), post(s, items)]);
+    expect([a.status, b.status]).toEqual([201, 201]);
+    const accA = ((await a.json()) as { accepted: string[] }).accepted;
+    const accB = ((await b.json()) as { accepted: string[] }).accepted;
+    expect(accA.filter((x) => accB.includes(x))).toEqual([]);
+    expect([...accA, ...accB].sort()).toEqual(items.map((i) => i.id).sort());
+    expect((await listCats(s))[0]?.lastFedAt).toBe(1_009);
+    expect((await pageOf(s, "limit=200")).items).toHaveLength(10);
+  });
+
+  describe("query and body validation", () => {
+    it("limit must be 1..200", async () => {
+      const { s } = await houseWithCat();
+      expect((await s.fetchAuthed("/api/feedings?limit=0")).status).toBe(400);
+      expect((await s.fetchAuthed("/api/feedings?limit=201")).status).toBe(400);
+      expect((await s.fetchAuthed("/api/feedings?limit=200")).status).toBe(200);
+    });
+
+    it("from and to are capped like fedAt; to < from is an empty page", async () => {
+      const { s, catId } = await houseWithCat();
+      await post(s, [feeding(catId, 5_000)]);
+      expect((await s.fetchAuthed("/api/feedings?from=4102444800001")).status).toBe(400);
+      expect((await s.fetchAuthed("/api/feedings?to=4102444800001")).status).toBe(400);
+      const r = await s.fetchAuthed("/api/feedings?from=9000&to=1000");
+      expect(r.status).toBe(200);
+      expect(FeedingsPageSchema.parse(await r.json())).toEqual({ items: [], nextCursor: null });
+    });
+
+    it("PATCH note null clears the note; a note over 200 chars is a 400 on POST and PATCH", async () => {
+      const { s, catId } = await houseWithCat();
+      const f = { ...feeding(catId, 1_000), note: "dry" };
+      await post(s, [f]);
+      expect((await pageOf(s, "limit=1")).items[0]?.note).toBe("dry");
+      expect((await patch(s, f.id, { note: null })).status).toBe(200);
+      expect((await pageOf(s, "limit=1")).items[0]?.note).toBeNull();
+      expect((await patch(s, f.id, { note: "x".repeat(201) })).status).toBe(400);
+      expect((await post(s, [{ ...feeding(catId, 2_000), note: "x".repeat(201) }])).status).toBe(400);
+    });
+
+    it("PATCH with amountMg alone is a 400 (the amount fields travel together)", async () => {
+      const { s, catId } = await houseWithCat();
+      const f = feeding(catId, 1_000);
+      await post(s, [f]);
+      expect((await patch(s, f.id, { amountMg: 5000 })).status).toBe(400);
+    });
   });
 
   it("requires auth", async () => {

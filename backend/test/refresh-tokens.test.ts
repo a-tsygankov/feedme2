@@ -27,9 +27,9 @@ describe("RefreshTokensRepo.consume", () => {
 
     expect(await repo.consume(token, t0 + 1000)).toEqual({ kind: "ok", houseId, id });
     // A lost response or a second tab: same token again, soon after.
-    expect(await repo.consume(token, t0 + 1000 + 5_000)).toEqual({ kind: "grace", houseId });
+    expect(await repo.consume(token, t0 + 1000 + 5_000)).toEqual({ kind: "grace", houseId, id });
     // The grace window is anchored at the first consume, not extended by retries.
-    expect(await repo.consume(token, t0 + 1000 + 59_000)).toEqual({ kind: "grace", houseId });
+    expect(await repo.consume(token, t0 + 1000 + 59_000)).toEqual({ kind: "grace", houseId, id });
     expect(await repo.consume(token, t0 + 1000 + 120_000)).toEqual({ kind: "replayed", houseId });
   });
 

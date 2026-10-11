@@ -1,7 +1,8 @@
-import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { encodeFeedingsCursor, type Feeding, type FeedingCreate, type FeedingPatch } from "@feedme2/shared";
 import type { Db } from "../db/client.ts";
 import { cats, feedings } from "../db/schema.ts";
+import type { CatsRepo } from "./cats.ts";
 
 type Row = typeof feedings.$inferSelect;
 
@@ -27,8 +28,25 @@ export interface PageQuery {
 // created, modified), so 7 rows = 91. A full 100-item POST (the schema max)
 // otherwise fails with "too many SQL variables".
 const INSERT_CHUNK_ROWS = 7;
-// inArray() on ids binds one parameter each plus the house id.
-const LOOKUP_CHUNK = 50;
+// inArray() on ids binds one parameter each plus the house id (<= 91 of 100).
+const LOOKUP_CHUNK = 90;
+
+/** Who wrote the feedings: the web app (optionally tagged by a tab/client id) or a device. */
+export type FeedingOrigin = { source: "web"; clientId: string | null } | { source: "device"; deviceId: string };
+
+/**
+ * The cat ids (distinct, first-seen order) that are NOT cats of this house.
+ * A soft-deleted cat of the house counts as present: its row still satisfies
+ * the composite FK, its history stays reachable, and an outbox replay made
+ * after the cat was deleted must not poison the whole batch. Another house's
+ * cat is reported exactly like a nonexistent one. Shared by the web route and
+ * the Phase 2 device route.
+ */
+export async function assertCatsInHouse(catsRepo: CatsRepo, houseId: string, catIds: Iterable<string>): Promise<string[]> {
+  const distinct = [...new Set(catIds)];
+  const present = await catsRepo.idsInHouse(houseId, distinct);
+  return distinct.filter((id) => !present.has(id));
+}
 
 function chunks<T>(xs: T[], n: number): T[][] {
   const out: T[][] = [];
@@ -64,6 +82,11 @@ export class FeedingsRepo {
     return this.db.query.feedings.findFirst({ where: and(eq(feedings.houseId, houseId), eq(feedings.id, id), isNull(feedings.deletedAt)) });
   }
 
+  /** The feeding of this house with this id, soft-deleted or not (idempotent DELETE). */
+  getAnyInHouse(houseId: string, id: string): Promise<Row | undefined> {
+    return this.db.query.feedings.findFirst({ where: and(eq(feedings.houseId, houseId), eq(feedings.id, id)) });
+  }
+
   /** Live feedings of this house among `ids`, in unspecified order. */
   async getMany(houseId: string, ids: string[]): Promise<Row[]> {
     const out: Row[] = [];
@@ -76,33 +99,52 @@ export class FeedingsRepo {
   }
 
   /**
+   * Which of `ids` already exist as feedings of ANOTHER house (deleted or
+   * not). The primary key is global, so such an id can never be written by
+   * this house; the route turns it into a 409 instead of silently dropping it.
+   */
+  async idsOwnedByOtherHouses(houseId: string, ids: string[]): Promise<string[]> {
+    const out: string[] = [];
+    for (const part of chunks(ids, LOOKUP_CHUNK)) {
+      const rows = await this.db
+        .select({ id: feedings.id })
+        .from(feedings)
+        .where(and(inArray(feedings.id, part), ne(feedings.houseId, houseId)));
+      out.push(...rows.map((r) => r.id));
+    }
+    return out;
+  }
+
+  /**
    * Inserts the items whose id is new and returns the ids actually inserted.
    *
    * Chunked inserts and the cat-default refreshes go in ONE db.batch (D1 runs
    * a batch as a single transaction), so a failure part-way leaves neither
    * orphan feedings nor stale cat defaults. `accepted` comes from
    * `.returning({id})` on `ON CONFLICT DO NOTHING`: only rows really inserted
-   * come back, which also covers an id that already exists in another house
-   * (ignored, never leaked) and replays of an earlier batch.
+   * come back, so replays of an earlier batch (including of a soft-deleted
+   * feeding: the row still exists, nothing is resurrected) are not accepted.
    *
-   * Callers must have verified every catId belongs to the house.
+   * The refreshes always run, even when nothing was accepted (a pure replay),
+   * because a second batch would give up the all-or-nothing guarantee. They
+   * are cheap no-ops then: the refresh only writes when a default actually
+   * differs, so a replay does not bump cat.modified_at.
+   *
+   * Callers must have verified every catId belongs to the house
+   * (assertCatsInHouse) and that no id belongs to another house.
    */
-  async createMany(
-    houseId: string,
-    items: FeedingCreate[],
-    source: "web" | "device",
-    origin: { clientId?: string; deviceId?: string },
-    nowMs: number,
-  ): Promise<string[]> {
+  async createMany(houseId: string, items: FeedingCreate[], origin: FeedingOrigin, nowMs: number): Promise<string[]> {
     const unique = items.filter((i, idx) => items.findIndex((j) => j.id === i.id) === idx);
     if (unique.length === 0) return [];
+    const clientId = origin.source === "web" ? origin.clientId : null;
+    const deviceId = origin.source === "device" ? origin.deviceId : null;
     const inserts = chunks(unique, INSERT_CHUNK_ROWS).map((part) =>
       this.db
         .insert(feedings)
         .values(
           part.map((i) => ({
             id: i.id, houseId, catId: i.catId, fedAt: i.fedAt, amountMg: i.amountMg, enteredUnit: i.enteredUnit,
-            enteredValue: i.enteredValue, source, deviceId: origin.deviceId ?? null, clientId: origin.clientId ?? null,
+            enteredValue: i.enteredValue, source: origin.source, deviceId, clientId,
             note: i.note ?? null, createdAt: nowMs, modifiedAt: nowMs,
           })),
         )
@@ -115,37 +157,57 @@ export class FeedingsRepo {
     return (results.slice(0, inserts.length) as Array<Array<{ id: string }>>).flat().map((r) => r.id);
   }
 
-  /** Patches a live feeding and refreshes the affected cats atomically. */
+  /**
+   * Patches a live feeding and refreshes the affected cats atomically.
+   * Returns undefined when there is no live feeding to patch.
+   *
+   * Without a catId change no pre-read is needed: the refresh finds the
+   * feeding's cat by subquery after the write (the same statement, so it
+   * cannot go stale). A move needs the OLD cat, which is unknowable once the
+   * row is rewritten, so it is read first and the write is guarded with
+   * `cat_id = <that cat>`; if a concurrent request moved the feeding in
+   * between, the guarded write matches nothing and we re-read and retry
+   * rather than leave the intermediate cat's defaults stale.
+   */
   async update(houseId: string, id: string, patch: FeedingPatch, nowMs: number): Promise<Row | undefined> {
-    const before = await this.get(houseId, id);
-    if (!before) return undefined;
-    const write = this.db
-      .update(feedings)
-      .set({ ...(patch as Partial<typeof feedings.$inferInsert>), modifiedAt: nowMs })
-      .where(and(eq(feedings.houseId, houseId), eq(feedings.id, id), isNull(feedings.deletedAt)));
-    const catIds = new Set([before.catId]);
-    if (patch.catId) catIds.add(patch.catId);
-    const refreshes = [...catIds].map((catId) => this.catDefaultsStatement(houseId, catId, nowMs));
-    await this.db.batch([write, ...refreshes] as unknown as [typeof write, ...(typeof write)[]]);
-    return this.get(houseId, id);
+    const set = { ...(patch as Partial<typeof feedings.$inferInsert>), modifiedAt: nowMs };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const before = patch.catId ? await this.get(houseId, id) : undefined;
+      if (patch.catId && !before) return undefined;
+      const write = this.db
+        .update(feedings)
+        .set(set)
+        .where(and(eq(feedings.houseId, houseId), eq(feedings.id, id), isNull(feedings.deletedAt), before ? eq(feedings.catId, before.catId) : undefined))
+        .returning();
+      const refreshes = before
+        ? [...new Set([before.catId, patch.catId!])].map((catId) => this.catDefaultsStatement(houseId, catId, nowMs))
+        : [this.catDefaultsStatement(houseId, this.catOfFeeding(houseId, id), nowMs)];
+      const [rows] = (await this.db.batch([write, ...refreshes] as unknown as [typeof write, ...(typeof write)[]])) as unknown as [Row[]];
+      if (rows[0]) return rows[0];
+      if (!before) return undefined; // not live
+    }
+    throw new Error("feeding update lost the race three times");
   }
 
-  /** Returns false when there was no live feeding to delete. */
+  /**
+   * Soft-deletes a live feeding; returns false when there was none. The
+   * refresh locates the cat through the (soft-deleted, still present) row, so
+   * no pre-read is needed and the write and refresh share one transaction.
+   */
   async softDelete(houseId: string, id: string, nowMs: number): Promise<boolean> {
-    const before = await this.get(houseId, id);
-    if (!before) return false;
     const write = this.db
       .update(feedings)
       .set({ deletedAt: nowMs, modifiedAt: nowMs })
-      .where(and(eq(feedings.houseId, houseId), eq(feedings.id, id), isNull(feedings.deletedAt)));
-    const refresh = this.catDefaultsStatement(houseId, before.catId, nowMs);
-    await this.db.batch([write, refresh] as unknown as [typeof write, (typeof write)]);
-    return true;
+      .where(and(eq(feedings.houseId, houseId), eq(feedings.id, id), isNull(feedings.deletedAt)))
+      .returning({ id: feedings.id });
+    const refresh = this.catDefaultsStatement(houseId, this.catOfFeeding(houseId, id), nowMs);
+    const [rows] = (await this.db.batch([write, refresh] as unknown as [typeof write, typeof write])) as unknown as [Array<{ id: string }>];
+    return rows.length > 0;
   }
 
-  /** Standalone recompute; the write paths above fold the same statement into their batch. */
-  async refreshCatDefaults(houseId: string, catId: string, nowMs: number): Promise<void> {
-    await this.catDefaultsStatement(houseId, catId, nowMs);
+  /** SQL for "the cat this feeding belongs to", valid before and after the feeding is soft-deleted. */
+  private catOfFeeding(houseId: string, feedingId: string): SQL {
+    return sql`(select cat_id from feedings where id = ${feedingId} and house_id = ${houseId})`;
   }
 
   /**
@@ -154,19 +216,32 @@ export class FeedingsRepo {
    * UPDATE with correlated subqueries (newest live feeding by fed_at desc,
    * id desc) instead of read-then-write, so it can sit after the feeding
    * write inside a db.batch and still see it.
+   *
+   * It only writes when one of the four values would change, so replays and
+   * no-op edits (a note change) leave cats.modified_at alone. `is not` is the
+   * null-safe inequality.
    */
-  private catDefaultsStatement(houseId: string, catId: string, nowMs: number) {
-    const latest = <T>(col: unknown) =>
-      sql<T | null>`(select ${col} from ${feedings} where ${feedings.houseId} = ${houseId} and ${feedings.catId} = ${catId} and ${feedings.deletedAt} is null order by ${feedings.fedAt} desc, ${feedings.id} desc limit 1)`;
+  private catDefaultsStatement(houseId: string, cat: string | SQL, nowMs: number) {
+    const latest = <T>(col: string) =>
+      sql<T | null>`(select ${sql.raw(col)} from feedings where feedings.house_id = ${houseId} and feedings.cat_id = ${cat} and feedings.deleted_at is null order by feedings.fed_at desc, feedings.id desc limit 1)`;
+    const lastFedAt = latest<number>("fed_at");
+    const amountMg = latest<number>("amount_mg");
+    const unit = latest<string>("entered_unit");
+    const value = latest<string>("entered_value");
     return this.db
       .update(cats)
-      .set({
-        lastFedAt: latest<number>(sql.raw("fed_at")),
-        defaultAmountMg: latest<number>(sql.raw("amount_mg")),
-        defaultEnteredUnit: latest<string>(sql.raw("entered_unit")),
-        defaultEnteredValue: latest<string>(sql.raw("entered_value")),
-        modifiedAt: nowMs,
-      })
-      .where(and(eq(cats.houseId, houseId), eq(cats.id, catId)));
+      .set({ lastFedAt, defaultAmountMg: amountMg, defaultEnteredUnit: unit, defaultEnteredValue: value, modifiedAt: nowMs })
+      .where(
+        and(
+          eq(cats.houseId, houseId),
+          typeof cat === "string" ? eq(cats.id, cat) : sql`${cats.id} = ${cat}`,
+          or(
+            sql`${cats.lastFedAt} is not ${lastFedAt}`,
+            sql`${cats.defaultAmountMg} is not ${amountMg}`,
+            sql`${cats.defaultEnteredUnit} is not ${unit}`,
+            sql`${cats.defaultEnteredValue} is not ${value}`,
+          ),
+        ),
+      );
   }
 }

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { Cat, FeedingCreate, House } from "@feedme2/shared";
+import type { Cat, Feeding, FeedingCreate, House } from "@feedme2/shared";
 import { textForMg } from "../lib/amount-stepper.ts";
 import { AmountStepper } from "./AmountStepper.tsx";
 import { Button } from "./Button.tsx";
@@ -12,20 +12,27 @@ interface Props {
   initialCatId: string | undefined;
   onClose: () => void;
   onSubmit: (items: FeedingCreate[]) => Promise<void> | void;
+  /** Edit mode: one existing feeding, so no "All cats" and the item keeps its id. */
+  editing?: Feeding;
 }
 
 const FALLBACK_MG = 40_000;
 const AGO = [0, 5, 15, 30] as const;
 
-export function FeedSheet({ house, cats, initialCatId, onClose, onSubmit }: Props) {
+/** datetime-local wants local wall-clock time, which toISOString() (UTC) would shift. */
+function localInputValue(ms: number): string {
+  return new Date(ms - new Date(ms).getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+export function FeedSheet({ house, cats, initialCatId, onClose, onSubmit, editing }: Props) {
   const s = house.settings;
   const [catId, setCatId] = useState(initialCatId);
   const selected = cats.filter((c) => catId === undefined || c.id === catId);
   const first = selected[0];
-  const [mg, setMg] = useState(first?.defaultAmountMg ?? FALLBACK_MG);
+  const [mg, setMg] = useState(editing?.amountMg ?? first?.defaultAmountMg ?? FALLBACK_MG);
   const [agoMin, setAgoMin] = useState<number>(0);
-  const [customTime, setCustomTime] = useState("");
-  const [note, setNote] = useState("");
+  const [customTime, setCustomTime] = useState(editing ? localInputValue(editing.fedAt) : "");
+  const [note, setNote] = useState(editing?.note ?? "");
   const [busy, setBusy] = useState(false);
 
   const fedAt = customTime ? new Date(customTime).getTime() : Date.now() - agoMin * 60_000;
@@ -34,7 +41,7 @@ export function FeedSheet({ house, cats, initialCatId, onClose, onSubmit }: Prop
     setBusy(true);
     const { enteredUnit, enteredValue } = textForMg(mg, s.foodUnit, s);
     const items: FeedingCreate[] = selected.map((c) => ({
-      id: crypto.randomUUID(), catId: c.id, fedAt,
+      id: editing?.id ?? crypto.randomUUID(), catId: c.id, fedAt,
       amountMg: catId === undefined ? (c.defaultAmountMg ?? mg) : mg,
       enteredUnit, enteredValue, ...(note.trim() ? { note: note.trim() } : {}),
     }));
@@ -44,11 +51,12 @@ export function FeedSheet({ house, cats, initialCatId, onClose, onSubmit }: Prop
   }
 
   return (
-    <Sheet title={catId === undefined ? "Feed everyone" : `Feed ${first?.name ?? ""}`} onClose={onClose} testId="feed-sheet">
+    <Sheet title={editing ? "Edit feeding" : catId === undefined ? "Feed everyone" : `Feed ${first?.name ?? ""}`} onClose={onClose} testId="feed-sheet">
       {cats.length > 1 ? (
         <div className="mb-4 flex flex-wrap gap-2" data-testid="feed-cat-chips">
-          <Chip active={catId === undefined} onClick={() => setCatId(undefined)}>All cats</Chip>
-          {cats.map((c) => <Chip key={c.id} active={catId === c.id} onClick={() => { setCatId(c.id); setMg(c.defaultAmountMg ?? FALLBACK_MG); }}>{c.name}</Chip>)}
+          {editing ? null : <Chip active={catId === undefined} onClick={() => setCatId(undefined)}>All cats</Chip>}
+          {/* Editing keeps the recorded amount when the cat is switched. */}
+          {cats.map((c) => <Chip key={c.id} active={catId === c.id} onClick={() => { setCatId(c.id); if (!editing) setMg(c.defaultAmountMg ?? FALLBACK_MG); }}>{c.name}</Chip>)}
         </div>
       ) : null}
       {catId === undefined ? (
@@ -62,7 +70,7 @@ export function FeedSheet({ house, cats, initialCatId, onClose, onSubmit }: Prop
       </div>
       <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" maxLength={200}
         className="mt-4 block w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" data-testid="feed-note" />
-      <Button className="mt-4 w-full" onClick={() => void submit()} disabled={busy || selected.length === 0} data-testid="feed-submit">Log feeding</Button>
+      <Button className="mt-4 w-full" onClick={() => void submit()} disabled={busy || selected.length === 0} data-testid="feed-submit">{editing ? "Save changes" : "Log feeding"}</Button>
     </Sheet>
   );
 }

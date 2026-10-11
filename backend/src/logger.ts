@@ -5,7 +5,7 @@
  * after the response (spec D10). /api/debug/logs reads those rows.
  */
 import { Logger, type LogEntry, type LogSink } from "@feedme2/shared";
-import { MAX_PENDING_PER_REQUEST, currentRequest } from "./request-context.ts";
+import { queueLogEntry } from "./request-context.ts";
 
 export { Logger };
 export type { LogSink };
@@ -23,13 +23,13 @@ export class ConsoleSink implements LogSink {
 
 /**
  * Queues entries on the current request; the request middleware flushes
- * them to D1 once the response is out. Outside a request (the cron)
- * nothing is queued: console only.
+ * them to D1 once the response is out. Outside a request (the cron), or
+ * after the flush, nothing is queued: console only. Lines over the
+ * per-request cap are counted and reported at flush, not silently lost.
  */
 export class D1Sink implements LogSink {
   write(entry: LogEntry): void {
-    const store = currentRequest();
-    if (store && store.pending.length < MAX_PENDING_PER_REQUEST) store.pending.push(entry);
+    queueLogEntry(entry);
   }
 }
 

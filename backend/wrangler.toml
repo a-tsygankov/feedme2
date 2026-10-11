@@ -17,8 +17,8 @@ migrations_dir = "migrations"
 binding = "FIRMWARE"
 bucket_name = "feedme2-firmware"
 
-# Hourly housekeeping (log retention, expired tokens) — the handler is
-# a no-op until Phase 1 gives it something to prune.
+# Hourly housekeeping (src/cron.ts): prunes persisted log entries (7 days,
+# 5 000 rows per house) and expired refresh tokens.
 [triggers]
 crons = ["0 * * * *"]
 

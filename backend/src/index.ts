@@ -6,7 +6,7 @@ import { db } from "./db/client.ts";
 import { log } from "./logger.ts";
 import { verifyAccessToken } from "./auth/tokens.ts";
 import type { AuthVars } from "./middleware/auth.ts";
-import { flushRequestLogs, runWithRequestContext } from "./request-context.ts";
+import { beginFinalLine, flushRequestLogs, parseClientId, runWithRequestContext } from "./request-context.ts";
 import { authRouter } from "./routes/auth.ts";
 import { catsRouter } from "./routes/cats.ts";
 import { debugRouter } from "./routes/debug.ts";
@@ -14,6 +14,11 @@ import { feedingsRouter } from "./routes/feedings.ts";
 import { houseRouter } from "./routes/house.ts";
 import { logsRouter } from "./routes/logs.ts";
 import { versionRouter } from "./routes/version.ts";
+
+/** Keeps a worker row's data under the repo's 1 KB cap with room for the other fields. */
+const MAX_ERROR_CHARS = 300;
+const MAX_PATH_CHARS = 120;
+const MAX_STACK_CHARS = 400;
 
 const app = new Hono<{ Bindings: Bindings } & AuthVars>();
 
@@ -33,28 +38,42 @@ app.use("*", async (c, next) => {
   // Same scheme parsing as requireHouse: the scheme is case-insensitive.
   const token = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("Authorization") ?? "")?.[1] ?? "";
   const auth = token ? await verifyAccessToken(token, c.env.AUTH_SECRET) : null;
-  await runWithRequestContext(auth?.houseId ?? null, async () => {
+  const clientId = parseClientId(c.req.header("x-client-id"));
+  await runWithRequestContext({ houseId: auth?.houseId ?? null, clientId }, async () => {
     // Hono's compose() hands a thrown handler error to app.onError and
     // records it on c.error rather than rejecting next(), so a
     // try/catch here would never see it.
     await next();
     if (!skip) {
+      // The request line must survive a handler that flooded the log.
+      beginFinalLine();
+      // Capped: both fields are attacker-influenced and the row's data is limited to 1 KB.
+      const fields = { method: c.req.method, path: path.slice(0, MAX_PATH_CHARS), status: c.res.status, durationMs: Date.now() - start };
       if (c.error) {
         // A 4xx HTTPException (malformed JSON, say) is the client's
         // mistake, not ours: warn, so error-level stays a real alarm.
         const clientFault = c.error instanceof HTTPException && c.error.status < 500;
-        const fields = { method: c.req.method, path, status: c.res.status, durationMs: Date.now() - start, error: c.error.message };
-        if (clientFault) log.warn("request failed", fields);
-        else log.error("request failed", fields);
+        const failed = { ...fields, error: c.error.message.slice(0, MAX_ERROR_CHARS) };
+        if (clientFault) log.warn("request failed", failed);
+        else log.error("request failed", failed);
+      } else if (fields.status >= 500) {
+        log.error("request", fields);
+      } else if (fields.status >= 400 && auth) {
+        // Anonymous 4xx (scanners, 404s, 401s) stays info: a warn would be
+        // persisted, and unauthenticated callers must not buy D1 writes.
+        log.warn("request", fields);
       } else {
-        log.info("request", { method: c.req.method, path, status: c.res.status, durationMs: Date.now() - start });
+        log.info("request", fields);
       }
     }
     // executionCtx throws when there is none (app.request in unit tests):
-    // then await the write instead of handing it to waitUntil.
+    // then await the write instead of handing it to waitUntil. Local dev
+    // awaits too: a waitUntil write races the client's next read (the
+    // hidden console polling right after an action), which is only a
+    // cosmetic flake in production but makes dev and tests nondeterministic.
     let ctx: Pick<ExecutionContext, "waitUntil"> | null;
     try {
-      ctx = c.executionCtx;
+      ctx = c.env.ENVIRONMENT === "development" ? null : c.executionCtx;
     } catch {
       ctx = null;
     }
@@ -70,10 +89,10 @@ app.onError((err, c) => {
   if (err instanceof HTTPException) return err.getResponse();
   log.error("unhandled", {
     method: c.req.method,
-    path: new URL(c.req.url).pathname,
-    name: err.name,
-    error: err.message,
-    stack: err.stack?.slice(0, 1000),
+    path: new URL(c.req.url).pathname.slice(0, MAX_PATH_CHARS),
+    name: err.name.slice(0, 40),
+    error: err.message.slice(0, MAX_ERROR_CHARS),
+    stack: err.stack?.slice(0, MAX_STACK_CHARS),
   });
   return c.json({ error: "internal" }, 500);
 });

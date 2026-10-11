@@ -49,22 +49,26 @@ export function CatPage() {
   ]);
 
   /**
-   * Drain the outbox, then report what happened: a dropped op (the server
-   * refused it) is an error, an offline stop is patched into the history cache
-   * by hand (a refetch would just bring the old row back), otherwise refetch.
+   * Drain the outbox, then report what happened: a dropped op (the server refused it) is an error; anything still
+   * queued afterwards (offline, a server error, another tab holding the sync lock) is patched into the history
+   * cache by hand, because a refetch would just bring the old row back; otherwise refetch.
    * `optimistic` is the feeding as it should look (null = gone from this cat's history).
-   * TODO(sync-engine review): the engine reports a 4xx drop only through its
-   * counters and log, with no reason; show the server's message here once the
-   * engine exposes it.
+   * The engine also reports drops with their reason through onDrained (main.tsx shows the banner); this notice is
+   * the local, in-context echo of the same event.
    */
   async function settle(feedingId: string, optimistic: Feeding | null) {
-    const result = await syncEngine.drain();
-    if (result.dropped > 0) {
+    let dropped = 0;
+    try {
+      dropped = (await syncEngine.drain()).dropped;
+    } catch {
+      // drain() is not supposed to reject; if it does, the op is still queued, which the check below handles.
+    }
+    if (dropped > 0) {
       setNotice(DROPPED);
       await refresh();
       return;
     }
-    if (syncEngine.getSnapshot().status === "offline") {
+    if (syncEngine.getSnapshot().pending > 0) {
       qc.setQueryData<HistoryData>(historyKey(id), (old) => replaceFeeding(old, feedingId, optimistic));
       setNotice(SAVED_OFFLINE);
       return;

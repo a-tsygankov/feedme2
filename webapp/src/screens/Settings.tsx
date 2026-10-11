@@ -74,7 +74,7 @@ export function Settings() {
   const preset = presetForMg(canMg);
 
   /** Validate everything, save what is valid and show an inline error for what is not. */
-  function commit(partial: Partial<SettingsForm> = {}) {
+  function commit(partial: Partial<SettingsForm> = {}, onFail?: () => void) {
     const { patch, errors: errs } = settingsPatchFromForm({ ...form, ...partial }, settings);
     setErrors(errs);
     const typed: Draft = {};
@@ -83,7 +83,7 @@ export function Settings() {
     // Once saved (or unchanged) a field shows the stored value again; one with an error keeps what was typed.
     const settle = () => setDraft((d) => Object.fromEntries(Object.entries(d).filter(([k]) => k in errs)) as Draft);
     // The server rejects an empty patch, so an untouched field must not send anything.
-    if (Object.keys(patch).length > 0) patchHouse.mutate(patch, { onSuccess: settle });
+    if (Object.keys(patch).length > 0) patchHouse.mutate(patch, { onSuccess: settle, ...(onFail ? { onError: onFail } : {}) });
     else settle();
   }
 
@@ -207,7 +207,11 @@ export function Settings() {
                     return;
                   }
                   setCustomCan(false);
-                  commit({ canSizeGrams: String(Number(e.target.value) / 1000) });
+                  // A failed save must not leave the picked size on screen as if it were stored: fall back to house.data.
+                  commit({ canSizeGrams: String(Number(e.target.value) / 1000) }, () => {
+                    setDraft((d) => Object.fromEntries(Object.entries(d).filter(([k]) => k !== "canSizeGrams")) as Draft);
+                    setCustomCan(null);
+                  });
                 }}
                 options={[...CAN_PRESETS.map((p) => ({ value: String(p.mg), label: p.label })), { value: "custom", label: `Custom (${canMg / 1000} g)` }]} />
               {customMode ? (

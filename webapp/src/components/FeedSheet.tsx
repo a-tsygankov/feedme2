@@ -30,6 +30,9 @@ export function FeedSheet({ house, cats, initialCatId, onClose, onSubmit, editin
   const [agoMin, setAgoMin] = useState<number>(0);
   const [customTime, setCustomTime] = useState(editing ? localInputValue(editing.fedAt) : "");
   const [note, setNote] = useState(editing?.note ?? "");
+  // The time input holds minutes, so round-tripping an untouched edit through it loses the seconds (and, around a DST
+  // change, can land an hour off). Until the user picks a time, an edit keeps editing.fedAt exactly.
+  const [timeTouched, setTimeTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,15 +48,16 @@ export function FeedSheet({ house, cats, initialCatId, onClose, onSubmit, editin
 
   // Render-time clock is only for the picker's `max` and the inline hint; submit() re-reads the clock itself.
   const renderNow = Date.now();
-  const problem = customTime ? timeProblem(fedAtFrom({ customTime, agoMin, now: renderNow }), renderNow) : null;
+  const keepTime = editing !== undefined && !timeTouched;
+  const problem = customTime && !keepTime ? timeProblem(fedAtFrom({ customTime, agoMin, now: renderNow }), renderNow) : null;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (busy) return;
     // Read at tap time, not render time: a sheet left open for ten minutes must not log "Now" as ten minutes ago.
     const now = Date.now();
-    const fedAt = fedAtFrom({ customTime, agoMin, now });
-    const bad = timeProblem(fedAt, now);
+    const fedAt = keepTime ? editing.fedAt : fedAtFrom({ customTime, agoMin, now });
+    const bad = keepTime ? null : timeProblem(fedAt, now);
     if (bad) { setError(bad); return; }
     setBusy(true);
     setError(null);
@@ -84,11 +88,11 @@ export function FeedSheet({ house, cats, initialCatId, onClose, onSubmit, editin
           <AmountStepper mg={mg} unit={s.foodUnit} settings={s} onChange={setMg} />
         )}
         <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="feed-time-chips">
-          {AGO.map((m) => <Chip key={m} active={!customTime && agoMin === m} onClick={() => { setCustomTime(""); setAgoMin(m); setError(null); }}>{m === 0 ? "Now" : `${m} min ago`}</Chip>)}
+          {AGO.map((m) => <Chip key={m} active={!customTime && agoMin === m} onClick={() => { setTimeTouched(true); setCustomTime(""); setAgoMin(m); setError(null); }}>{m === 0 ? "Now" : `${m} min ago`}</Chip>)}
           {/* Active exactly when the picker holds a value; clearing the picker hands the highlight back to the last ago chip. */}
-          <Chip active={customTime !== ""} onClick={() => { if (!customTime) { setCustomTime(localInputValue(Date.now())); setError(null); } }}>Custom</Chip>
+          <Chip active={customTime !== ""} onClick={() => { if (!customTime) { setTimeTouched(true); setCustomTime(localInputValue(Date.now())); setError(null); } }}>Custom</Chip>
           <input type="datetime-local" aria-label="Custom time" value={customTime} max={localInputValue(renderNow)}
-            onChange={(e) => { setCustomTime(e.target.value); setError(null); }} className={INPUT} data-testid="feed-custom-time" />
+            onChange={(e) => { setTimeTouched(true); setCustomTime(e.target.value); setError(null); }} className={INPUT} data-testid="feed-custom-time" />
         </div>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" aria-label="Note" maxLength={200}
           className={`mt-4 block w-full py-2 ${INPUT}`} data-testid="feed-note" />

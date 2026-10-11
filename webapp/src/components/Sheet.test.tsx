@@ -82,4 +82,12 @@ describe("Sheet", () => {
     expect(second).toHaveBeenCalledTimes(1);
     add.mockRestore();
   });
+
+  it("only removes the body scroll lock if this sheet was the one that added it", () => {
+    // Another owner (a second sheet, a menu) already locked scroll: closing this sheet must not unlock it.
+    document.body.classList.add("overflow-hidden");
+    show(<Sheet title="t" onClose={() => {}}>x</Sheet>);
+    show(<p>closed</p>);
+    expect(document.body.classList.contains("overflow-hidden")).toBe(true);
+  });
 });

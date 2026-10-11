@@ -132,11 +132,12 @@ export const api = {
     for (const [k, v] of Object.entries(q)) if (v !== undefined) params.set(k, String(v));
     return apiFetch(`/api/feedings?${params}`).then((r) => json(r, FeedingsPageSchema));
   },
-  createFeedings: (items: FeedingCreate[]): Promise<{ accepted: string[]; feedings: Feeding[] }> =>
-    apiFetch("/api/feedings", { method: "POST", body: JSON.stringify(items) }).then((r) => json(r, z.object({ accepted: z.array(z.string()), feedings: z.array(FeedingSchema) }))),
-  patchFeeding: (id: string, patch: FeedingPatch): Promise<Feeding> =>
-    apiFetch(`/api/feedings/${id}`, { method: "PATCH", body: JSON.stringify(patch) }).then((r) => json(r, z.object({ feeding: FeedingSchema }))).then((b) => b.feeding),
-  deleteFeeding: (id: string) => apiFetch(`/api/feedings/${id}`, { method: "DELETE" }),
+  // `init` lets the sync engine bound each call with an AbortSignal timeout.
+  createFeedings: (items: FeedingCreate[], init: RequestInit = {}): Promise<{ accepted: string[]; feedings: Feeding[] }> =>
+    apiFetch("/api/feedings", { ...init, method: "POST", body: JSON.stringify(items) }).then((r) => json(r, z.object({ accepted: z.array(z.string()), feedings: z.array(FeedingSchema) }))),
+  patchFeeding: (id: string, patch: FeedingPatch, init: RequestInit = {}): Promise<Feeding> =>
+    apiFetch(`/api/feedings/${id}`, { ...init, method: "PATCH", body: JSON.stringify(patch) }).then((r) => json(r, z.object({ feeding: FeedingSchema }))).then((b) => b.feeding),
+  deleteFeeding: (id: string, init: RequestInit = {}) => apiFetch(`/api/feedings/${id}`, { ...init, method: "DELETE" }),
   // `init` lets the page-hide flush pass keepalive so the request outlives the page.
   uploadLogs: (entries: LogUploadEntry[], init: RequestInit = {}) => apiFetch("/api/logs", { ...init, method: "POST", body: JSON.stringify(entries) }),
   debugLogs: (q: Partial<DebugLogsQuery> = {}): Promise<LogEntry[]> => {

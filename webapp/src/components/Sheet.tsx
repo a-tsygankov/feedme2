@@ -38,12 +38,15 @@ export function Sheet({ title, onClose, children, testId = "sheet", dismissable 
     const root = document.getElementById("root");
     const wasInert = root?.hasAttribute("inert") ?? false;
     root?.setAttribute("inert", "");
-    document.body.classList.add("overflow-hidden");
+    // Only undo what this instance did: another scroll lock may already be on the body, and removing it here would
+    // unlock the page behind that owner.
+    const addedLock = !document.body.classList.contains("overflow-hidden");
+    if (addedLock) document.body.classList.add("overflow-hidden");
     const dialog = dialogRef.current;
     (dialog?.querySelector<HTMLElement>(FOCUSABLE) ?? dialog)?.focus();
     return () => {
       if (!wasInert) root?.removeAttribute("inert");
-      document.body.classList.remove("overflow-hidden");
+      if (addedLock) document.body.classList.remove("overflow-hidden");
       previous?.focus();
     };
   }, []);

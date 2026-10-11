@@ -8,7 +8,8 @@ export type HungerLevel = "fed" | "content" | "peckish" | "hungry" | "very_hungr
 
 export const HUNGER_ORDER: readonly HungerLevel[] = ["fed", "content", "peckish", "hungry", "very_hungry", "starving"];
 
-/** A feeding counts as "just fed" for this long. */
+/** A feeding counts as "just fed" for this long. Assumes hungryAfterSec ≥ 3600
+ * (the schema minimum), so the window never swallows the whole interval. */
 export const FED_WINDOW_SEC = 900;
 
 export interface HungerState {
@@ -26,6 +27,10 @@ export function hungerState(nowMs: number, lastFedAtMs: number | null, hungryAft
   // A phone whose clock runs ahead of the server produces a feeding in
   // the future; treat it as "just now" rather than a negative age.
   const ageSec = Math.max(0, (nowMs - lastFedAtMs) / 1000);
+  // A corrupt interval (0, negative, NaN) must never read as content: it
+  // would divide to NaN/0 and every comparison below would pick "fed" or
+  // "starving" by accident.
+  if (!(hungryAfterSec > 0)) return { level: "starving", ratio: Number.POSITIVE_INFINITY, ageSec };
   const ratio = ageSec / hungryAfterSec;
   let level: HungerLevel;
   if (ageSec < FED_WINDOW_SEC) level = "fed";
@@ -37,15 +42,22 @@ export function hungerState(nowMs: number, lastFedAtMs: number | null, hungryAft
   return { level, ratio, ageSec };
 }
 
-/** Semantic colour token per level (webapp/src/styles/tokens/semantic.css). */
+/**
+ * Semantic colour token per level (webapp/src/styles/tokens/semantic.css).
+ * Spec §1.6 has "hungry" orange, not red; the token layer only has
+ * good/warn/danger, so hungry shares warn with peckish and danger starts at
+ * very_hungry. No `default`: a new level must fail to compile here.
+ */
 export function levelColor(level: HungerLevel): "good" | "warn" | "danger" {
   switch (level) {
     case "fed":
     case "content":
       return "good";
     case "peckish":
+    case "hungry":
       return "warn";
-    default:
+    case "very_hungry":
+    case "starving":
       return "danger";
   }
 }

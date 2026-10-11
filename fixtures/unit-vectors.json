@@ -1,4 +1,5 @@
 {
+  "notes": "Values are IEEE doubles. Rounding is round-half-away-from-zero (std::round / Math.round on positives), not banker's. Parse results are compared to 6 decimals.",
   "mgPerOz": 28349.5,
   "defaultCanMg": 155922,
   "toMg": [
@@ -18,7 +19,19 @@
     { "text": "0", "value": null },
     { "text": "-2", "value": null },
     { "text": "abc", "value": null },
-    { "text": "1/0", "value": null }
+    { "text": "1/0", "value": null },
+    { "text": "40 50", "value": null },
+    { "text": "1 2", "value": null },
+    { "text": "1 1.5", "value": null },
+    { "text": "1/2 1/2", "value": null },
+    { "text": "1/3/4", "value": null },
+    { "text": "11/2", "value": 5.5 },
+    { "text": "2/3", "value": 0.6666666667 },
+    { "text": "⅔", "value": 0.6666666667 },
+    { "text": "1½", "value": 1.5 },
+    { "text": ".5", "value": 0.5 },
+    { "text": "1,5", "value": 1.5 },
+    { "text": "1 ½", "value": 1.5 }
   ],
   "format": [
     { "mg": 40000, "unit": "g", "canSizeMg": 155922, "text": "40 g" },
@@ -26,7 +39,16 @@
     { "mg": 51974, "unit": "can", "canSizeMg": 155922, "text": "⅓ can" },
     { "mg": 233883, "unit": "can", "canSizeMg": 155922, "text": "1½ can" },
     { "mg": 155922, "unit": "can", "canSizeMg": 155922, "text": "1 can" },
-    { "mg": 51974, "unit": "g", "canSizeMg": 155922, "text": "52 g" }
+    { "mg": 51974, "unit": "g", "canSizeMg": 155922, "text": "52 g" },
+    { "mg": 1560, "unit": "can", "canSizeMg": 155922, "text": "0.01 can" },
+    { "mg": 103948, "unit": "can", "canSizeMg": 155922, "text": "⅔ can" },
+    { "mg": 259870, "unit": "can", "canSizeMg": 155922, "text": "1⅔ can" },
+    { "mg": 41943, "unit": "can", "canSizeMg": 155922, "text": "¼ can" },
+    { "mg": 42255, "unit": "can", "canSizeMg": 155922, "text": "0.27 can" },
+    { "mg": 155906, "unit": "can", "canSizeMg": 155922, "text": "1 can" },
+    { "mg": 51974, "unit": "oz", "canSizeMg": 155922, "text": "1.83 oz" },
+    { "mg": 25000, "unit": "can", "canSizeMg": 100000, "text": "¼ can" },
+    { "mg": 50000, "unit": "can", "canSizeMg": 100000, "text": "½ can" }
   ],
   "steps": [
     { "unit": "g", "gramStep": 5, "ozStepHundredths": 25, "canFractionStep": "1/4", "canSizeMg": 155922, "stepMg": 5000 },

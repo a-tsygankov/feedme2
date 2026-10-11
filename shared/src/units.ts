@@ -16,24 +16,36 @@ export const FRACTION_GLYPHS: Array<[number, string]> = [
   [1 / 4, "¼"], [1 / 3, "⅓"], [1 / 2, "½"], [2 / 3, "⅔"], [3 / 4, "¾"],
 ];
 
-/** "40", "1.5", "1/3", "1 1/2", "¼" → units; null when not positive or unparsable. */
+/** Sanity cap on a typed amount: nobody feeds a million cans, but a pasted number could. */
+const MAX_ENTERED_VALUE = 1_000_000;
+
+/**
+ * Typed amount → units; null when not positive, unparsable or above 1,000,000.
+ * Accepted forms (after trimming, NBSP → space, whitespace collapsed and a
+ * single "," read as ".", for comma-decimal keyboards):
+ *   decimal   "40", "1.5", ".5", "5."
+ *   fraction  "1/3", "1 1/2"  (the space is REQUIRED between whole and fraction,
+ *                              so "11/2" is eleven halves, not 1 and 1/2)
+ *   glyph     "¼", "1½", "1 ½"
+ * Anything else ("40 50", "1 2", "1/2 1/2") is null: summing loose tokens
+ * once let "40 50" read as 90 g.
+ */
 export function parseEnteredValue(text: string): number | null {
-  const t = text.trim();
-  if (t === "") return null;
-  let total = 0;
-  for (const part of t.split(/\s+/)) {
-    if (part in FRACTION_CHARS) { total += FRACTION_CHARS[part]!; continue; }
-    const frac = /^(\d+)\/(\d+)$/.exec(part);
-    if (frac) {
-      const den = Number(frac[2]);
-      if (den === 0) return null;
-      total += Number(frac[1]) / den;
-      continue;
-    }
-    if (!/^\d+(\.\d+)?$/.test(part)) return null;
-    total += Number(part);
+  const t = text.trim().replace(/\u00a0/g, " ").replace(/\s+/g, " ").replace(",", ".");
+  let value: number;
+  let m: RegExpExecArray | null;
+  if (/^(\d+(\.\d*)?|\.\d+)$/.test(t)) {
+    value = Number(t);
+  } else if ((m = /^(?:(\d+) )?(\d+)\/(\d+)$/.exec(t))) {
+    const den = Number(m[3]);
+    if (den === 0) return null;
+    value = Number(m[1] ?? 0) + Number(m[2]) / den;
+  } else if ((m = /^(?:(\d+) ?)?([¼½¾⅓⅔])$/.exec(t))) {
+    value = Number(m[1] ?? 0) + FRACTION_CHARS[m[2]!]!;
+  } else {
+    return null;
   }
-  return total > 0 ? total : null;
+  return value > 0 && value <= MAX_ENTERED_VALUE ? value : null;
 }
 
 function unitMg(unit: FoodUnit, canSizeMg: number): number {
@@ -44,6 +56,7 @@ function unitMg(unit: FoodUnit, canSizeMg: number): number {
   }
 }
 
+/** Callers must re-check `> 0` on the result: a parsed 1e-20 rounds to 0 mg. */
 export function toMg(value: number, unit: FoodUnit, canSizeMg: number): number {
   return Math.round(value * unitMg(unit, canSizeMg));
 }
@@ -52,10 +65,21 @@ export function fromMg(mg: number, unit: FoodUnit, canSizeMg: number): number {
   return mg / unitMg(unit, canSizeMg);
 }
 
-/** Nearest glyph when the fractional part is within 2% of one, else null. */
-function fractionGlyph(frac: number): string | null {
-  for (const [v, glyph] of FRACTION_GLYPHS) if (Math.abs(frac - v) < 0.02) return glyph;
-  return null;
+/** A can fraction within this of a glyph (¼ ⅓ ½ ⅔ ¾) is shown as the glyph. */
+export const GLYPH_TOLERANCE = 0.02;
+
+/**
+ * Splits a can amount into whole cans and a fraction glyph. glyph "" means
+ * "whole only" (fraction under the tolerance), null means "no glyph fits".
+ * The tolerance is asymmetric near wholes (1.01 → "1 can" but 0.99 →
+ * "0.99 can"); that is accepted, not a bug.
+ */
+export function canParts(v: number): { whole: number; glyph: string | null } {
+  const whole = Math.floor(v + 1e-9);
+  const frac = v - whole;
+  if (frac < GLYPH_TOLERANCE) return { whole, glyph: "" };
+  for (const [gv, glyph] of FRACTION_GLYPHS) if (Math.abs(frac - gv) < GLYPH_TOLERANCE) return { whole, glyph };
+  return { whole, glyph: null };
 }
 
 /** Strips trailing zeros of a decimal; integers like "10" are left alone. */
@@ -64,15 +88,15 @@ function trimZeros(s: string): string {
 }
 
 export function formatAmount(mg: number, unit: FoodUnit, canSizeMg: number): string {
+  if (!Number.isFinite(mg)) return "—";
   const v = fromMg(mg, unit, canSizeMg);
   if (unit === "g") return `${Math.round(v)} g`;
   if (unit === "oz") return `${trimZeros(v.toFixed(2))} oz`;
-  const whole = Math.floor(v + 1e-9);
-  const frac = v - whole;
-  const glyph = frac < 0.02 ? "" : fractionGlyph(frac);
-  if (glyph === null) return `${trimZeros(v.toFixed(2))} can`;
-  const text = whole === 0 ? glyph : `${whole}${glyph}`;
-  return `${text} can`;
+  const { whole, glyph } = canParts(v);
+  // Under one glyph step with nothing whole to show, "" would render a bare
+  // " can"; a tiny amount reads as a decimal instead.
+  if (glyph === null || (glyph === "" && whole === 0)) return `${trimZeros(v.toFixed(2))} can`;
+  return `${whole === 0 ? glyph : `${whole}${glyph}`} can`;
 }
 
 export interface StepSettings {
@@ -85,7 +109,7 @@ export interface StepSettings {
 /** One knob detent / one stepper tap, in mg, for the house's unit. */
 export function stepMg(unit: FoodUnit, s: StepSettings): number {
   switch (unit) {
-    case "g": return s.gramStep * 1000;
+    case "g": return Math.round(s.gramStep * 1000);
     case "oz": return Math.round((s.ozStepHundredths / 100) * MG_PER_OZ);
     case "can": {
       const den = Number(s.canFractionStep.split("/")[1]);
@@ -95,5 +119,8 @@ export function stepMg(unit: FoodUnit, s: StepSettings): number {
 }
 
 export function snapToStep(mg: number, step: number): number {
+  // NaN must never reach a stored mg: a bad step or amount falls back to one
+  // step (or 0 when the step itself is unusable).
+  if (!(step > 0) || !Number.isFinite(mg)) return step > 0 ? step : 0;
   return Math.max(step, Math.round(mg / step) * step);
 }

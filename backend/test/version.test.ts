@@ -14,7 +14,7 @@ describe("GET /api/version", () => {
     const body = VersionResponseSchema.parse(await res.json());
     expect(body.worker).toEqual({ version: pkg.version, env: "development" });
     // The newest applied migration is the schema version.
-    expect(body.schema.version).toBe("0000_init.sql");
+    expect(body.schema.version).toBe("0001_houses_cats_feedings.sql");
     // No firmware_releases table yet (Phase 3).
     expect(body.firmware.latest).toBeNull();
   });

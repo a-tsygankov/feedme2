@@ -9,12 +9,12 @@ async function openConsole(page: Page) {
 }
 
 test("3 taps on the logo open the hidden console", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/login");
   await expect(await openConsole(page)).toBeVisible();
 });
 
 test("fewer than 3 taps keep the console hidden", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/login");
   const logo = page.getByRole("heading", { name: "feedme2" });
   // One triple-click: three separate awaited clicks can exceed the 600 ms
   // multi-tap window on a slow runner.
@@ -23,7 +23,7 @@ test("fewer than 3 taps keep the console hidden", async ({ page }) => {
 });
 
 test("console shows every tier version, never blank", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/login");
   await openConsole(page);
   await expect(page.getByTestId("version-client")).toContainText(/\d+\.\d+\.\d+/);
   await expect(page.getByTestId("version-worker")).not.toBeEmpty();
@@ -32,21 +32,21 @@ test("console shows every tier version, never blank", async ({ page }) => {
 });
 
 test("console shows the client startup line and the worker feed", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/login");
   await openConsole(page);
   await expect(page.getByTestId("client-logs")).toContainText("app started");
   await expect(page.getByTestId("worker-logs")).toBeVisible();
 });
 
 test("console closes via its close button", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/login");
   const panel = await openConsole(page);
   await page.getByTestId("console-close").click();
   await expect(panel).toHaveCount(0);
 });
 
 test("Escape closes the console", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/login");
   const panel = await openConsole(page);
   await expect(panel).toBeVisible();
   await page.keyboard.press("Escape");

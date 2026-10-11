@@ -90,7 +90,7 @@ export const api = {
   patchCat: (id: string, patch: CatPatch): Promise<Cat> =>
     apiFetch(`/api/cats/${id}`, { method: "PATCH", body: JSON.stringify(patch) }).then((r) => json(r, z.object({ cat: CatSchema }))).then((b) => b.cat),
   deleteCat: (id: string) => apiFetch(`/api/cats/${id}`, { method: "DELETE" }),
-  listFeedings: (q: { cat?: string; from?: number; to?: number; cursor?: number; limit?: number } = {}): Promise<FeedingsPage> => {
+  listFeedings: (q: { cat?: string; from?: number; to?: number; cursor?: string; limit?: number } = {}): Promise<FeedingsPage> => {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined) params.set(k, String(v));
     return apiFetch(`/api/feedings?${params}`).then((r) => json(r, FeedingsPageSchema));

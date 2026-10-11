@@ -1,0 +1,21 @@
+{
+  "house": {
+    "id": "7d2c5b1e-3f4a-4c8d-9e0f-1a2b3c4d5e6f",
+    "name": "Mochi House",
+    "tzOffsetMin": -240,
+    "settings": {
+      "foodUnit": "g", "canSizeMg": 155922, "canFractionStep": "1/4", "gramStep": 5, "ozStepHundredths": 25,
+      "hungryAfterSecDefault": 18000, "sleepTimeoutSec": 300, "syncIntervalSec": 21600, "timezone": "America/New_York"
+    }
+  },
+  "device": { "id": "0123456789abcdef0123456789abcdef", "name": "Kitchen" },
+  "cats": [
+    { "id": "4b1a0e2d-7c7b-4b7e-9a3a-5c3e2e1f0a11", "name": "Mochi", "color": "#4CAF50", "avatarPose": "C2", "hungryAfterSec": 18000, "sortOrder": 0,
+      "defaultAmountMg": 40000, "defaultEnteredUnit": "g", "defaultEnteredValue": "40", "lastFedAt": 1700000000000 },
+    { "id": "4b1a0e2d-7c7b-4b7e-9a3a-5c3e2e1f0a12", "name": "Luna", "color": "#2196F3", "avatarPose": "A1", "hungryAfterSec": 21600, "sortOrder": 1,
+      "defaultAmountMg": null, "defaultEnteredUnit": null, "defaultEnteredValue": null, "lastFedAt": null }
+  ],
+  "now": 1700003600000,
+  "syncIntervalSec": 21600,
+  "sleepTimeoutSec": 300
+}

@@ -9,3 +9,4 @@ export type { VersionResponse } from "./version.ts";
 export * from "./api.ts";
 export * from "./units.ts";
 export * from "./hunger.ts";
+export * from "./device.ts";

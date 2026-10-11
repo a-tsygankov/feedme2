@@ -84,10 +84,24 @@ export class RefreshTokensRepo {
     return { kind: "expired" };
   }
 
-  /** Removes only the presented token, and only if it belongs to `houseId`. */
+  /**
+   * Removes the presented token, and only if it belongs to `houseId`, plus
+   * the children minted from it (rotated_from = its id). A client that
+   * signs out with a token it read before apiFetch refreshed it presents the
+   * already-consumed parent; without the children delete, the child that
+   * refresh minted (which the client never saw stored) would stay live as an
+   * orphaned session. Other phones' chains are separate roots and stay.
+   */
   async revokeOne(houseId: string, token: string): Promise<void> {
     const tokenHash = await hashToken(token);
-    await this.db.delete(refreshTokens).where(and(eq(refreshTokens.tokenHash, tokenHash), eq(refreshTokens.houseId, houseId)));
+    const row = await this.db.query.refreshTokens.findFirst({
+      where: and(eq(refreshTokens.tokenHash, tokenHash), eq(refreshTokens.houseId, houseId)),
+    });
+    if (!row) return;
+    await this.db.batch([
+      this.db.delete(refreshTokens).where(eq(refreshTokens.id, row.id)),
+      this.db.delete(refreshTokens).where(and(eq(refreshTokens.rotatedFrom, row.id), eq(refreshTokens.houseId, houseId))),
+    ]);
   }
 
   async revokeAll(houseId: string): Promise<void> {

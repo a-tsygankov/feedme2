@@ -227,6 +227,8 @@ export type LogsUploadBody = z.infer<typeof LogsUploadBodySchema>;
 export const DebugLogsQuerySchema = z.object({
   source: z.enum(["web", "worker", "device"]).optional(),
   level: z.enum(["debug", "info", "warn", "error"]).optional(),
+  /** Inclusive lower bound by rank (debug < info < warn < error); `level` stays an exact match. */
+  minLevel: z.enum(["debug", "info", "warn", "error"]).optional(),
   device: z.string().max(64).optional(),
   since: z.coerce.number().int().nonnegative().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),

@@ -36,6 +36,17 @@ describe("apiFetch", () => {
     expect(new Headers(sentInit(fetchFn, 1).headers).get("content-type")).toBe("application/json");
   });
 
+  it("builds a thunk body after the stale-token refresh, so it can read the rotated refresh token (sign-out)", async () => {
+    const fetchFn = vi.fn(async () => new Response(null, { status: 204 }));
+    let stored = "old-refresh";
+    const auth = fakeAuth([null, "fresh"], { ok: true });
+    auth.refresh.mockImplementation(async () => { stored = "rotated-refresh"; return { ok: true } as RefreshOutcome; });
+    const apiFetch = make(fetchFn, auth);
+    await apiFetch("/api/auth/logout", { method: "POST", body: () => JSON.stringify({ refreshToken: stored }) });
+    expect(sentInit(fetchFn).body).toBe(JSON.stringify({ refreshToken: "rotated-refresh" }));
+    expect(new Headers(sentInit(fetchFn).headers).get("content-type")).toBe("application/json");
+  });
+
   it("leaves content-type to the runtime for a non-string body (FormData needs its multipart boundary)", async () => {
     const fetchFn = vi.fn(async () => new Response("{}", { status: 200 }));
     const apiFetch = make(fetchFn, fakeAuth(["t"], { ok: true }));

@@ -154,8 +154,7 @@ export function Settings() {
   }
 
   async function signOut() {
-    const refresh = authStore.getRefreshToken();
-    try { if (refresh) await api.logout(refresh); } catch { /* signing out anyway */ }
+    try { if (authStore.getRefreshToken()) await api.logout(); } catch { /* signing out anyway */ }
     authStore.signOut();
     navigate("/login", { replace: true });
   }

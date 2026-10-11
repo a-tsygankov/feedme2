@@ -63,13 +63,13 @@ describe("rowKeys", () => {
 
 describe("console data source", () => {
   const make = (signedIn = true, fail = false) => {
-    const debugLogs = vi.fn(async (q: { level?: string | undefined }) => {
+    const debugLogs = vi.fn(async (q: { minLevel?: string | undefined }) => {
       if (fail) throw new Error("offline");
-      return [e(q.level === "error" ? 3 : q.level === "warn" ? 2 : 1, `m-${q.level ?? "any"}`, "worker", undefined, (q.level as LogEntry["level"]) ?? "info")];
+      return [e(1, `m-${q.minLevel ?? "any"}`, "worker")];
     });
     return { debugLogs, ds: makeConsoleDataSource("me", { debugLogs, isSignedIn: () => signedIn }) };
   };
-  it("passes source and device to the server, and omits level for 'all levels'", async () => {
+  it("passes source and device to the server, and omits minLevel for 'all levels'", async () => {
     const { ds, debugLogs } = make();
     await ds.getRemoteLogs({ source: "device", minLevel: "debug", device: " dev-1 " });
     expect(debugLogs).toHaveBeenCalledTimes(1);
@@ -80,14 +80,12 @@ describe("console data source", () => {
     await ds.getRemoteLogs({ source: "all", minLevel: "debug", device: "" });
     expect(debugLogs).toHaveBeenCalledWith({ limit: 300 });
   });
-  it("turns a minimum level into one request per level at or above it (the server matches exactly), merged newest first", async () => {
+  it("sends a minimum level as ONE request with minLevel (the server ranks), not one request per level", async () => {
     const { ds, debugLogs } = make();
     const r = await ds.getRemoteLogs({ source: "web", minLevel: "warn", device: "" });
-    expect(debugLogs.mock.calls.map((c) => c[0])).toEqual([
-      { limit: 300, source: "web", level: "warn" },
-      { limit: 300, source: "web", level: "error" },
-    ]);
-    expect(r.status === "ok" && r.entries.map((x) => x.msg)).toEqual(["m-error", "m-warn"]);
+    expect(debugLogs).toHaveBeenCalledTimes(1);
+    expect(debugLogs).toHaveBeenCalledWith({ limit: 300, source: "web", minLevel: "warn" });
+    expect(r.status === "ok" && r.entries.map((x) => x.msg)).toEqual(["m-warn"]);
   });
   it("skips the request when signed out and degrades to unreachable on failure", async () => {
     const out = make(false);

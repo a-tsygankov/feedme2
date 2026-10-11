@@ -47,4 +47,16 @@ describe("GET /api/debug/logs", () => {
     expect(await get("?source=device")).toEqual(["from b", "from a"]);
     expect(await get("?device=nope")).toEqual([]);
   });
+
+  it("minLevel=warn returns warn and error rows only", async () => {
+    const s = await signup();
+    for (const [lvl, msg] of [["debug", "d"], ["info", "i"], ["warn", "w"], ["error", "e"]] as const) {
+      await env.DB.prepare(
+        "INSERT INTO log_entries (id, house_id, source, ts, level, msg, created_at) VALUES (?, ?, 'web', ?, ?, ?, ?)",
+      ).bind(crypto.randomUUID(), s.houseId, Date.now(), lvl, msg, Date.now()).run();
+    }
+    const r = await s.fetchAuthed("/api/debug/logs?minLevel=warn&source=web");
+    const body = DebugLogsResponseSchema.parse(await r.json());
+    expect(body.entries.map((e) => e.level).sort()).toEqual(["error", "warn"]);
+  });
 });

@@ -3,6 +3,7 @@ import type { Bindings } from "./env.ts";
 import { log } from "./logger.ts";
 import type { AuthVars } from "./middleware/auth.ts";
 import { authRouter } from "./routes/auth.ts";
+import { catsRouter } from "./routes/cats.ts";
 import { debugRouter } from "./routes/debug.ts";
 import { houseRouter } from "./routes/house.ts";
 import { versionRouter } from "./routes/version.ts";
@@ -45,6 +46,7 @@ app.route("/api/version", versionRouter);
 app.route("/api/debug", debugRouter);
 app.route("/api/auth", authRouter);
 app.route("/api/house", houseRouter);
+app.route("/api/cats", catsRouter);
 
 export { app };
 

@@ -1,13 +1,13 @@
 /**
  * Structured logging with pluggable sinks. The app-wide singleton
- * writes JSON lines to the console (Workers Logs ingests them) AND to
- * a per-isolate ring buffer that /api/debug/logs exposes to the hidden
- * console. Phase 1 adds a D1 sink for persistence (spec D10); the
- * buffer stays as the zero-latency "what just happened" view.
+ * writes to the console (Workers Logs ingests it) AND queues each entry
+ * on the current request, which the request middleware flushes to D1
+ * after the response (spec D10). /api/debug/logs reads those rows.
  */
-import { BufferSink, Logger, RingBuffer, type LogEntry, type LogSink } from "@feedme2/shared";
+import { Logger, type LogEntry, type LogSink } from "@feedme2/shared";
+import { MAX_PENDING_PER_REQUEST, currentRequest } from "./request-context.ts";
 
-export { BufferSink, Logger };
+export { Logger };
 export type { LogSink };
 
 export class ConsoleSink implements LogSink {
@@ -21,8 +21,17 @@ export class ConsoleSink implements LogSink {
   }
 }
 
-/** Recent lines for the debug console. Capacity is a tuning knob. */
-export const logBuffer = new RingBuffer<LogEntry>(200);
+/**
+ * Queues entries on the current request; the request middleware flushes
+ * them to D1 once the response is out. Outside a request (the cron)
+ * nothing is queued: console only.
+ */
+export class D1Sink implements LogSink {
+  write(entry: LogEntry): void {
+    const store = currentRequest();
+    if (store && store.pending.length < MAX_PENDING_PER_REQUEST) store.pending.push(entry);
+  }
+}
 
-/** App-wide logger: console + debug buffer. */
-export const log = new Logger("worker", [new ConsoleSink(), new BufferSink(logBuffer)]);
+/** App-wide logger: console + per-request D1 queue. */
+export const log = new Logger("worker", [new ConsoleSink(), new D1Sink()]);

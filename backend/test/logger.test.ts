@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
-import { RingBuffer } from "@feedme2/shared";
+import { env } from "cloudflare:test";
+import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { BufferSink, RingBuffer } from "@feedme2/shared";
 import type { LogEntry } from "@feedme2/shared";
-import { BufferSink, ConsoleSink, Logger, type LogSink } from "../src/logger.ts";
+import { ConsoleSink, Logger, type LogSink } from "../src/logger.ts";
+import { applyAllMigrations } from "./helpers/migrate.ts";
 
 describe("Logger", () => {
   it("stamps source=worker and the clock, and fans out to every sink", () => {
@@ -43,39 +47,50 @@ describe("Logger", () => {
 });
 
 describe("request logging middleware", () => {
-  it("logs a request-failed line and preserves a 500 response when a handler throws", async () => {
-    // singleWorker shares one module graph: an earlier file's SELF.fetch has already built the
-    // router matcher of the shared app, and Hono refuses app.get() after that. Re-import fresh.
-    vi.resetModules();
-    const { app } = await import("../src/index.ts");
-    const { logBuffer } = await import("../src/logger.ts");
+  beforeAll(applyAllMigrations);
 
+  // singleWorker shares one module graph: an earlier file's SELF.fetch has already built the
+  // router matcher of the shared app, and Hono refuses app.get() after that. Re-import fresh.
+  async function freshApp() {
+    vi.resetModules();
+    return (await import("../src/index.ts")).app;
+  }
+  const persisted = (path: string) =>
+    env.DB.prepare("SELECT level, msg, data FROM log_entries WHERE house_id IS NULL AND source = 'worker' AND data LIKE ? ORDER BY created_at, rowid")
+      .bind(`%${path}%`)
+      .all<{ level: string; msg: string; data: string }>();
+
+  it("turns a throwing handler into a JSON 500 and persists an unhandled + request-failed line", async () => {
+    const app = await freshApp();
     app.get("/api/__boom", () => {
       throw new Error("kaboom");
     });
 
-    const env = {
-      DB: {} as unknown,
-      FIRMWARE: {} as unknown,
-      ENVIRONMENT: "development",
-      AUTH_SECRET: "x",
-    } as never;
+    // app.request has no ExecutionContext: the middleware must await the flush itself.
+    const res = await app.request("http://feedme2/api/__boom", undefined, env);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "internal" });
 
-    let status: number | undefined;
-    try {
-      const res = await app.request("http://feedme2/api/__boom", undefined, env);
-      status = res.status;
-    } catch {
-      // If Hono rethrows instead of producing a 500, that's fine too —
-      // we only assert on the log entry below.
-    }
+    const rows = (await persisted("/api/__boom")).results;
+    expect(rows.map((r) => [r.level, r.msg])).toEqual([
+      ["error", "unhandled"],
+      ["error", "request failed"],
+    ]);
+    expect(JSON.parse(rows[1]!.data)).toMatchObject({ path: "/api/__boom", error: "kaboom" });
+  });
 
-    if (status !== undefined) expect(status).toBe(500);
+  it("answers malformed JSON with the validator's 400 and logs it at warn, not error", async () => {
+    const app = await freshApp();
+    app.post("/api/__json", zValidator("json", z.object({ a: z.string() })), (c) => c.json({ ok: true }));
 
-    expect(logBuffer.toArray().at(-1)).toMatchObject({
-      level: "error",
-      msg: "request failed",
-      data: expect.objectContaining({ path: "/api/__boom", error: "kaboom" }),
-    });
+    const res = await app.request(
+      "http://feedme2/api/__json",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{not json" },
+      env,
+    );
+    expect(res.status).toBe(400);
+
+    const rows = (await persisted("/api/__json")).results;
+    expect(rows.map((r) => [r.level, r.msg])).toEqual([["warn", "request failed"]]);
   });
 });

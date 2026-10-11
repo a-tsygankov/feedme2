@@ -17,8 +17,8 @@ migrations_dir = "migrations"
 binding = "FIRMWARE"
 bucket_name = "feedme2-firmware"
 
-# Hourly housekeeping (log retention, expired tokens) — the handler is
-# a no-op until Phase 1 gives it something to prune.
+# Hourly housekeeping (src/cron.ts): prunes persisted log entries (7 days,
+# 5 000 rows per house) and expired refresh tokens.
 [triggers]
 crons = ["0 * * * *"]
 
@@ -26,6 +26,8 @@ crons = ["0 * * * *"]
 # What `wrangler deploy` ships. Local dev overrides via .dev.vars
 # (gitignored — copy .dev.vars.example); tests pin their own value in
 # vitest.config.ts miniflare bindings.
+# Any `[env.*]` block added later must set ENVIRONMENT explicitly: test-login
+# is enabled only for "development"/"test", so omitting it fails closed.
 ENVIRONMENT = "production"
 # Secrets — set via scripts/setup-secrets.local.ps1 -Cloudflare:
 #   AUTH_SECRET   HS256 signing key (Phase 1)

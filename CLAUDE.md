@@ -3,9 +3,12 @@
 Spec: `docs/superpowers/specs/2026-09-20-feedme2-design.md`. Plans: `docs/superpowers/plans/`. Live state: `handoff.md` (one page, update when a phase changes or a URL/resource is added).
 
 ## Layout
-- `shared/` TypeScript-only workspace package (`@feedme2/shared`): zod schemas, ring buffer, version compare. Imported by backend and webapp as source.
+- `shared/` TypeScript-only workspace package (`@feedme2/shared`): zod API contracts, units and hunger rules, ring buffer, version compare. Imported by backend and webapp as source.
 - `backend/` Hono Worker `feedme2-api` on D1 `feedme2-db`. Migrations are hand-written numbered SQL in `backend/migrations/`; never edit one in place, add a new one.
 - `webapp/` React 18 + Vite 5 PWA on Pages `feedme2-webapp`. `/api/*` is proxied by `functions/api/[[path]].ts`. No `dark:` Tailwind utilities: theming is the token layer in `src/styles/tokens/` plus `data-theme` on `<html>`.
+- `fixtures/` cross-tier test vectors (`unit-vectors.json`, `hunger-vectors.json`); counts for the firmware tier, so a change here bumps firmware. `shared/src/{units,hunger}.ts` are the only homes for those rules; the webapp imports them, and the firmware port (Phase 3) must match the vectors rather than re-derive the rules.
+- `POST /api/auth/test-login` exists only where `ENVIRONMENT` is `development` or `test` (fail closed). Signed-in e2e specs use it via `requireTestAuth`; `E2E_REQUIRE_AUTH=1` turns a skip into a failure (CI sets it).
+- Backend errors: validation failures are `{error:"invalid_request", issues:[{path,message}]}` (400); every other error is `{error:"<code>"}` (new codes are snake_case; a few Phase 1 ones are still phrases such as `not found` and `name taken`).
 - `firmware/` PlatformIO. `domain/` has no Arduino includes (host-tested by `pio test -e native`). Envs: `crowpanel` (hardware), `simulator` (Wokwi), `native` (tests), `spike-sleep` (bench spike only).
 
 ## Versioning

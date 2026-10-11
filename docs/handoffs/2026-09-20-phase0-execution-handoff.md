@@ -77,3 +77,5 @@ scripts/   version_rules/bump/check (+tests), deploy.sh/.ps1, setup-secrets.ps1
 ## Next phase
 
 Phase 1 (core data + web) per the spec's phase table: house auth, cats, feedings, units module, dashboard, settings, offline outbox, unified logging with the D1 sink and the console's device tab. Write its plan with the `writing-plans` skill from the spec before starting.
+
+Superseded by docs/handoffs/2026-10-11-phase1-execution-handoff.md (2026-10-11).

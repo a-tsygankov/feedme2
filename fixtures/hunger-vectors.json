@@ -1,0 +1,18 @@
+{
+  "notes": "Ages are ms-exact: (nowMs - lastFedAtMs) / 1000 with no flooring to whole seconds. ageSec is null where it is Infinity (never fed). A future lastFedAtMs clamps to 0.",
+  "fedWindowSec": 900,
+  "cases": [
+    { "nowMs": 1000000000000, "lastFedAtMs": null, "hungryAfterSec": 18000, "level": "starving", "ratio": null, "ageSec": null },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999999700000, "hungryAfterSec": 18000, "level": "fed", "ratio": 0.0167, "ageSec": 300 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999999100000, "hungryAfterSec": 18000, "level": "content", "ratio": 0.05, "ageSec": 900 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999991000000, "hungryAfterSec": 18000, "level": "peckish", "ratio": 0.5, "ageSec": 9000 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999986500000, "hungryAfterSec": 18000, "level": "hungry", "ratio": 0.75, "ageSec": 13500 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999982000000, "hungryAfterSec": 18000, "level": "very_hungry", "ratio": 1.0, "ageSec": 18000 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999973000000, "hungryAfterSec": 18000, "level": "starving", "ratio": 1.5, "ageSec": 27000 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 1000000600000, "hungryAfterSec": 18000, "level": "fed", "ratio": 0, "ageSec": 0 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999999100001, "hungryAfterSec": 18000, "level": "fed", "ratio": 0.05, "ageSec": 899.999 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999990999300, "hungryAfterSec": 18001, "level": "peckish", "ratio": 0.5, "ageSec": 9000.7 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999996400000, "hungryAfterSec": 7200, "level": "peckish", "ratio": 0.5, "ageSec": 3600 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999977500000, "hungryAfterSec": 18000, "level": "very_hungry", "ratio": 1.25, "ageSec": 22500 }
+  ]
+}

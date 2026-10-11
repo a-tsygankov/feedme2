@@ -2,7 +2,7 @@
  * Client-side structured logging — same entry shape as the worker's
  * (shared LogEntry) so the hidden console renders both feeds in one
  * list. The singleton writes to the devtools console AND to a ring
- * buffer the console displays; Phase 1 adds the upload sink.
+ * buffer the console displays; main.tsx attaches the upload sink.
  */
 import { BufferSink, Logger, RingBuffer, type LogEntry, type LogSink } from "@feedme2/shared";
 
@@ -63,4 +63,16 @@ export function installGlobalErrorCapture(logger: Logger, target: EventTarget): 
 }
 
 export const clientLogBuffer = new RingBuffer<LogEntry>(200);
-export const appLog = new Logger("web", [new ConsoleSink(), new BufferSink(clientLogBuffer)]);
+/** Mutable on purpose: the Logger holds this array, so a sink attached later (the upload sink needs the auth store
+ * and api client, which this module must not import) still receives every subsequent line. */
+const sinks: LogSink[] = [new ConsoleSink(), new BufferSink(clientLogBuffer)];
+export const appLog = new Logger("web", sinks);
+
+/** Fan `appLog` out to one more sink. Returns the detach function. */
+export function attachSink(sink: LogSink): () => void {
+  sinks.push(sink);
+  return () => {
+    const i = sinks.indexOf(sink);
+    if (i >= 0) sinks.splice(i, 1);
+  };
+}

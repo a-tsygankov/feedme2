@@ -133,6 +133,46 @@ describe("enqueue during a drain (review: a feeding logged mid-sync was left beh
   });
 });
 
+describe("a pass re-reads each group before sending it", () => {
+  // create A, patch P (another feeding), create B: three groups, so B is not in flight while A is.
+  async function setup() {
+    const g = gate();
+    const createFeedings = vi.fn(async (items: Array<{ id: string }>) => { if (items.some((i) => i.id === a)) await g.p; return ok(items); });
+    const patchFeeding = vi.fn(async () => ({}));
+    const m = make({ createFeedings, patchFeeding });
+    const a = uuid();
+    const p = uuid();
+    const b = uuid();
+    await m.engine.enqueue({ kind: "create", feedingId: a, payload: create(a) });
+    await m.engine.enqueue({ kind: "patch", feedingId: p, payload: { amountMg: 1 } });
+    await m.engine.enqueue({ kind: "create", feedingId: b, payload: create(b) });
+    return { ...m, g, createFeedings, a, b };
+  }
+
+  it("an edit to a queued create merged while an earlier group is slow is what gets sent", async () => {
+    const { engine, g, createFeedings, b } = await setup();
+    const drained = engine.drain();
+    await vi.waitFor(() => expect(createFeedings).toHaveBeenCalledTimes(1));
+    await engine.enqueue({ kind: "patch", feedingId: b, payload: { amountMg: 4242 } });
+    g.release();
+    await drained;
+    const sentForB = createFeedings.mock.calls.flatMap((c) => c[0] as Array<{ id: string; amountMg: number }>).find((i) => i.id === b);
+    expect(sentForB?.amountMg).toBe(4242);
+  });
+
+  it("deleting a queued create while an earlier group is slow means that create is never sent", async () => {
+    const { engine, g, createFeedings, b, db } = await setup();
+    const drained = engine.drain();
+    await vi.waitFor(() => expect(createFeedings).toHaveBeenCalledTimes(1));
+    await engine.enqueue({ kind: "delete", feedingId: b, payload: null });
+    g.release();
+    await drained;
+    const ids = createFeedings.mock.calls.flatMap((c) => (c[0] as Array<{ id: string }>).map((i) => i.id));
+    expect(ids).not.toContain(b);
+    expect(await rows(db)).toEqual([]);
+  });
+});
+
 describe("outcome channel", () => {
   it("onDrained reports sent and dropped (with reason) once per run, and unsubscribes", async () => {
     const { engine } = make({
@@ -191,6 +231,22 @@ describe("failure classification", () => {
     expect(result).toEqual({ sent: 0, dropped: 1, stopped: false });
     expect(snapshot).toEqual({ pending: 0, status: "idle" });
     expect(left).toEqual([]);
+  });
+
+  it("a DELETE answered 404 counts as sent: the feeding is already gone, which is what the person asked for", async () => {
+    const deleteFeeding = vi.fn(async () => { throw new ApiError(404, { error: "not_found" }); });
+    const { engine, db, log } = make({ deleteFeeding });
+    const id = uuid();
+    await engine.enqueue({ kind: "delete", feedingId: id, payload: null });
+    expect(await engine.drain()).toEqual({ sent: 1, dropped: 0, stopped: false });
+    expect(await rows(db)).toEqual([]);
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it("only a DELETE's 404 is forgiven: a 403 on delete is still dropped", async () => {
+    const { engine } = make({ deleteFeeding: vi.fn(async () => { throw new ApiError(403, null); }) });
+    await engine.enqueue({ kind: "delete", feedingId: uuid(), payload: null });
+    expect(await engine.drain()).toEqual({ sent: 0, dropped: 1, stopped: false });
   });
 
   it("an unexpected error is a stop with status error, not a crash", async () => {
@@ -275,14 +331,13 @@ describe("failure classification", () => {
 });
 
 describe("accepted ids are honoured", () => {
-  it("a create the server did not accept is dropped as 'not accepted'", async () => {
-    const { engine } = make({ createFeedings: vi.fn(async () => ({ accepted: [], feedings: [] })) });
+  it("a create the server neither accepted nor returned (a soft-deleted id) counts as sent and is logged, not shown as a failure", async () => {
+    const { engine, log } = make({ createFeedings: vi.fn(async () => ({ accepted: [], feedings: [] })) });
     const a = uuid();
     await engine.enqueue({ kind: "create", feedingId: a, payload: create(a) });
-    const seen: DrainReport[] = [];
-    engine.onDrained((r) => seen.push(r));
-    expect(await engine.drain()).toEqual({ sent: 0, dropped: 1, stopped: false });
-    expect(seen[0]!.dropped[0]).toMatchObject({ feedingId: a, reason: "not accepted", status: null });
+    expect(await engine.drain()).toEqual({ sent: 1, dropped: 0, stopped: false });
+    expect(log.info).toHaveBeenCalledWith("sync create already removed on server", { feedingId: a });
+    expect(log.error).not.toHaveBeenCalled();
   });
 
   it("not accepted but returned in `feedings` (it already existed) counts as sent", async () => {

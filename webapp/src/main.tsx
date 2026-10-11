@@ -8,13 +8,34 @@ import { SyncDroppedBanner } from "./components/SyncBadge.tsx";
 import { authStore, crossesSessionBoundary } from "./lib/auth-store.ts";
 import { api } from "./lib/api-client.ts";
 import { createUploadSink, visibleInterval } from "./lib/log-upload.ts";
-import { appLog, attachSink, installGlobalErrorCapture } from "./lib/logger.ts";
+import { appLog, attachSink, clientLogBuffer, installGlobalErrorCapture } from "./lib/logger.ts";
 import { CLIENT_VERSION } from "./lib/versions.ts";
 import { startUpdateWatch } from "./lib/pwa-update-browser.ts";
 import { PERSIST_MAX_AGE_MS, queryPersister } from "./lib/query-persister.ts";
 import { startSyncTriggers, syncEngine } from "./lib/sync-engine.ts";
 import { bootTheme, followSystemTheme } from "./lib/theme.ts";
 import "./styles.css";
+
+// Web log lines also reach the house's persisted feed, so another phone's console shows this phone's crash. The sink
+// is attached BEFORE the first line this module logs (and seeded from the ring buffer, for lines logged while the
+// imports above evaluated), because the boot is exactly when a crash is most likely. Lines logged while signed out
+// are held and queued when a session starts; see the sink's header.
+const uploadSink = createUploadSink({
+  send: (batch, opts) => api.uploadLogs(batch, opts?.keepalive ? { keepalive: true } : {}).then(() => undefined),
+  isSignedIn: () => authStore.getSnapshot().status === "signedIn",
+  now: Date.now,
+  schedule: visibleInterval,
+});
+uploadSink.seed(clientLogBuffer.toArray());
+const detachUploadSink = attachSink(uploadSink);
+// Best effort: whatever is queued when the page is hidden or closing goes out now, because the 30 s timer may
+// never fire again (iOS freezes background tabs). The sink is deliberately not stopped on pagehide: a page restored
+// from the back/forward cache would never upload again.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") void uploadSink.flush({ keepalive: true });
+});
+window.addEventListener("pagehide", () => { void uploadSink.flush({ keepalive: true }); });
+(import.meta as unknown as { hot?: { dispose(cb: () => void): void } }).hot?.dispose(() => { detachUploadSink(); uploadSink.stop(); });
 
 // Uncaught errors go to the hidden console's client feed — on a phone
 // there are no devtools.
@@ -24,25 +45,6 @@ appLog.info("app started", { version: CLIENT_VERSION });
 // Ask the browser not to evict IndexedDB under storage pressure: the outbox may hold the only copy of a feeding.
 // Best effort; the answer (and a missing API) changes nothing.
 try { void navigator.storage?.persist?.().catch(() => undefined); } catch { /* not available */ }
-
-// Web log lines also reach the house's persisted feed, so another phone's console shows this phone's crash. The
-// sink starts dropping lines the moment the auth store says signed out.
-const uploadSink = createUploadSink({
-  send: (batch, opts) => api.uploadLogs(batch, opts?.keepalive ? { keepalive: true } : {}).then(() => undefined),
-  isSignedIn: () => authStore.getSnapshot().status === "signedIn",
-  now: Date.now,
-  schedule: visibleInterval,
-});
-attachSink(uploadSink);
-// Best effort: whatever is queued when the page is hidden or closing goes out now, because the 30 s timer may
-// never fire again (iOS freezes background tabs).
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") void uploadSink.flush({ keepalive: true });
-});
-window.addEventListener("pagehide", () => {
-  void uploadSink.flush({ keepalive: true });
-  uploadSink.stop();
-});
 
 // public/theme-boot.js already applied the theme before first paint;
 // this is the in-bundle fallback plus the OS follower for "system".
@@ -80,8 +82,13 @@ syncEngine.onDrained((r) => {
 let lastSession = authStore.getSnapshot();
 authStore.subscribe(() => {
   const next = authStore.getSnapshot();
-  const reset = crossesSessionBoundary(lastSession, next);
+  const prev = lastSession;
+  const reset = crossesSessionBoundary(prev, next);
   lastSession = next;
+  // The upload queue belongs to one session, like the query cache: drop it now, not at the next flush. A session that
+  // starts picks up what was logged while signed out (a failed login, a boot crash).
+  if (reset) uploadSink.clear();
+  if (prev.status !== "signedIn" && next.status === "signedIn") uploadSink.adoptSignedOutLines();
   const { houseId, changed } = syncEngine.sessionChanged();
   // Signing in (or into another house) is when that house's queued feedings can finally go out.
   if (changed && houseId) void syncEngine.drain();

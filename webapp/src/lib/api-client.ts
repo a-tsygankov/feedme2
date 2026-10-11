@@ -89,6 +89,18 @@ export function createApiFetch(deps: Deps) {
   };
 }
 
+export const LOG_UPLOAD_TIMEOUT_MS = 15_000;
+
+/**
+ * Init for POST /api/logs: a timeout signal unless the caller brings its own. Without one a hung connection keeps the
+ * upload sink's flush pending forever, and every later flush then joins it. A request that timed out may still have
+ * been stored by the server, so the retry can duplicate lines: accepted, the console de-dupes them.
+ */
+export function logUploadInit(init: RequestInit): RequestInit {
+  const signal = typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(LOG_UPLOAD_TIMEOUT_MS) : undefined;
+  return { ...(signal ? { signal } : {}), ...init, method: "POST" };
+}
+
 export const apiFetch = createApiFetch({ fetchFn: (...a) => fetch(...a), auth: authStore, clientId: getClientId() });
 
 /** Public (no token) POST used by setup/login/test-login. */
@@ -139,7 +151,7 @@ export const api = {
     apiFetch(`/api/feedings/${id}`, { ...init, method: "PATCH", body: JSON.stringify(patch) }).then((r) => json(r, z.object({ feeding: FeedingSchema }))).then((b) => b.feeding),
   deleteFeeding: (id: string, init: RequestInit = {}) => apiFetch(`/api/feedings/${id}`, { ...init, method: "DELETE" }),
   // `init` lets the page-hide flush pass keepalive so the request outlives the page.
-  uploadLogs: (entries: LogUploadEntry[], init: RequestInit = {}) => apiFetch("/api/logs", { ...init, method: "POST", body: JSON.stringify(entries) }),
+  uploadLogs: (entries: LogUploadEntry[], init: RequestInit = {}) => apiFetch("/api/logs", { ...logUploadInit(init), body: JSON.stringify(entries) }),
   debugLogs: (q: Partial<DebugLogsQuery> = {}): Promise<LogEntry[]> => {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined) params.set(k, String(v));

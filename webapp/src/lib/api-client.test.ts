@@ -2,7 +2,7 @@
 // The modules under test build their singletons from localStorage at import time.
 import { describe, expect, it, vi } from "vitest";
 import type { RefreshOutcome } from "./auth-store.ts";
-import { ApiError, NetworkError, createApiFetch } from "./api-client.ts";
+import { ApiError, NetworkError, createApiFetch, logUploadInit } from "./api-client.ts";
 
 /** access: successive getAccessToken() results (the last one repeats). */
 function fakeAuth(access: Array<string | null>, refreshOutcome: RefreshOutcome) {
@@ -129,5 +129,20 @@ describe("apiFetch", () => {
   it("lets an aborted request stay an AbortError", async () => {
     const fetchFn = vi.fn(async () => { throw new DOMException("aborted", "AbortError"); });
     await expect(make(fetchFn, fakeAuth(["t"], { ok: true }))("/api/cats")).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("logUploadInit", () => {
+  it("bounds the upload with a 15 s timeout signal by default, so a hung request cannot wedge the sink's flush", () => {
+    const init = logUploadInit({});
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("lets a caller override the signal and keeps keepalive; the method and body stay POST", () => {
+    const own = new AbortController().signal;
+    const init = logUploadInit({ signal: own, keepalive: true });
+    expect(init.signal).toBe(own);
+    expect(init.keepalive).toBe(true);
+    expect(init.method).toBe("POST");
   });
 });

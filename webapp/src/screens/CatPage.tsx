@@ -11,6 +11,7 @@ import { useHouse } from "../hooks/use-house.ts";
 import { useCats, catsKey } from "../hooks/use-cats.ts";
 import { api } from "../lib/api-client.ts";
 import { applyPatch, editPatch, replaceFeeding } from "../lib/feeding-history.ts";
+import { appLog } from "../lib/logger.ts";
 import { syncEngine } from "../lib/sync-engine.ts";
 
 /**
@@ -25,6 +26,8 @@ interface Notice { text: string; tone: "info" | "error" }
 
 const SAVED_OFFLINE: Notice = { text: "Saved offline — will sync when online", tone: "info" };
 const DROPPED: Notice = { text: "Couldn't save that change", tone: "error" };
+// Same wording as the Dashboard: the outbox itself refused the write (storage full, IndexedDB blocked), so nothing was queued.
+const NOT_QUEUED: Notice = { text: "Couldn't save offline", tone: "error" };
 
 export function CatPage() {
   const { id } = useParams<{ id: string }>();
@@ -85,7 +88,13 @@ export function CatPage() {
     const patch = editPatch(editing, item);
     if (Object.keys(patch).length === 0) return;
     const original = editing;
-    await syncEngine.enqueue({ kind: "patch", feedingId: original.id, payload: patch });
+    try {
+      await syncEngine.enqueue({ kind: "patch", feedingId: original.id, payload: patch });
+    } catch (err) {
+      appLog.error("feeding edit could not be queued", { message: err instanceof Error ? err.message : String(err) });
+      setNotice(NOT_QUEUED);
+      throw err; // the sheet stays open so the edit can be retried
+    }
     // Moving the feeding to another cat takes it out of this cat's history.
     const next = patch.catId !== undefined ? null : applyPatch(original, patch);
     // Not awaited: the sheet closes as soon as the change is safely queued; the notice reports the outcome.
@@ -94,7 +103,13 @@ export function CatPage() {
 
   async function remove(f: Feeding) {
     if (!confirm("Delete this feeding?")) return;
-    await syncEngine.enqueue({ kind: "delete", feedingId: f.id, payload: null });
+    try {
+      await syncEngine.enqueue({ kind: "delete", feedingId: f.id, payload: null });
+    } catch (err) {
+      appLog.error("feeding delete could not be queued", { message: err instanceof Error ? err.message : String(err) });
+      setNotice(NOT_QUEUED);
+      return;
+    }
     await settle(f.id, null);
   }
 

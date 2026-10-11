@@ -8,7 +8,8 @@
  *  - 401, 408, 425, 429, any 5xx, or something unexpected: stop, keep the op, status "error". The op's attempt
  *    counter goes up (not for 401, that is the session's problem), and after MAX_ATTEMPTS it is parked (`dead`) so
  *    one poisoned op cannot block the queue forever;
- *  - 400, 403, 404, 409, 410, 413, 422: the server will never accept it, so drop it and report why;
+ *  - 400, 403, 404, 409, 410, 413, 422: the server will never accept it, so drop it and report why. The one
+ *    exception is a DELETE answered 404: the feeding is already gone, so it counts as sent (see sendGroup);
  *  - a ZodError while parsing a 2xx body: the server did take it, so it counts as sent.
  * Dropping on "any 4xx" once silently threw away feedings on 408/429, which are retryable.
  */
@@ -143,13 +144,26 @@ export function createSyncEngine(deps: Deps) {
         // A body without {accepted} was still a 2xx and the client already validated its shape: nothing to second-guess.
         if (!Array.isArray(accepted)) return group.map(() => ({ sent: true }));
         const existing = new Set(((res as { feedings?: Array<{ id: string }> }).feedings ?? []).map((f) => f.id));
-        return group.map((r): Verdict => (accepted.includes(r.feedingId) || existing.has(r.feedingId) ? { sent: true } : { sent: false, status: null, reason: "not accepted" }));
+        // Neither accepted nor returned: the server knows the id but will not take it again (a feeding that was
+        // deleted, perhaps from another phone, while this create sat in the outbox). Nothing the person can act on, and
+        // we cannot tell it from any other refusal, so it counts as sent rather than as a failure banner.
+        return group.map((r): Verdict => {
+          if (!accepted.includes(r.feedingId) && !existing.has(r.feedingId)) deps.log.info("sync create already removed on server", { feedingId: r.feedingId });
+          return { sent: true };
+        });
       }
       case "patch":
         await deps.api.patchFeeding(first.feedingId, first.payload as FeedingPatch, callInit());
         return [{ sent: true }];
       case "delete":
-        await deps.api.deleteFeeding(first.feedingId, callInit());
+        try {
+          await deps.api.deleteFeeding(first.feedingId, callInit());
+        } catch (err) {
+          // 404 on a DELETE means unknown or foreign to this house: either way there is nothing of ours left to remove,
+          // which is the outcome the person asked for. (Already-deleted own feedings answer 204.) Dropping it would
+          // raise a "change refused" banner for a delete that in effect succeeded.
+          if (!(err instanceof ApiError && err.status === 404)) throw err;
+        }
         return [{ sent: true }];
     }
   }
@@ -231,12 +245,17 @@ export function createSyncEngine(deps: Deps) {
       if (deps.houseId() !== house) break;
       let j = i + 1;
       if (rows[i]!.kind === "create") while (j < rows.length && j - i < MAX_BATCH && rows[j]!.kind === "create") j++;
-      const group = rows.slice(i, j);
-      for (const r of group) sending.add(r.seq!);
+      const candidates = rows.slice(i, j);
+      // Claim first, then re-read: from here enqueueRow will not coalesce into these rows, and anything it merged or
+      // deleted before now is visible to the read. `rows` is a snapshot from before earlier groups were sent, and the
+      // person may have edited or deleted a queued row since (an edit would be lost, a deleted create resurrected).
+      for (const r of candidates) sending.add(r.seq!);
       try {
-        stop = await processGroup(group, agg);
+        const fresh = await deps.outbox.bulkGet(candidates.map((r) => r.seq!));
+        const group = fresh.filter((r): r is OutboxRow => r !== undefined && !r.dead && r.houseId === house);
+        if (group.length > 0) stop = await processGroup(group, agg);
       } finally {
-        for (const r of group) sending.delete(r.seq!);
+        for (const r of candidates) sending.delete(r.seq!);
       }
       i = j;
     }

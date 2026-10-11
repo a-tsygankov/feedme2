@@ -8,3 +8,4 @@ export { VersionResponseSchema } from "./version.ts";
 export type { VersionResponse } from "./version.ts";
 export * from "./api.ts";
 export * from "./units.ts";
+export * from "./hunger.ts";

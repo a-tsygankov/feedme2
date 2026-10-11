@@ -1,0 +1,13 @@
+{
+  "fedWindowSec": 900,
+  "cases": [
+    { "nowMs": 1000000000000, "lastFedAtMs": null, "hungryAfterSec": 18000, "level": "starving", "ratio": null },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999999700000, "hungryAfterSec": 18000, "level": "fed", "ratio": 0.0167 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999999100000, "hungryAfterSec": 18000, "level": "content", "ratio": 0.05 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999991000000, "hungryAfterSec": 18000, "level": "peckish", "ratio": 0.5 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999986500000, "hungryAfterSec": 18000, "level": "hungry", "ratio": 0.75 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999982000000, "hungryAfterSec": 18000, "level": "very_hungry", "ratio": 1.0 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 999973000000, "hungryAfterSec": 18000, "level": "starving", "ratio": 1.5 },
+    { "nowMs": 1000000000000, "lastFedAtMs": 1000000600000, "hungryAfterSec": 18000, "level": "fed", "ratio": 0 }
+  ]
+}

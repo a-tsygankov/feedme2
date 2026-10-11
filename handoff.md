@@ -3,7 +3,7 @@
 Single page. Update at the end of any session that changes phase, adds a resource, or resolves a spec open question.
 
 ## Phase
-Phase 1 (core data + web) **in review** on `feat/phase1-core` (PR pending; not yet pushed). Phase 0 (foundation) is complete and deployed. Open items: the deep-sleep bench spike (`docs/spikes/2026-09-deep-sleep-touch-wake.md`), `WOKWI_CLI_TOKEN`, and the Phase 1 decisions pending for Andrey. Plan: `docs/superpowers/plans/2026-10-11-phase1-core.md`. Execution handoff (what was built, deviations, follow-ups, next steps): `docs/handoffs/2026-10-11-phase1-execution-handoff.md`.
+Phase 1 (core data + web) **merged and deployed** (PR a-tsygankov/feedme2#1 merged 2026-10-11; production worker 0.1.25, schema `0001_houses_cats_feedings.sql`, webapp 0.1.30; production e2e 12 passed / 5 skipped). Phase 2 is split into two plans: **2a device API + simulator** (`docs/superpowers/plans/2026-10-11-phase2a-device-api.md`, in progress on `feat/phase2a-device-api`) and **2b firmware MVP** (`docs/superpowers/plans/2026-10-11-phase2b-firmware-mvp.md`, after 2a). Open items: the deep-sleep bench spike (`docs/spikes/2026-09-deep-sleep-touch-wake.md`, Phase 3), `WOKWI_CLI_TOKEN`, and the Phase 1 decisions pending for Andrey (see `docs/handoffs/2026-10-11-phase1-execution-handoff.md`).
 
 ## Live resources (provisioned and first-deployed 2026-09-21)
 | Thing | Name / URL | Notes |
@@ -15,7 +15,7 @@ Phase 1 (core data + web) **in review** on `feat/phase1-core` (PR pending; not y
 | GitHub secrets | `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `WOKWI_CLI_TOKEN` | set with `scripts/setup-secrets.local.ps1 -GitHub` |
 | Worker secrets | `AUTH_SECRET` | set in production during Phase 0 provisioning (2026-09-21) with `scripts/setup-secrets.local.ps1 -Cloudflare`; Phase 1 signs every token with it (must be at least 32 characters) |
 
-## API routes (branch `feat/phase1-core`; live in production only after merge)
+## API routes (live in production since 2026-10-11)
 All under `/api`; everything except `health`, `version`, `auth/setup|login|refresh|test-login` needs `Authorization: Bearer <access token>`, and data is scoped to the token's house.
 | Route | Notes |
 |---|---|
@@ -42,6 +42,7 @@ Q1 battery pin · Q2 touch-controller rail (spike: `docs/spikes/2026-09-deep-sle
 No rate limiting anywhere (login is slowed only by PBKDF2; `/auth/setup` unlimited; body size capped only on `/api/logs`). Access tokens stay valid up to 15 min after logout or PIN change. Feedings with `fedAt` more than 5 min ahead are rejected (a fast phone clock loses them). Deploy watch item: PBKDF2 at 100k iterations may exceed the Workers Free-plan CPU limit; check the first production login. Details and follow-ups: the Phase 1 execution handoff.
 
 ## Log
+- 2026-10-11 — Phase 1 merged (PR #1) and deployed; production e2e 12 passed / 5 skipped. Phase 2a (device API + simulator) and 2b (firmware MVP) plans written.
 - 2026-10-11 — Whole-branch review: mergeable, no code must-fixes; limitations above recorded in the handoff.
 - 2026-10-11 — Phase 1 tasks 1–17 implemented, reviewed and fixed on `feat/phase1-core`; Task 18 docs and full verification green (shared 57, backend 153, webapp 368, scripts 42, firmware native 8). Push, PR and the decisions pending for Andrey are next.
 - 2026-09-21 — CI secrets set; `workflow_dispatch` run green (shared, backend, webapp, firmware); Phase 0 complete. WOKWI_CLI_TOKEN not set, so the Wokwi step skips.

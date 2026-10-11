@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient } from "@tanstack/react-query";
-import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { PersistQueryClientProvider, persistQueryClientSave } from "@tanstack/react-query-persist-client";
 import { App } from "./App.tsx";
 import { SyncDroppedBanner } from "./components/SyncBadge.tsx";
 import { authStore, crossesSessionBoundary } from "./lib/auth-store.ts";
@@ -11,7 +11,7 @@ import { createUploadSink, visibleInterval } from "./lib/log-upload.ts";
 import { appLog, attachSink, clientLogBuffer, installGlobalErrorCapture } from "./lib/logger.ts";
 import { CLIENT_VERSION } from "./lib/versions.ts";
 import { startUpdateWatch } from "./lib/pwa-update-browser.ts";
-import { PERSIST_MAX_AGE_MS, queryPersister } from "./lib/query-persister.ts";
+import { PERSIST_MAX_AGE_MS, queryPersister, saveOnHide } from "./lib/query-persister.ts";
 import { startSyncTriggers, syncEngine } from "./lib/sync-engine.ts";
 import { bootTheme, followSystemTheme } from "./lib/theme.ts";
 import "./styles.css";
@@ -65,6 +65,18 @@ const queryClient = new QueryClient({
   },
 });
 
+// Flush the cache to Dexie when the page is hidden or closing, so a quick reload does not restore a stale snapshot
+// (incident: "add cat, reload within 1 s showed No cats yet").
+saveOnHide(window, document, () =>
+  persistQueryClientSave({ queryClient, persister: queryPersister, buster: CLIENT_VERSION }));
+
+// The restored cache is only the first paint: refetch the lists right after hydration, whatever staleTime says.
+const onHydrated = () => {
+  syncTriggers.markHydrated();
+  void queryClient.invalidateQueries({ queryKey: ["cats"] });
+  void queryClient.invalidateQueries({ queryKey: ["feedings"] });
+};
+
 // What a drain changed on the server (a create landing, an edit applied, a change refused) is only visible after the
 // lists are refetched. This is the one place that happens, whichever screen started the drain.
 syncEngine.onDrained((r) => {
@@ -103,8 +115,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <PersistQueryClientProvider
       client={queryClient}
       persistOptions={{ persister: queryPersister, maxAge: PERSIST_MAX_AGE_MS, buster: CLIENT_VERSION }}
-      onSuccess={syncTriggers.markHydrated}
-      onError={syncTriggers.markHydrated}
+      onSuccess={onHydrated}
+      onError={onHydrated}
     >
       <BrowserRouter>
         <App />

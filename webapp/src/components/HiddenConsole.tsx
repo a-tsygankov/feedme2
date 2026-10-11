@@ -163,7 +163,8 @@ export function HiddenConsole({ onClose, dataSource }: Props) {
   const loadLogs = useCallback(async () => {
     const mine = ++generation.current;
     setLocal(dataSource.getLocalLogs());
-    const r = await dataSource.getRemoteLogs({ source, minLevel, device: debouncedDevice });
+    // The device id filters the device source only; one typed earlier must not narrow the other sources.
+    const r = await dataSource.getRemoteLogs({ source, minLevel, device: source === "device" ? debouncedDevice : "" });
     if (!mounted.current || mine !== generation.current) return;
     setRemote(r);
   }, [dataSource, source, minLevel, debouncedDevice]);

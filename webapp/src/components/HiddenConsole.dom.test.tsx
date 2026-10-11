@@ -92,6 +92,11 @@ describe("HiddenConsole", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(TEXT_DEBOUNCE_MS); });
     expect(ds.getRemoteLogs).toHaveBeenLastCalledWith({ source: "device", minLevel: "warn", device: "dev-9" });
 
+    // The device id is only a filter for the device source: leaving that chip must not keep sending it.
+    click("filter-web");
+    await flush();
+    expect(ds.getRemoteLogs).toHaveBeenLastCalledWith({ source: "web", minLevel: "warn", device: "" });
+
     click("console-live");
     const before = ds.getRemoteLogs.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });

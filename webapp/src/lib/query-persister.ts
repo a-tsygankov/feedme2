@@ -14,5 +14,28 @@ export const queryPersister = createAsyncStoragePersister({
     removeItem: async (key) => { await feedmeDb.kv.delete(key); },
   },
   key: "feedme2:query-cache",
-  throttleTime: 1000,
+  // Short on purpose: a reload inside the throttle window restores the pre-change cache (see saveOnHide).
+  throttleTime: 250,
 });
+
+interface Target { addEventListener(t: string, l: () => void): void; removeEventListener(t: string, l: () => void): void }
+
+/**
+ * Save the query cache when the page is hidden or closing. Incident: "add cat", then reload within 1 s showed "No cats
+ * yet." - the throttled save had not run, the restored cache was fresh enough (staleTime 30 s) and nothing refetched.
+ * Best effort: the persister's throttle can still delay the write by up to its interval, and a failed save is dropped.
+ */
+export function saveOnHide(
+  win: Target,
+  doc: Target & { visibilityState: string },
+  save: () => Promise<void> | void,
+): () => void {
+  const run = () => { try { void Promise.resolve(save()).catch(() => undefined); } catch { /* best effort */ } };
+  const onVisibility = () => { if (doc.visibilityState === "hidden") run(); };
+  doc.addEventListener("visibilitychange", onVisibility);
+  win.addEventListener("pagehide", run);
+  return () => {
+    doc.removeEventListener("visibilitychange", onVisibility);
+    win.removeEventListener("pagehide", run);
+  };
+}

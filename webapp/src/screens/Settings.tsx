@@ -9,6 +9,7 @@ import { Field } from "../components/Field.tsx";
 import { Select } from "../components/Select.tsx";
 import { CatEditor } from "../components/CatEditor.tsx";
 import { CatFigure } from "../components/CatFigure.tsx";
+import { DevicesSection } from "../components/DevicesSection.tsx";
 import { useHouse, usePatchHouse } from "../hooks/use-house.ts";
 import { catsKey, useCatMutations, useCats } from "../hooks/use-cats.ts";
 import { api } from "../lib/api-client.ts";
@@ -258,6 +259,10 @@ export function Settings() {
           {onlyOne && catList.length === 1 ? <p className="text-xs text-slate-500">A house keeps at least one cat, so the last one can't be deleted. Feedings are kept when a cat is deleted.</p> : null}
           <Button className="mt-3" onClick={() => setEditing("new")} disabled={atMax} data-testid="cat-add">Add a cat</Button>
           {atMax ? <p className="text-xs text-slate-500">A house can have up to {MAX_CATS} cats.</p> : null}
+        </Section>
+
+        <Section title="Devices" id="devices">
+          <DevicesSection />
         </Section>
 
         <Section title="Session">

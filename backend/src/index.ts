@@ -4,6 +4,7 @@ import { log } from "./logger.ts";
 import type { AuthVars } from "./middleware/auth.ts";
 import { authRouter } from "./routes/auth.ts";
 import { debugRouter } from "./routes/debug.ts";
+import { houseRouter } from "./routes/house.ts";
 import { versionRouter } from "./routes/version.ts";
 
 const app = new Hono<{ Bindings: Bindings } & AuthVars>();
@@ -43,6 +44,7 @@ app.get("/api/health", (c) => c.json({ ok: true, env: c.env.ENVIRONMENT, ts: Dat
 app.route("/api/version", versionRouter);
 app.route("/api/debug", debugRouter);
 app.route("/api/auth", authRouter);
+app.route("/api/house", houseRouter);
 
 export { app };
 

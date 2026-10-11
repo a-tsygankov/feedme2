@@ -13,3 +13,15 @@ describe("pin hashing", () => {
     expect(await verifyPin("1235", a.salt, a.hash)).toBe(false);
   });
 });
+
+describe("pin verification of bad stored values", () => {
+  it("returns false, never throws, for empty or non-hex salt/hash", async () => {
+    expect(await verifyPin("1234", "", "")).toBe(false);
+    const good = await hashPin("1234");
+    expect(await verifyPin("1234", "", good.hash)).toBe(false);
+    expect(await verifyPin("1234", good.salt, "")).toBe(false);
+    expect(await verifyPin("1234", "zz".repeat(16), good.hash)).toBe(false);
+    expect(await verifyPin("1234", "abc", good.hash)).toBe(false);
+    expect(await verifyPin("1234", good.salt, "not-hex")).toBe(false);
+  });
+});

@@ -4,6 +4,7 @@ import { CatCreateSchema, CatPatchSchema, MAX_CATS } from "@feedme2/shared";
 import type { Bindings } from "../env.ts";
 import { db } from "../db/client.ts";
 import { requireHouse, type AuthVars } from "../middleware/auth.ts";
+import { validationHook } from "../validation.ts";
 import { CatsRepo, toApiCat } from "../repos/cats.ts";
 import { HousesRepo } from "../repos/houses.ts";
 
@@ -13,7 +14,7 @@ export const catsRouter = new Hono<{ Bindings: Bindings } & AuthVars>()
     const rows = await new CatsRepo(db(c.env.DB)).list(c.var.houseId);
     return c.json({ cats: rows.map(toApiCat) });
   })
-  .post("/", zValidator("json", CatCreateSchema), async (c) => {
+  .post("/", zValidator("json", CatCreateSchema, validationHook), async (c) => {
     const d = db(c.env.DB);
     const repo = new CatsRepo(d);
     const input = c.req.valid("json");
@@ -29,7 +30,7 @@ export const catsRouter = new Hono<{ Bindings: Bindings } & AuthVars>()
     const row = await repo.create(c.var.houseId, input, house.hungryAfterSecDefault, Date.now());
     return c.json({ cat: toApiCat(row) }, 201);
   })
-  .patch("/:id", zValidator("json", CatPatchSchema), async (c) => {
+  .patch("/:id", zValidator("json", CatPatchSchema, validationHook), async (c) => {
     const row = await new CatsRepo(db(c.env.DB)).update(c.var.houseId, c.req.param("id"), c.req.valid("json"), Date.now());
     if (!row) return c.json({ error: "not found" }, 404);
     return c.json({ cat: toApiCat(row) });

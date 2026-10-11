@@ -14,7 +14,7 @@ export default defineWorkersConfig({
           compatibilityFlags: ["nodejs_compat"],
           bindings: {
             ENVIRONMENT: "development",
-            AUTH_SECRET: "integration-test-secret",
+            AUTH_SECRET: "integration-test-secret-0123456789abcdef",
           },
         },
       },

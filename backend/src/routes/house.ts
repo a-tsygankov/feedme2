@@ -4,6 +4,7 @@ import { HousePatchSchema } from "@feedme2/shared";
 import type { Bindings } from "../env.ts";
 import { db } from "../db/client.ts";
 import { requireHouse, type AuthVars } from "../middleware/auth.ts";
+import { validationHook } from "../validation.ts";
 import { HousesRepo, toApiHouse } from "../repos/houses.ts";
 
 export const houseRouter = new Hono<{ Bindings: Bindings } & AuthVars>()
@@ -13,7 +14,7 @@ export const houseRouter = new Hono<{ Bindings: Bindings } & AuthVars>()
     if (!house) return c.json({ error: "unauthorized" }, 401);
     return c.json({ house: toApiHouse(house) });
   })
-  .patch("/", zValidator("json", HousePatchSchema), async (c) => {
+  .patch("/", zValidator("json", HousePatchSchema, validationHook), async (c) => {
     try {
       const house = await new HousesRepo(db(c.env.DB)).updateSettings(c.var.houseId, c.req.valid("json"), Date.now());
       return c.json({ house: toApiHouse(house) });

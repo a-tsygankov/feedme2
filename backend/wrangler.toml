@@ -26,6 +26,8 @@ crons = ["0 * * * *"]
 # What `wrangler deploy` ships. Local dev overrides via .dev.vars
 # (gitignored — copy .dev.vars.example); tests pin their own value in
 # vitest.config.ts miniflare bindings.
+# Any `[env.*]` block added later must set ENVIRONMENT explicitly: test-login
+# is enabled only for "development"/"test", so omitting it fails closed.
 ENVIRONMENT = "production"
 # Secrets — set via scripts/setup-secrets.local.ps1 -Cloudflare:
 #   AUTH_SECRET   HS256 signing key (Phase 1)

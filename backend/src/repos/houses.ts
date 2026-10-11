@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { House, HousePatch } from "@feedme2/shared";
 import type { Db } from "../db/client.ts";
 import { houses } from "../db/schema.ts";
@@ -26,17 +26,25 @@ export function toApiHouse(r: Row): House {
   };
 }
 
-export const nameKey = (name: string) => name.trim().toLowerCase();
+/**
+ * The display form of a house name: NFKC so visually identical spellings
+ * (precomposed "é" vs "e" + combining accent, full-width letters) are one
+ * string, with inner whitespace runs collapsed.
+ */
+export const normalizeHouseName = (name: string) => name.normalize("NFKC").trim().replace(/\s+/g, " ");
+
+/** Uniqueness key: case-insensitive on top of the normalised name. */
+export const nameKey = (name: string) => normalizeHouseName(name).toLowerCase();
 
 export class HousesRepo {
   constructor(private readonly db: Db) {}
 
   async findByName(name: string): Promise<Row | undefined> {
-    return this.db.query.houses.findFirst({ where: eq(houses.nameKey, nameKey(name)) });
+    return this.db.query.houses.findFirst({ where: and(eq(houses.nameKey, nameKey(name)), isNull(houses.deletedAt)) });
   }
 
   async findById(id: string): Promise<Row | undefined> {
-    return this.db.query.houses.findFirst({ where: eq(houses.id, id) });
+    return this.db.query.houses.findFirst({ where: and(eq(houses.id, id), isNull(houses.deletedAt)) });
   }
 
   /** Throws the D1 UNIQUE error when the name is taken; the route maps it to 409. */
@@ -44,7 +52,7 @@ export class HousesRepo {
     const { salt, hash } = pin === null ? { salt: "", hash: "" } : await hashPin(pin);
     const id = crypto.randomUUID();
     await this.db.insert(houses).values({
-      id, name: name.trim(), nameKey: nameKey(name), pinSalt: salt, pinHash: hash, createdAt: nowMs, modifiedAt: nowMs,
+      id, name: normalizeHouseName(name), nameKey: nameKey(name), pinSalt: salt, pinHash: hash, createdAt: nowMs, modifiedAt: nowMs,
     });
     return (await this.findById(id))!;
   }
@@ -53,7 +61,7 @@ export class HousesRepo {
     const { name, ...settings } = patch;
     await this.db
       .update(houses)
-      .set({ ...(settings as Partial<typeof houses.$inferInsert>), ...(name !== undefined ? { name: name.trim(), nameKey: nameKey(name) } : {}), modifiedAt: nowMs })
+      .set({ ...(settings as Partial<typeof houses.$inferInsert>), ...(name !== undefined ? { name: normalizeHouseName(name), nameKey: nameKey(name) } : {}), modifiedAt: nowMs })
       .where(eq(houses.id, id));
     return (await this.findById(id))!;
   }

@@ -12,8 +12,8 @@ export type AuthVars = { Variables: { houseId: string } };
  */
 export function requireHouse(): MiddlewareHandler<{ Bindings: Bindings } & AuthVars> {
   return async (c, next) => {
-    const header = c.req.header("Authorization") ?? "";
-    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    // RFC 7235: the auth scheme is case-insensitive.
+    const token = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("Authorization") ?? "")?.[1] ?? "";
     const auth = token ? await verifyAccessToken(token, c.env.AUTH_SECRET) : null;
     if (!auth) return c.json({ error: "unauthorized" }, 401);
     c.set("houseId", auth.houseId);

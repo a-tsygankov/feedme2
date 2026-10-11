@@ -1,12 +1,14 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { zValidator } from "@hono/zod-validator";
-import { DeviceFeedingsBodySchema, type DeviceState } from "@feedme2/shared";
+import { DeviceFeedingsBodySchema, DeviceLogsBodySchema, HeartbeatBodySchema, type DeviceState } from "@feedme2/shared";
 import type { Bindings } from "../env.ts";
 import { db, type Db } from "../db/client.ts";
 import { clock } from "../auth/tokens.ts";
 import { requireDevice, type DeviceVars } from "../middleware/device.ts";
 import { CatsRepo, toApiCat } from "../repos/cats.ts";
 import { DevicesRepo } from "../repos/devices.ts";
+import { LogsRepo } from "../repos/logs.ts";
 import { assertCatsInHouse, clampFedAt, FeedingsRepo } from "../repos/feedings.ts";
 import { HousesRepo, toApiHouse } from "../repos/houses.ts";
 import { tzOffsetMin } from "../time.ts";
@@ -79,4 +81,27 @@ export const deviceRouter = new Hono<Env>()
     const accepted = await repo.createMany(c.var.houseId, fixed, { source: "device", deviceId: c.var.deviceId }, now);
     if (clamped.length > 0) log.warn("device feeding clock clamped", { deviceId: c.var.deviceId, ids: clamped });
     return c.json({ accepted, clamped, now }, 201);
-  });
+  })
+  .post("/heartbeat", zValidator("json", HeartbeatBodySchema, validationHook), async (c) => {
+    const b = c.req.valid("json");
+    const now = clock.now();
+    await new DevicesRepo(db(c.env.DB)).touch(c.var.deviceId, now, {
+      fwVersion: b.fwVersion,
+      resetReason: b.resetReason,
+      ...(b.batteryPct !== undefined ? { batteryPct: b.batteryPct } : {}),
+    });
+    log.info("heartbeat", { deviceId: c.var.deviceId, fwVersion: b.fwVersion, uptimeSec: b.uptimeSec, freeHeap: b.freeHeap, resetReason: b.resetReason });
+    return c.json({ now });
+  })
+  .post(
+    "/logs",
+    bodyLimit({ maxSize: 128 * 1024, onError: (c) => c.json({ error: "payload_too_large" }, 413) }),
+    zValidator("json", DeviceLogsBodySchema, validationHook),
+    async (c) => {
+      // The schema strips source/deviceId from the body: a device cannot forge
+      // worker or web rows, and the device id comes from the verified token.
+      const entries = c.req.valid("json").map((e) => ({ ...e, source: "device" as const }));
+      await new LogsRepo(db(c.env.DB)).insertMany(c.var.houseId, entries, { deviceId: c.var.deviceId }, clock.now());
+      return c.body(null, 202);
+    },
+  );

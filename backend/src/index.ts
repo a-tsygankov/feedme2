@@ -87,6 +87,8 @@ app.use("*", async (c, next) => {
 // so the client's error handling never has to parse "Internal Server Error".
 app.onError((err, c) => {
   if (err instanceof HTTPException) return err.getResponse();
+  // The stack is the one line that explains a 500: a handler that flooded the log first must not evict it.
+  beginFinalLine();
   log.error("unhandled", {
     method: c.req.method,
     path: new URL(c.req.url).pathname.slice(0, MAX_PATH_CHARS),

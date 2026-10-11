@@ -145,7 +145,7 @@ describe("request logging middleware", () => {
     const unhandled = JSON.parse(rows[0]!.data!);
     expect(unhandled.truncated).toBeUndefined();
     expect(unhandled.error).toHaveLength(300);
-    expect(unhandled.stack.length).toBeLessThanOrEqual(1000);
+    expect(unhandled.stack.length).toBeLessThanOrEqual(400);
     const feed = DebugLogsResponseSchema.parse(await (await app.request("http://feedme2/api/debug/logs?limit=50", authed(s.access), env)).json());
     expect(feed.entries.filter((e) => e.source === "worker").length).toBeGreaterThanOrEqual(2);
   });
@@ -193,6 +193,23 @@ describe("request logging middleware", () => {
     expect(dropped).toHaveLength(1);
     expect(dropped[0]!.level).toBe("warn");
     expect(JSON.parse(dropped[0]!.data!)).toEqual({ dropped: 51 });
+  });
+
+  it("keeps the unhandled line (with its stack) when a handler floods the log and then throws", async () => {
+    const s = await signup();
+    const app = await freshApp();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { log } = await import("../src/logger.ts");
+    app.get("/api/__flood_boom", () => {
+      for (let i = 0; i < 150; i++) log.info(`spam ${i}`);
+      throw new Error("kaboom after flood");
+    });
+    expect((await app.request("http://feedme2/api/__flood_boom", authed(s.access), env)).status).toBe(500);
+
+    const rows = await houseRows(s.houseId);
+    const unhandled = rows.filter((r) => r.msg === "unhandled");
+    expect(unhandled).toHaveLength(1);
+    expect(JSON.parse(unhandled[0]!.data!).stack).toContain("kaboom after flood");
   });
 
   it("sends lines logged after the flush to the console only", async () => {

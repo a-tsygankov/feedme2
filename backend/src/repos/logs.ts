@@ -119,6 +119,7 @@ export class LogsRepo {
     const cutoff = nowMs - LOG_RETENTION_MS;
     let removed = await this.deleteRounds(
       sql`DELETE FROM log_entries WHERE id IN (SELECT id FROM log_entries WHERE created_at < ${cutoff} LIMIT ${chunk})`,
+      chunk,
     );
     removed += await this.deleteRounds(sql`
       DELETE FROM log_entries WHERE id IN (
@@ -126,17 +127,18 @@ export class LogsRepo {
           SELECT id, row_number() OVER (PARTITION BY house_id ORDER BY created_at DESC, id DESC) AS rn
           FROM log_entries
         ) WHERE rn > ${LOG_ROWS_PER_HOUSE} LIMIT ${chunk}
-      )`);
+      )`, chunk);
     return removed;
   }
 
-  private async deleteRounds(statement: ReturnType<typeof sql>): Promise<number> {
+  private async deleteRounds(statement: ReturnType<typeof sql>, chunk: number): Promise<number> {
     let total = 0;
     for (let round = 0; round < PRUNE_MAX_ROUNDS; round++) {
       const res = await this.db.run(statement);
       const changes = res.meta.changes ?? 0;
-      if (changes === 0) break;
       total += changes;
+      // A short round means nothing is left: skip the extra empty statement.
+      if (changes < chunk) break;
     }
     return total;
   }

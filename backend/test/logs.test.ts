@@ -281,6 +281,23 @@ describe("logs", () => {
     expect(left?.n).toBe(0);
   });
 
+  it("prune stops a loop as soon as a round deletes fewer rows than the chunk", async () => {
+    const s = await signup();
+    const old = Date.now() - 8 * DAY;
+    await env.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 25)
+       INSERT INTO log_entries (id, house_id, source, ts, level, msg, created_at)
+       SELECT lower(hex(randomblob(8))), ?, 'web', ?, 'info', 'aged-rounds', ? + i FROM n`,
+    )
+      .bind(s.houseId, Date.now(), old)
+      .run();
+    const d = db(env.DB);
+    const run = vi.spyOn(d, "run");
+    await new LogsRepo(d).prune(Date.now(), 10);
+    // Age loop: 10, 10, 5 (short, stop). Row-cap loop: nothing over the cap, one short round, stop.
+    expect(run).toHaveBeenCalledTimes(4);
+  });
+
   it("prune keeps each house's newest 5 000 rows by created_at and leaves other houses alone", async () => {
     const big = await signup();
     const small = await signup();

@@ -1,13 +1,17 @@
 import { Hono } from "hono";
-import type { DeviceState } from "@feedme2/shared";
+import { zValidator } from "@hono/zod-validator";
+import { DeviceFeedingsBodySchema, type DeviceState } from "@feedme2/shared";
 import type { Bindings } from "../env.ts";
 import { db, type Db } from "../db/client.ts";
 import { clock } from "../auth/tokens.ts";
 import { requireDevice, type DeviceVars } from "../middleware/device.ts";
 import { CatsRepo, toApiCat } from "../repos/cats.ts";
 import { DevicesRepo } from "../repos/devices.ts";
+import { assertCatsInHouse, clampFedAt, FeedingsRepo } from "../repos/feedings.ts";
 import { HousesRepo, toApiHouse } from "../repos/houses.ts";
 import { tzOffsetMin } from "../time.ts";
+import { log } from "../logger.ts";
+import { validationHook } from "../validation.ts";
 
 type Env = { Bindings: Bindings } & DeviceVars;
 
@@ -52,4 +56,27 @@ export const deviceRouter = new Hono<Env>()
     c.header("Cache-Control", "no-store");
     if (c.req.header("if-none-match") === etag) return c.body(null, 304);
     return c.json(body);
+  })
+  .post("/feedings", zValidator("json", DeviceFeedingsBodySchema, validationHook), async (c) => {
+    const d = db(c.env.DB);
+    const now = clock.now();
+    const items = c.req.valid("json");
+    // Same order as the web route: a foreign cat is reported as nonexistent (404)
+    // before anything is written.
+    const missing = await assertCatsInHouse(new CatsRepo(d), c.var.houseId, items.map((i) => i.catId));
+    if (missing.length > 0) return c.json({ error: "cat_not_found", catIds: missing }, 404);
+    const repo = new FeedingsRepo(d);
+    // The id is a global primary key: another house's id would be dropped by
+    // ON CONFLICT DO NOTHING and look "already synced" to the device.
+    const foreign = await repo.idsOwnedByOtherHouses(c.var.houseId, [...new Set(items.map((i) => i.id))]);
+    if (foreign.length > 0) return c.json({ error: "id_conflict", ids: foreign }, 409);
+    const clamped: string[] = [];
+    const fixed = items.map((i) => {
+      const r = clampFedAt(i.fedAt, now);
+      if (r.clamped) clamped.push(i.id);
+      return { ...i, fedAt: r.fedAt };
+    });
+    const accepted = await repo.createMany(c.var.houseId, fixed, { source: "device", deviceId: c.var.deviceId }, now);
+    if (clamped.length > 0) log.warn("device feeding clock clamped", { deviceId: c.var.deviceId, ids: clamped });
+    return c.json({ accepted, clamped, now }, 201);
   });

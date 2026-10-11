@@ -48,6 +48,16 @@ export async function assertCatsInHouse(catsRepo: CatsRepo, houseId: string, cat
   return distinct.filter((id) => !present.has(id));
 }
 
+export const FED_AT_MAX_PAST_MS = 7 * 24 * 60 * 60 * 1000;
+export const FED_AT_MAX_FUTURE_MS = 5 * 60 * 1000;
+/** Devices have no UI to fix a timestamp, so a wrong clock is corrected, not refused (web: fedat_in_future 400). */
+export function clampFedAt(fedAt: number, nowMs: number): { fedAt: number; clamped: boolean } {
+  const lo = nowMs - FED_AT_MAX_PAST_MS;
+  const hi = nowMs + FED_AT_MAX_FUTURE_MS;
+  if (fedAt < lo || fedAt > hi) return { fedAt: Math.min(hi, Math.max(lo, fedAt)), clamped: true };
+  return { fedAt, clamped: false };
+}
+
 function chunks<T>(xs: T[], n: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));

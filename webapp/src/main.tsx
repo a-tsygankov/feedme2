@@ -5,7 +5,9 @@ import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { App } from "./App.tsx";
 import { authStore, crossesSessionBoundary } from "./lib/auth-store.ts";
-import { appLog, installGlobalErrorCapture } from "./lib/logger.ts";
+import { api } from "./lib/api-client.ts";
+import { createUploadSink, visibleInterval } from "./lib/log-upload.ts";
+import { appLog, attachSink, installGlobalErrorCapture } from "./lib/logger.ts";
 import { CLIENT_VERSION } from "./lib/versions.ts";
 import { startUpdateWatch } from "./lib/pwa-update-browser.ts";
 import { queryPersister } from "./lib/query-persister.ts";
@@ -17,6 +19,25 @@ import "./styles.css";
 // there are no devtools.
 installGlobalErrorCapture(appLog, window);
 appLog.info("app started", { version: CLIENT_VERSION });
+
+// Web log lines also reach the house's persisted feed, so another phone's console shows this phone's crash. The
+// sink starts dropping lines the moment the auth store says signed out.
+const uploadSink = createUploadSink({
+  send: (batch, opts) => api.uploadLogs(batch, opts?.keepalive ? { keepalive: true } : {}).then(() => undefined),
+  isSignedIn: () => authStore.getSnapshot().status === "signedIn",
+  now: Date.now,
+  schedule: visibleInterval,
+});
+attachSink(uploadSink);
+// Best effort: whatever is queued when the page is hidden or closing goes out now, because the 30 s timer may
+// never fire again (iOS freezes background tabs).
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") void uploadSink.flush({ keepalive: true });
+});
+window.addEventListener("pagehide", () => {
+  void uploadSink.flush({ keepalive: true });
+  uploadSink.stop();
+});
 
 // public/theme-boot.js already applied the theme before first paint;
 // this is the in-bundle fallback plus the OS follower for "system".

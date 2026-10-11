@@ -20,7 +20,7 @@ export function LogList({ entries, emptyMessage }: Props) {
   return (
     <ul className="space-y-1 font-mono text-xs">
       {entries.map((entry, i) => (
-        <li key={`${entry.ts}-${i}`} className="flex gap-2">
+        <li key={`${entry.ts}-${i}`} className="flex gap-2" data-testid="log-entry" data-source={entry.source}>
           <span className="shrink-0 text-slate-400">{new Date(entry.ts).toLocaleTimeString()}</span>
           <span className="shrink-0 text-slate-400">{entry.source}</span>
           <span className={`shrink-0 uppercase ${LEVEL_STYLES[entry.level]}`}>{entry.level}</span>

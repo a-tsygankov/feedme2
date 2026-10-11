@@ -6,7 +6,7 @@
 import {
   CatSchema, FeedingSchema, FeedingsPageSchema, HouseSchema, DebugLogsResponseSchema, TokensResponseSchema,
   type Cat, type CatCreate, type CatPatch, type DebugLogsQuery, type Feeding, type FeedingCreate, type FeedingPatch,
-  type FeedingsPage, type House, type HousePatch, type LogEntry, type TokensResponse,
+  type FeedingsPage, type House, type HousePatch, type LogEntry, type LogUploadEntry, type TokensResponse,
 } from "@feedme2/shared";
 import { z } from "zod";
 import { authStore, type RefreshOutcome } from "./auth-store.ts";
@@ -137,7 +137,8 @@ export const api = {
   patchFeeding: (id: string, patch: FeedingPatch): Promise<Feeding> =>
     apiFetch(`/api/feedings/${id}`, { method: "PATCH", body: JSON.stringify(patch) }).then((r) => json(r, z.object({ feeding: FeedingSchema }))).then((b) => b.feeding),
   deleteFeeding: (id: string) => apiFetch(`/api/feedings/${id}`, { method: "DELETE" }),
-  uploadLogs: (entries: LogEntry[]) => apiFetch("/api/logs", { method: "POST", body: JSON.stringify(entries) }),
+  // `init` lets the page-hide flush pass keepalive so the request outlives the page.
+  uploadLogs: (entries: LogUploadEntry[], init: RequestInit = {}) => apiFetch("/api/logs", { ...init, method: "POST", body: JSON.stringify(entries) }),
   debugLogs: (q: Partial<DebugLogsQuery> = {}): Promise<LogEntry[]> => {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined) params.set(k, String(v));

@@ -36,6 +36,13 @@ describe("apiFetch", () => {
     expect(new Headers(sentInit(fetchFn, 1).headers).get("content-type")).toBe("application/json");
   });
 
+  it("leaves content-type to the runtime for a non-string body (FormData needs its multipart boundary)", async () => {
+    const fetchFn = vi.fn(async () => new Response("{}", { status: 200 }));
+    const apiFetch = make(fetchFn, fakeAuth(["t"], { ok: true }));
+    await apiFetch("/api/upload", { method: "POST", body: new FormData() });
+    expect(new Headers(sentInit(fetchFn).headers).has("content-type")).toBe(false);
+  });
+
   it("keeps a caller's Headers instance and cannot have auth overridden by it", async () => {
     const fetchFn = vi.fn(async () => new Response("{}", { status: 200 }));
     const apiFetch = make(fetchFn, fakeAuth(["tok"], { ok: true }));

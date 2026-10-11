@@ -2,7 +2,7 @@
 // The modules under test build their singletons from localStorage at import time.
 import { describe, expect, it, vi } from "vitest";
 import type { House, TokensResponse } from "@feedme2/shared";
-import { createAuthStore } from "./auth-store.ts";
+import { createAuthStore, crossesSessionBoundary } from "./auth-store.ts";
 
 const house: House = {
   id: "123e4567-e89b-42d3-a456-426614174000", name: "Mochi House", createdAt: 1, modifiedAt: 1,
@@ -129,5 +129,21 @@ describe("auth store", () => {
     expect(store.getSnapshot()).toEqual({ status: "signedOut" });
     expect(store.getAccessToken()).toBeNull();
     expect(storage.getItem("feedme2:refresh")).toBeNull();
+  });
+});
+
+describe("crossesSessionBoundary", () => {
+  const a = { status: "signedIn", house } as const;
+  const b = { status: "signedIn", house: { ...house, id: "other-house" } } as const;
+  const out = { status: "signedOut" } as const;
+
+  it("sign-out and a different house are boundaries", () => {
+    expect(crossesSessionBoundary(a, out)).toBe(true);
+    expect(crossesSessionBoundary(a, b)).toBe(true);
+  });
+  it("a settings refresh of the same house, signing in, and staying out are not", () => {
+    expect(crossesSessionBoundary(a, { status: "signedIn", house: { ...house, name: "renamed" } })).toBe(false);
+    expect(crossesSessionBoundary(out, a)).toBe(false);
+    expect(crossesSessionBoundary(out, out)).toBe(false);
   });
 });

@@ -44,7 +44,8 @@ export function createApiFetch(deps: Deps) {
 
   async function send(path: string, init: RequestInit, token: string | null): Promise<Response> {
     const headers = new Headers(init.headers);
-    if (init.body != null && !headers.has("content-type")) headers.set("content-type", "application/json");
+    // Only a string body is JSON here: forcing the type on FormData/Blob would strip the multipart boundary.
+    if (typeof init.body === "string" && !headers.has("content-type")) headers.set("content-type", "application/json");
     // Set last so a caller-supplied header can never replace the session's identity.
     if (token) headers.set("authorization", `Bearer ${token}`); else headers.delete("authorization");
     headers.set("x-client-id", deps.clientId);

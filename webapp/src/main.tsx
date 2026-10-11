@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { App } from "./App.tsx";
+import { authStore, crossesSessionBoundary } from "./lib/auth-store.ts";
 import { appLog, installGlobalErrorCapture } from "./lib/logger.ts";
 import { CLIENT_VERSION } from "./lib/versions.ts";
 import { startUpdateWatch } from "./lib/pwa-update-browser.ts";
@@ -30,6 +31,22 @@ const queryClient = new QueryClient({
     queries: { staleTime: 30_000, retry: 1, networkMode: "always", gcTime: 24 * 3600 * 1000 },
     mutations: { networkMode: "always" },
   },
+});
+
+// Cache isolation: the query cache (and its Dexie copy) belongs to one house's session. On sign-out, or if the house
+// changes, drop it, or the next person on this phone would see the previous house's cats and feedings.
+// TODO(spec Q4): the Dexie outbox is deliberately NOT cleared here, so feedings queued offline are not lost. They
+// belong to the previous house, though; once ops carry a houseId (or the client id maps to a house) a flush under
+// another house's token must be refused instead of silently logged there.
+let lastSession = authStore.getSnapshot();
+authStore.subscribe(() => {
+  const next = authStore.getSnapshot();
+  const reset = crossesSessionBoundary(lastSession, next);
+  lastSession = next;
+  if (!reset) return;
+  void queryClient.cancelQueries();
+  queryClient.clear();
+  void queryPersister.removeClient();
 });
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

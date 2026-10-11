@@ -35,8 +35,13 @@ describe("HungerRing", () => {
     expect(html.indexOf("</svg>")).toBeLessThan(html.indexOf('data-testid="kid"'));
   });
 
-  it("pulses only the starving arc, and only when motion is allowed", () => {
-    expect(render(0.2, "starving")).toContain("motion-safe:animate-pulse");
+  it("pulses the track when starving (the arc is not drawn then), only when motion is allowed", () => {
+    // Starving is ratio >= 1.5, where fill is 0 and no progress arc exists to carry an animation.
+    const html = render(2, "starving");
+    expect(hasProgress(html)).toBe(false);
+    expect(html).toMatch(/data-testid="hunger-ring-track"[^>]*class="motion-safe:animate-pulse"/);
+    expect(html.match(/animate-pulse/g)).toHaveLength(1);
+    expect(render(2, "very_hungry")).not.toContain("animate-pulse");
     expect(render(0.2, "hungry")).not.toContain("animate-pulse");
   });
 

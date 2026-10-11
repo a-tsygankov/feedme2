@@ -15,4 +15,17 @@ describe("relativeTime", () => {
   it("null means never", () => {
     expect(relativeTime(now, null)).toBe("never");
   });
+  it("switches unit exactly at the boundaries", () => {
+    expect(relativeTime(now, now - 59_000)).toBe("just now");
+    expect(relativeTime(now, now - 60_000)).toBe("1 m ago");
+    expect(relativeTime(now, now - 59 * 60_000)).toBe("59 m ago");
+    expect(relativeTime(now, now - 60 * 60_000)).toBe("1 h ago");
+    expect(relativeTime(now, now - (23 * 60 + 59) * 60_000)).toBe("23 h 59 m ago");
+    expect(relativeTime(now, now - 24 * 3_600_000)).toBe("1 d ago");
+  });
+  it("a non-finite input reads as unknown rather than 'NaN m ago'", () => {
+    expect(relativeTime(now, NaN)).toBe("unknown");
+    expect(relativeTime(NaN, now)).toBe("unknown");
+    expect(relativeTime(now, Infinity)).toBe("unknown");
+  });
 });

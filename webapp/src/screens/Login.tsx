@@ -50,7 +50,7 @@ function LoginForm() {
       <form onSubmit={submit} className="mt-10 space-y-4 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Sign in to your house</h2>
         <Field label="House name" value={houseName} onChange={(e) => setHouseName(e.target.value)} autoComplete="username" autoCapitalize="off" autoCorrect="off" enterKeyHint="next" data-testid="login-name" required />
-        <Field label="PIN" type="password" inputMode="numeric" pattern="\d{4,12}" maxLength={12} value={pin} onChange={(e) => setPin(e.target.value)} autoComplete="current-password" data-testid="login-pin" required />
+        <Field label="PIN" type="password" inputMode="numeric" maxLength={12} value={pin} onChange={(e) => setPin(e.target.value)} autoComplete="current-password" data-testid="login-pin" required />
         {error ? <p className="text-sm text-red-600" role="alert" data-testid="login-error">{error}</p> : null}
         <Button type="submit" disabled={busy} className="w-full" data-testid="login-submit">Sign in</Button>
         <p className="text-center text-sm text-slate-500">

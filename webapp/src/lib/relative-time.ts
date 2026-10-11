@@ -1,5 +1,7 @@
 export function relativeTime(nowMs: number, thenMs: number | null): string {
   if (thenMs === null) return "never";
+  // A corrupt timestamp would otherwise print "NaN m ago".
+  if (!Number.isFinite(nowMs) || !Number.isFinite(thenMs)) return "unknown";
   const s = Math.max(0, Math.floor((nowMs - thenMs) / 1000));
   if (s < 60) return "just now";
   const m = Math.floor(s / 60);

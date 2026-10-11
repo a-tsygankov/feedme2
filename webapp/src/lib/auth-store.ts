@@ -11,6 +11,16 @@ import { safeStorage, type KeyValueStorage } from "./safe-storage.ts";
 export type AuthSnapshot = { status: "signedOut" } | { status: "signedIn"; house: House };
 export type RefreshOutcome = { ok: true } | { ok: false; reason: "rejected" | "unreachable" };
 
+/**
+ * True when cached server data no longer belongs to the session: signing out, or the house changing under a signed-in
+ * user. Without this a second house on the same phone briefly saw the first house's cats from the persisted cache.
+ * Signed-out to signed-in is not a boundary (the cache was already cleared when the previous session ended).
+ */
+export function crossesSessionBoundary(prev: AuthSnapshot, next: AuthSnapshot): boolean {
+  if (prev.status !== "signedIn") return false;
+  return next.status === "signedOut" || next.house.id !== prev.house.id;
+}
+
 export interface AuthStore {
   subscribe(listener: () => void): () => void;
   getSnapshot(): AuthSnapshot;

@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import type { Bindings } from "./env.ts";
 import { log } from "./logger.ts";
+import type { AuthVars } from "./middleware/auth.ts";
+import { authRouter } from "./routes/auth.ts";
 import { debugRouter } from "./routes/debug.ts";
 import { versionRouter } from "./routes/version.ts";
 
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<{ Bindings: Bindings } & AuthVars>();
 
 // One JSON line per request. Skip the health probe and /api/debug/*
 // itself — the console polling for logs must not generate the logs it
@@ -40,6 +42,7 @@ app.get("/api/health", (c) => c.json({ ok: true, env: c.env.ENVIRONMENT, ts: Dat
 
 app.route("/api/version", versionRouter);
 app.route("/api/debug", debugRouter);
+app.route("/api/auth", authRouter);
 
 export { app };
 

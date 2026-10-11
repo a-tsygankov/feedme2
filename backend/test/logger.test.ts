@@ -44,6 +44,9 @@ describe("Logger", () => {
 
 describe("request logging middleware", () => {
   it("logs a request-failed line and preserves a 500 response when a handler throws", async () => {
+    // singleWorker shares one module graph: an earlier file's SELF.fetch has already built the
+    // router matcher of the shared app, and Hono refuses app.get() after that. Re-import fresh.
+    vi.resetModules();
     const { app } = await import("../src/index.ts");
     const { logBuffer } = await import("../src/logger.ts");
 

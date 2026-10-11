@@ -266,7 +266,7 @@ jobs:
       # Fail before the suite rather than after a green-but-empty run.
       - name: Verify the test-auth route is live
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json'             -d '{"houseName":"ci probe"}' http://127.0.0.1:8787/api/auth/test-login)
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"houseName":"ci probe"}' http://127.0.0.1:8787/api/auth/test-login)
           if [ "$code" != "200" ]; then echo "::error::test-login answered $code, signed-in specs would skip"; exit 1; fi
       - name: Run the full E2E suite
         working-directory: webapp

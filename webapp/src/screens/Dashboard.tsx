@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import type { FeedingCreate } from "@feedme2/shared";
+import type { Cat, Feeding, FeedingCreate } from "@feedme2/shared";
 import { AppHeader } from "../components/AppHeader.tsx";
 import { TabBar } from "../components/TabBar.tsx";
 import { CatCard } from "../components/CatCard.tsx";
@@ -10,7 +10,7 @@ import { Button } from "../components/Button.tsx";
 import { useHouse } from "../hooks/use-house.ts";
 import { useCats, catsKey } from "../hooks/use-cats.ts";
 import { startOfLocalDay, useFeedingsSince } from "../hooks/use-feedings.ts";
-import { api } from "../lib/api-client.ts";
+import { syncEngine } from "../lib/sync-engine.ts";
 import { appLog } from "../lib/logger.ts";
 
 function useNow(everyMs = 30_000): number {
@@ -30,15 +30,23 @@ export function Dashboard() {
   const [sheet, setSheet] = useState<{ catId: string | undefined } | null>(null);
 
   async function submit(items: FeedingCreate[]) {
-    try {
-      await api.createFeedings(items);
-      appLog.info("feedings logged", { count: items.length });
-    } catch (err) {
-      appLog.error("feeding failed", { error: String(err) });
-      throw err;
-    } finally {
-      await Promise.all([qc.invalidateQueries({ queryKey: catsKey }), qc.invalidateQueries({ queryKey: ["feedings"] })]);
-    }
+    const now = Date.now();
+    // Outbox first: a feeding logged with no network must survive a reload.
+    for (const item of items) await syncEngine.enqueue({ kind: "create", feedingId: item.id, payload: item });
+    // Optimistic: the cat's ring and today's list move immediately.
+    qc.setQueryData<Cat[]>(catsKey, (old) => old?.map((c) => {
+      const mine = items.filter((i) => i.catId === c.id).sort((a, b) => b.fedAt - a.fedAt)[0];
+      return mine && (c.lastFedAt ?? 0) <= mine.fedAt
+        ? { ...c, lastFedAt: mine.fedAt, defaultAmountMg: mine.amountMg, defaultEnteredUnit: mine.enteredUnit, defaultEnteredValue: mine.enteredValue, modifiedAt: now }
+        : c;
+    }));
+    qc.setQueriesData<Feeding[]>({ queryKey: ["feedings"] }, (old) => [
+      ...items.map((i) => ({ ...i, houseId: h!.id, source: "web" as const, deviceId: null, clientId: null, note: i.note ?? null, createdAt: now, modifiedAt: now })),
+      ...(old ?? []),
+    ]);
+    appLog.info("feedings queued", { count: items.length });
+    const r = await syncEngine.drain();
+    if (!r.stopped) await Promise.all([qc.invalidateQueries({ queryKey: catsKey }), qc.invalidateQueries({ queryKey: ["feedings"] })]);
   }
 
   return (

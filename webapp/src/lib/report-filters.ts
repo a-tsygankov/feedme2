@@ -29,6 +29,19 @@ export interface ReportFilters {
 
 const RANGES: readonly ReportRange[] = ["day", "week", "month", "custom"];
 const MONTH_KEY = /^\d{4}-\d{2}$/;
+const HOUR_KEY = /^\d{4}-\d{2}-\d{2}T\d{2}$/;
+// Same lowercase form as the shared `uuid` schema: the Worker answers 400 for anything else,
+// and a stale `cat` in the URL would make the page's retry fail forever.
+const CAT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+// Every from/to stays inside 2000-01-01..2999-12-31. feedme2 has no data before 2020, and
+// the calendar math breaks at the year limits: a hand-edited `from=9999-12-15` month stepped
+// into "+010000-01", which isDateKey rejects, and addMonths threw and crashed the page.
+// Plain string comparison is exact here because both ends are four-digit years.
+const MIN_KEY: DateKey = "2000-01-01";
+const MAX_KEY: DateKey = "2999-12-31";
+const inWindow = (k: DateKey): boolean => isDateKey(k) && k >= MIN_KEY && k <= MAX_KEY;
+const filtersInWindow = (f: ReportFilters): boolean => inWindow(f.from) && inWindow(f.to);
 
 /** A fixed-length range from any day inside it: from snaps to the range start, to is derived. */
 function fixed(range: Exclude<ReportRange, "custom">, day: DateKey, cat: string | null, unit: ReportFilters["unit"]): ReportFilters {
@@ -44,18 +57,25 @@ function fixed(range: Exclude<ReportRange, "custom">, day: DateKey, cat: string 
 export function parseReportFilters(params: URLSearchParams, today: DateKey): ReportFilters {
   const rawRange = params.get("range");
   const range: ReportRange = RANGES.includes(rawRange as ReportRange) ? (rawRange as ReportRange) : "week";
-  const cat = params.get("cat") || null;
+  const rawCat = params.get("cat");
+  const cat = rawCat !== null && CAT_ID.test(rawCat) ? rawCat : null;
   const unit = params.get("unit") === "can" ? "can" : "house";
   const rawFrom = params.get("from");
-  const from = rawFrom !== null && isDateKey(rawFrom) ? rawFrom : null;
-
-  if (range !== "custom") return fixed(range, from ?? today, cat, unit);
-
+  const from = rawFrom !== null && inWindow(rawFrom) ? rawFrom : null;
   const rawTo = params.get("to");
-  const to = rawTo !== null && isDateKey(rawTo) ? rawTo : null;
-  // A hand-edited or stale link with an impossible or reversed range shows the default
-  // report instead of an error page.
-  if (from === null || to === null || to < from) return fixed("week", today, cat, unit);
+  const to = rawTo !== null && inWindow(rawTo) ? rawTo : null;
+  // A hand-edited or stale link with an impossible, reversed or out-of-window range shows
+  // the default report instead of an error page.
+  const fallback = () => fixed("week", today, cat, unit);
+
+  if (range !== "custom") {
+    if (rawFrom !== null && from === null) return fallback();
+    const f = fixed(range, from ?? today, cat, unit);
+    // The week of 2999-12-31 ends in 3000.
+    return filtersInWindow(f) ? f : fallback();
+  }
+
+  if (from === null || to === null || to < from) return fallback();
   // The Worker rejects spans over MAX_REPORT_DAYS; cut here so a pasted 10-year link
   // still opens on its first two years rather than failing.
   const capped = daysBetween(from, to) + 1 > MAX_REPORT_DAYS ? addDays(from, MAX_REPORT_DAYS - 1) : to;
@@ -72,7 +92,14 @@ export function toSearchParams(f: ReportFilters): URLSearchParams {
   return p;
 }
 
+/** Arrows stop at the window's edge: the same filters come back, so the page does not move. */
 export function shiftRange(f: ReportFilters, dir: 1 | -1): ReportFilters {
+  if (!filtersInWindow(f)) return f;
+  const next = shifted(f, dir);
+  return filtersInWindow(next) ? next : f;
+}
+
+function shifted(f: ReportFilters, dir: 1 | -1): ReportFilters {
   if (f.range === "day") return fixed("day", addDays(f.from, dir), f.cat, f.unit);
   if (f.range === "week") return fixed("week", addDays(f.from, 7 * dir), f.cat, f.unit);
   if (f.range === "month") return fixed("month", addMonths(f.from, dir), f.cat, f.unit);
@@ -89,16 +116,25 @@ export function chartBucket(f: ReportFilters): ReportBucket {
 export function drillLevel(f: ReportFilters): "week" | "day" | "feedings" | ReportBucket {
   if (f.range === "month") return "week";
   if (f.range === "week") return "day";
-  if (f.range === "day") return "feedings";
+  // A one-day custom range charts by hour, but there is no range finer than a day to open.
+  if (f.range === "day" || f.from === f.to) return "feedings";
   return chartBucket(f);
 }
 
-export function drillTo(f: ReportFilters, key: string): ReportFilters {
-  if (MONTH_KEY.test(key)) return fixed("month", `${key}-01`, f.cat, f.unit);
-  // An hour key (YYYY-MM-DDTHH) opens its day: there is no range finer than a day.
-  const day = key.slice(0, 10);
-  if (!isDateKey(day)) return f;
-  return fixed(drillLevel(f) === "week" ? "week" : "day", day, f.cat, f.unit);
+/**
+ * The range a period key opens. A day key alone is ambiguous (the month view's drill table
+ * opens its week, the month view's day bar opens the day), so the caller may say which with
+ * `level`; without it a month key opens its month and a day key follows `drillLevel(f)`.
+ * Hour keys and malformed or out-of-window keys return `f` unchanged: nothing to open.
+ */
+export function drillTo(f: ReportFilters, key: string, level?: "week" | "day" | "month"): ReportFilters {
+  if (HOUR_KEY.test(key)) return f;
+  const isMonth = MONTH_KEY.test(key);
+  const day = isMonth ? `${key}-01` : key;
+  if (!inWindow(day)) return f;
+  const to = level ?? (isMonth ? "month" : drillLevel(f) === "week" ? "week" : "day");
+  const next = fixed(to, day, f.cat, f.unit);
+  return filtersInWindow(next) ? next : f;
 }
 
 // Format the key's own calendar date at UTC midnight in UTC, so no browser zone can shift it.

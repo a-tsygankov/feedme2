@@ -33,6 +33,12 @@ struct CatState {
     int64_t lastFedAtMs = 0;
 };
 
+// The one cat ordering (sortOrder, then id): the state parser and CatRoster both sort with it, so the
+// knob order can never drift from the order the server's state arrived in.
+inline bool catOrderLess(const CatState& a, const CatState& b) {
+    return a.sortOrder != b.sortOrder ? a.sortOrder < b.sortOrder : a.id < b.id;
+}
+
 struct DeviceState {
     std::string houseId, houseName;
     int tzOffsetMin = 0;
@@ -41,11 +47,7 @@ struct DeviceState {
     std::vector<CatState> cats;
     int64_t nowMs = 0;
 
-    void sortCats() {
-        std::stable_sort(cats.begin(), cats.end(), [](const CatState& a, const CatState& b) {
-            return a.sortOrder != b.sortOrder ? a.sortOrder < b.sortOrder : a.id < b.id;
-        });
-    }
+    void sortCats() { std::stable_sort(cats.begin(), cats.end(), catOrderLess); }
 };
 
 inline StepSettings stepSettingsOf(const HouseSettings& h) {

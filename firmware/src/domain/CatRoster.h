@@ -1,5 +1,6 @@
 #pragma once
 // Knob selection over the cats plus the "All cats" entry (spec §1.2 step 2).
+#include <algorithm>
 #include <string>
 #include "domain/DeviceState.h"
 
@@ -11,7 +12,7 @@ public:
         std::string keepId = selectedId();
         const bool keepAll = isAllSelected();
         cats_ = s.cats;
-        std::stable_sort(cats_.begin(), cats_.end(), [](const CatState& a, const CatState& b) { return a.sortOrder != b.sortOrder ? a.sortOrder < b.sortOrder : a.id < b.id; });
+        std::stable_sort(cats_.begin(), cats_.end(), catOrderLess);
         index_ = 0;
         if (keepAll && hasAll()) index_ = cats_.size();
         else if (!keepId.empty()) selectById(keepId);

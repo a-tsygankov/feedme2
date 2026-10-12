@@ -34,7 +34,9 @@ public:
         all_ = (cat == nullptr);
         scale_ = Scale::One;
         catId_ = all_ ? "" : cat->id;
-        amountMg_ = all_ ? 0 : defaultFor(*cat);
+        // Snap the starting amount onto the house unit's step grid, so the text the knob shows and the mg it
+        // logs agree (the 40 g fallback in quarter cans read "1/4 can" while logging 40 000 mg, not 38 981).
+        amountMg_ = all_ ? 0 : snapBelowCap(defaultFor(*cat), stepMg(settings_.foodUnit, stepSettingsOf(settings_)));
         phase_ = Phase::Amount;
         (void)nowMs;
     }
@@ -53,8 +55,8 @@ public:
         }
         const int32_t step = stepMg(settings_.foodUnit, stepSettingsOf(settings_));
         int64_t next = static_cast<int64_t>(amountMg_) + static_cast<int64_t>(delta) * step;
-        next = std::min<int64_t>(next, kMaxAmountMg);
-        amountMg_ = snapToStep(static_cast<int32_t>(std::max<int64_t>(next, step)), step);
+        next = std::max<int64_t>(step, std::min<int64_t>(next, kMaxAmountMg));
+        amountMg_ = snapBelowCap(static_cast<int32_t>(next), step);
     }
 
     std::string amountText() const {
@@ -79,6 +81,14 @@ public:
     void finishFed() { phase_ = Phase::Idle; }
 
 private:
+    // snapToStep rounds to the nearest grid point, which near the cap can land above it (0.25 oz steps:
+    // 5 003 422 mg > 5 000 000, rejected by the server). Snap first, then step down onto the last grid
+    // point at or below the cap; never below one step.
+    static int32_t snapBelowCap(int32_t mg, int32_t step) {
+        int32_t snapped = snapToStep(mg, step);
+        if (snapped > kMaxAmountMg && step > 0) snapped = std::max(step, (kMaxAmountMg / step) * step);
+        return std::min(snapped, kMaxAmountMg);
+    }
     int32_t defaultFor(const CatState& c) const {
         // The server already converted the cat's default into the house unit's mg; use it as is.
         return c.hasDefault && c.defaultAmountMg > 0 ? c.defaultAmountMg : kFallbackMg;

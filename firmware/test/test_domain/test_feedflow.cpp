@@ -74,3 +74,30 @@ void test_feedflow_cancel_returns_to_idle_without_drafts() {
     f.cancel();
     TEST_ASSERT_EQUAL(Phase::Idle, f.phase());
 }
+
+void test_feedflow_oz_unit_never_overshoots_cap_and_stays_on_grid() {
+    // Review (Tasks 2-4): clamping before snapToStep let a 0.25 oz step land a few grams above the
+    // server cap (5 003 422 mg), which /device/feedings rejects. Snap first, then clamp down onto the grid.
+    auto s = house(); s.settings.foodUnit = FoodUnit::Ounces; s.settings.ozStepHundredths = 25;
+    const int32_t step = stepMg(FoodUnit::Ounces, stepSettingsOf(s.settings));  // 7087 mg
+    FeedFlow f; f.begin(s, &s.cats[0], 0);
+    for (int i = 0; i < 1000; ++i) f.rotate(1);
+    TEST_ASSERT_TRUE(f.amountMg() <= kMaxAmountMg);
+    TEST_ASSERT_EQUAL_INT32((kMaxAmountMg / step) * step, f.amountMg());
+    TEST_ASSERT_EQUAL_INT32(0, f.amountMg() % step);
+    f.rotate(1);  // already at the cap: stays put, still on the grid
+    TEST_ASSERT_EQUAL_INT32((kMaxAmountMg / step) * step, f.amountMg());
+}
+
+void test_feedflow_begin_snaps_fallback_to_the_unit_grid() {
+    // Review (Tasks 2-4): the 40 000 mg fallback read "1/4 can" but was logged as 40 000 mg, so the
+    // enteredValue and amountMg disagreed. The starting amount lands on the step grid of the house unit.
+    auto s = house(); s.settings.foodUnit = FoodUnit::Cans; s.settings.canFractionStep = CanFraction::Quarter;
+    const int32_t step = stepMg(FoodUnit::Cans, stepSettingsOf(s.settings));  // 38981 mg
+    FeedFlow f; f.begin(s, &s.cats[1], 0);  // Luna has no default
+    TEST_ASSERT_EQUAL_INT32(step, f.amountMg());
+    TEST_ASSERT_EQUAL_STRING("1/4 can", f.amountText().c_str());
+    auto d = f.confirm(nextId, 1);
+    TEST_ASSERT_EQUAL_INT32(step, d[0].amountMg);
+    TEST_ASSERT_EQUAL_STRING("1/4", d[0].enteredValue.c_str());
+}

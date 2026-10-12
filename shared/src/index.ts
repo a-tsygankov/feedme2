@@ -10,3 +10,4 @@ export * from "./api.ts";
 export * from "./units.ts";
 export * from "./hunger.ts";
 export * from "./device.ts";
+export * from "./zone.ts";

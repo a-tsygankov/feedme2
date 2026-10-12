@@ -7,9 +7,11 @@ import { TabBar } from "../components/TabBar.tsx";
 import { Button } from "../components/Button.tsx";
 import { FeedSheet } from "../components/FeedSheet.tsx";
 import { FeedingRow } from "../components/FeedingRow.tsx";
+import { CatTrends } from "../components/report/CatTrends.tsx";
 import { useHouse } from "../hooks/use-house.ts";
-import { useCats, catsKey } from "../hooks/use-cats.ts";
+import { useCats } from "../hooks/use-cats.ts";
 import { api } from "../lib/api-client.ts";
+import { REFRESH_AFTER_EDIT } from "../lib/drain-refresh.ts";
 import { applyPatch, editPatch, replaceFeeding } from "../lib/feeding-history.ts";
 import { appLog } from "../lib/logger.ts";
 import { syncEngine } from "../lib/sync-engine.ts";
@@ -45,11 +47,8 @@ export function CatPage() {
   const [editing, setEditing] = useState<Feeding | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
 
-  const refresh = () => Promise.all([
-    qc.invalidateQueries({ queryKey: ["feedings"] }),
-    qc.invalidateQueries({ queryKey: ["feedings-history"] }),
-    qc.invalidateQueries({ queryKey: catsKey }),
-  ]);
+  // Reports too: the trends panel above the history (and the Reports screen) must not keep the pre-edit day.
+  const refresh = () => Promise.all(REFRESH_AFTER_EDIT.map((queryKey) => qc.invalidateQueries({ queryKey })));
 
   /**
    * Drain the outbox, then report what happened: a dropped op (the server refused it) is an error; anything still
@@ -124,6 +123,7 @@ export function CatPage() {
         {notice ? (
           <p className={`text-sm ${notice.tone === "error" ? "text-red-600" : "text-slate-600"}`} role={notice.tone === "error" ? "alert" : "status"} data-testid="history-notice">{notice.text}</p>
         ) : null}
+        <CatTrends cat={cat} />
         <ul className="space-y-2" data-testid="feeding-history">
           {items.map((f) => <FeedingRow key={f.id} feeding={f} settings={settings} timeZone={settings.timezone} onEdit={() => setEditing(f)} onDelete={() => void remove(f)} />)}
         </ul>

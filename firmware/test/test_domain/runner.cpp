@@ -31,6 +31,27 @@ void test_hunger_colours_and_degenerate_interval();
 void test_clock_unsynced_reports_monotonic_and_flag();
 void test_clock_syncs_from_server_and_keeps_counting();
 
+// test_roster.cpp
+void test_roster_sorts_and_adds_all_for_two_cats();
+void test_roster_single_cat_has_no_all_and_keeps_selection_across_state_updates();
+
+// test_feedflow.cpp
+void test_feedflow_single_cat_steps_in_house_unit_and_confirms_one_draft();
+void test_feedflow_cat_without_default_starts_at_fallback_and_never_below_one_step();
+void test_feedflow_all_cats_uses_scale_and_each_cats_default();
+void test_feedflow_can_unit_formats_fraction_steps();
+void test_feedflow_cancel_returns_to_idle_without_drafts();
+
+// test_queue.cpp
+void test_queue_fifo_head_and_remove_by_id();
+void test_queue_drops_oldest_past_cap();
+
+// test_router.cpp
+void test_router_stack();
+
+// test_arc.cpp
+void test_arc_charges_over_hold_and_resets_on_release();
+
 extern "C" void setUp(void) {}
 extern "C" void tearDown(void) {}
 
@@ -53,5 +74,16 @@ int main(int, char**) {
     RUN_TEST(test_hunger_colours_and_degenerate_interval);
     RUN_TEST(test_clock_unsynced_reports_monotonic_and_flag);
     RUN_TEST(test_clock_syncs_from_server_and_keeps_counting);
+    RUN_TEST(test_roster_sorts_and_adds_all_for_two_cats);
+    RUN_TEST(test_roster_single_cat_has_no_all_and_keeps_selection_across_state_updates);
+    RUN_TEST(test_feedflow_single_cat_steps_in_house_unit_and_confirms_one_draft);
+    RUN_TEST(test_feedflow_cat_without_default_starts_at_fallback_and_never_below_one_step);
+    RUN_TEST(test_feedflow_all_cats_uses_scale_and_each_cats_default);
+    RUN_TEST(test_feedflow_can_unit_formats_fraction_steps);
+    RUN_TEST(test_feedflow_cancel_returns_to_idle_without_drafts);
+    RUN_TEST(test_queue_fifo_head_and_remove_by_id);
+    RUN_TEST(test_queue_drops_oldest_past_cap);
+    RUN_TEST(test_router_stack);
+    RUN_TEST(test_arc_charges_over_hold_and_resets_on_release);
     return UNITY_END();
 }

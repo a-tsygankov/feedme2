@@ -1,11 +1,14 @@
-name: 'feedme2 boot and serial input channel'
+name: 'feedme2 boots unpaired, pairs against the fake api, lands on idle'
 version: 1
 author: 'feedme2'
+# Line order is pinned by test_app_boot_unpaired_shows_pair_and_starts_pairing: the roster only
+# arrives with the "paired" round, so "idle cat=Mochi" follows "sync ok". wait-serial streams and
+# never rescans, so the order here must be the order the firmware prints.
 steps:
   - wait-serial: '[feedme2] boot ok'
-  - write-serial: "cw\n"
-  - wait-serial: '[feedme2] input=RotateCW'
-  - write-serial: "press\n"
-  - wait-serial: '[feedme2] input=Press'
-  - write-serial: "jump\n"
-  - wait-serial: '[feedme2] input=None'
+  - wait-serial: '[feedme2] screen=pair'
+  - wait-serial: '[feedme2] pair start code=424242'
+  - wait-serial: '[feedme2] paired house='
+  - wait-serial: '[feedme2] screen=idle'
+  - wait-serial: '[feedme2] sync ok accepted=0 state=changed'
+  - wait-serial: '[feedme2] idle cat=Mochi level='

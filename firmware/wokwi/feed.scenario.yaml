@@ -1,0 +1,16 @@
+name: 'knob feeds the selected cat'
+version: 1
+author: 'feedme2'
+# Mochi's default is 40 g and the house gram step is 5 g, so one cw reads 45000 mg. The Fed screen
+# pops on its own after 2 s and Idle re-renders with the fresh feeding ("fed" = under 15 min).
+steps:
+  - wait-serial: '[feedme2] idle cat=Mochi level='
+  - write-serial: "press\n"
+  - wait-serial: '[feedme2] screen=amount'
+  - write-serial: "cw\n"
+  - wait-serial: '[feedme2] amount cat=Mochi mg=45000'
+  - write-serial: "press\n"
+  - wait-serial: '[feedme2] feeding queued id='
+  - wait-serial: '[feedme2] screen=fed'
+  - wait-serial: '[feedme2] sync ok accepted=1 state=changed'
+  - wait-serial: '[feedme2] idle cat=Mochi level=fed'

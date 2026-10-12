@@ -1,0 +1,21 @@
+name: 'long press opens the system menu; double tap shows history; long press backs out'
+version: 1
+author: 'feedme2'
+# The menu is Wi-Fi, Unpair, About, Sleep now: one cw from the top selects Unpair. A cw prints no
+# line on the menu, so a short delay keeps the press from arriving in the same serial read.
+steps:
+  - wait-serial: '[feedme2] idle cat=Mochi level='
+  - write-serial: "long\n"
+  - wait-serial: '[feedme2] screen=system'
+  - write-serial: "cw\n"
+  - delay: 200
+  - write-serial: "press\n"
+  - wait-serial: '[feedme2] screen=unpair'
+  - write-serial: "double\n"
+  - wait-serial: '[feedme2] screen=system'
+  - write-serial: "long\n"
+  - wait-serial: '[feedme2] screen=idle'
+  - write-serial: "double\n"
+  - wait-serial: '[feedme2] screen=history'
+  - write-serial: "press\n"
+  - wait-serial: '[feedme2] screen=idle'

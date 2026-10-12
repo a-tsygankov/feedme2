@@ -26,13 +26,14 @@ function Tile({ label, value, testId }: { label: string; value: string; testId: 
 export function CatTrends({ cat }: { cat: Cat }) {
   const house = useHouse();
   // The house's today, not the phone's (Review Focus 2).
-  const today = house.data ? dateKeyOf(Date.now(), house.data.settings.timezone) : null;
-  if (!today) return null;
-  return <TrendsBody cat={cat} filters={{ range: "custom", from: addDays(today, -(DAYS - 1)), to: today, cat: cat.id, unit: "house" }} />;
+  const timeZone = house.data?.settings.timezone;
+  if (!timeZone) return null;
+  const today = dateKeyOf(Date.now(), timeZone);
+  return <TrendsBody cat={cat} timeZone={timeZone} filters={{ range: "custom", from: addDays(today, -(DAYS - 1)), to: today, cat: cat.id, unit: "house" }} />;
 }
 
-function TrendsBody({ cat, filters }: { cat: Cat; filters: ReportFilters }) {
-  const report = useReport(filters);
+function TrendsBody({ cat, timeZone, filters }: { cat: Cat; timeZone: string; filters: ReportFilters }) {
+  const report = useReport(filters, timeZone);
   const summary = report.data;
   let body;
   if (summary) {

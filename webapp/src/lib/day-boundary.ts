@@ -12,11 +12,29 @@ function startOfLocalDay(nowMs: number): number {
  * device). The zone math lives in shared/ so the Reports bounds and the dashboard agree on what a day is.
  */
 export function startOfDayInZone(nowMs: number, timeZone: string): number {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
-  } catch {
-    // shared/ falls back to UTC for a bad zone; the dashboard keeps its device-local fallback (pinned by the test).
-    return startOfLocalDay(nowMs);
-  }
+  // shared/ falls back to UTC for a bad zone; the dashboard keeps its device-local fallback (pinned by the test).
+  if (!isValidZone(timeZone)) return startOfLocalDay(nowMs);
   return midnightMs(dateKeyOf(nowMs, timeZone), timeZone);
+}
+
+/**
+ * Zone validity per spelling. Building an Intl.DateTimeFormat only to see whether it throws cost one per call, and the
+ * dashboard calls this on every 30 s tick. Bounded like shared/'s zone caches: cleared when full, since a
+ * house has one zone and only a hostile or buggy caller would cycle through many.
+ */
+const ZONE_CACHE_LIMIT = 64;
+const zoneValidity = new Map<string, boolean>();
+function isValidZone(timeZone: string): boolean {
+  let ok = zoneValidity.get(timeZone);
+  if (ok === undefined) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone });
+      ok = true;
+    } catch {
+      ok = false;
+    }
+    if (zoneValidity.size >= ZONE_CACHE_LIMIT) zoneValidity.clear();
+    zoneValidity.set(timeZone, ok);
+  }
+  return ok;
 }

@@ -19,3 +19,9 @@ export function queriesToRefreshAfterDrain(r: DrainReport): QueryKey[] {
  * to their 60 s staleTime.
  */
 export const REFRESH_AFTER_EDIT: readonly QueryKey[] = [["feedings"], ["feedings-history"], ["cats"], ["report"]];
+
+/**
+ * What the cat page refetches when the server refused its edit or delete: only the lists, to drop the optimistic row.
+ * Nothing changed on the server, so the reports would refetch the same numbers (the same rule as a refused drain).
+ */
+export const REFRESH_AFTER_REFUSED: readonly QueryKey[] = [["feedings"], ["feedings-history"], ["cats"]];

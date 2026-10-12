@@ -55,7 +55,7 @@ function ReportBody({ house }: { house: House }) {
   useEffect(() => {
     if (staleCat) setParams(toSearchParams(f), { replace: true });
   }, [staleCat, f, setParams]);
-  const report = useReport(f);
+  const report = useReport(f, settings.timezone);
   const [csv, setCsv] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
 
   // Push, not replace: Back walks up the drill-down one level at a time.

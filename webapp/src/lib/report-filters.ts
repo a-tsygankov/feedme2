@@ -9,6 +9,7 @@ import {
   isDateKey,
   startOfMonth,
   startOfWeek,
+  UuidSchema,
   type DateKey,
   type ReportBucket,
 } from "@feedme2/shared";
@@ -32,9 +33,9 @@ export interface ReportFilters {
 const RANGES: readonly ReportRange[] = ["day", "week", "month", "custom"];
 const MONTH_KEY = /^\d{4}-\d{2}$/;
 const HOUR_KEY = /^\d{4}-\d{2}-\d{2}T\d{2}$/;
-// Same lowercase form as the shared `uuid` schema: the Worker answers 400 for anything else,
+// The Worker's own `cat` check (shared UuidSchema, lowercase only): it answers 400 for anything else,
 // and a stale `cat` in the URL would make the page's retry fail forever.
-const CAT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const isCatId = (k: string): boolean => UuidSchema.safeParse(k).success;
 
 // Every from/to stays inside 2000-01-01..2999-12-31. feedme2 has no data before 2020, and
 // the calendar math breaks at the year limits: a hand-edited `from=9999-12-15` month stepped
@@ -60,7 +61,7 @@ export function parseReportFilters(params: URLSearchParams, today: DateKey): Rep
   const rawRange = params.get("range");
   const range: ReportRange = RANGES.includes(rawRange as ReportRange) ? (rawRange as ReportRange) : "week";
   const rawCat = params.get("cat");
-  const cat = rawCat !== null && CAT_ID.test(rawCat) ? rawCat : null;
+  const cat = rawCat !== null && isCatId(rawCat) ? rawCat : null;
   const unit = params.get("unit") === "can" ? "can" : "house";
   const rawFrom = params.get("from");
   const from = rawFrom !== null && inWindow(rawFrom) ? rawFrom : null;

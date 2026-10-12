@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { startOfDayInZone } from "./day-boundary.ts";
 
 describe("startOfDayInZone", () => {
@@ -30,5 +30,26 @@ describe("startOfDayInZone", () => {
     const d = new Date(now);
     d.setHours(0, 0, 0, 0);
     expect(startOfDayInZone(now, "Not/AZone")).toBe(d.getTime());
+  });
+
+  describe("zone validity cache", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("checks a zone's validity once, not on every call (the dashboard asks on every 30 s tick)", () => {
+      const spy = vi.spyOn(Intl, "DateTimeFormat");
+      const now = Date.UTC(2026, 2, 15, 13, 45);
+      startOfDayInZone(now, "Not/AnotherZone");
+      const first = spy.mock.calls.length;
+      expect(first).toBeGreaterThan(0);
+      startOfDayInZone(now, "Not/AnotherZone");
+      startOfDayInZone(now + 1, "Not/AnotherZone");
+      expect(spy.mock.calls.length).toBe(first);
+    });
+
+    it("still answers correctly from the cache", () => {
+      const at = Date.UTC(2026, 5, 1, 20, 0);
+      expect(startOfDayInZone(at, "Asia/Tokyo")).toBe(Date.UTC(2026, 5, 1, 15));
+      expect(startOfDayInZone(at, "Asia/Tokyo")).toBe(Date.UTC(2026, 5, 1, 15));
+    });
   });
 });

@@ -10,7 +10,8 @@ export function useCats() {
 
 export function useCatMutations() {
   const qc = useQueryClient();
-  const invalidate = () => qc.invalidateQueries({ queryKey: catsKey });
+  // Reports too: they carry each cat's name and colour and mark a removed one, so any cat change makes them stale.
+  const invalidate = () => Promise.all([qc.invalidateQueries({ queryKey: catsKey }), qc.invalidateQueries({ queryKey: ["report"] })]);
   return {
     create: useMutation({ mutationFn: (input: CatCreate) => api.createCat(input), onSuccess: invalidate }),
     patch: useMutation({ mutationFn: ({ id, patch }: { id: string; patch: CatPatch }) => api.patchCat(id, patch), onSuccess: invalidate }),

@@ -58,7 +58,7 @@ The pre-commit hook needs a working `python`/`python3`/`py`; without one it skip
 
 ```bash
 cd firmware
-pio test -e native                 # Unity over domain/ + application/, pinned by ../fixtures/*.json (132 cases)
+pio test -e native                 # Unity over domain/ + application/, pinned by ../fixtures/*.json (142 cases)
 pio run -e crowpanel               # hardware build (GC9A01); add -t upload to flash over USB, then pio device monitor
 pio run -e simulator               # Wokwi build (ILI9341 stand-in, -DSIMULATOR=1, merged bin + diagram.json)
 ```
@@ -67,7 +67,7 @@ Envs: `crowpanel` (hardware), `simulator` (Wokwi), `native` (host tests), `spike
 
 The simulator has no network and no knob: `FakeNetwork` answers the device API from `fixtures/device-state.sample.json` (pair code `424242`), and input comes from a **serial command channel**: one of `press`, `double`, `long`, `cw`, `ccw`, `touch` per line. Every screen transition and sync outcome prints one machine-readable line, `[feedme2] <event> key=value …` (for example `[feedme2] idle cat=Mochi level=content`, `[feedme2] sync ok accepted=1 state=changed`). The scenarios in `firmware/wokwi/*.scenario.yaml` (`boot`, `pair`, `feed`, `feed_all`, `system_menu`) write those commands and wait for those lines; CI runs them with `wokwi-cli` when `WOKWI_CLI_TOKEN` is set and skips otherwise. Locally: `wokwi-cli --scenario wokwi/feed.scenario.yaml --timeout 90000 firmware`. The full list of event lines is in `docs/handoffs/2026-10-12-phase2b-execution-handoff.md`; they are a contract, so renaming one means updating the scenarios.
 
-On hardware the first boot without Wi-Fi credentials opens the captive portal (`feedme2-XXXX`); once online, an unpaired device shows a QR and a six-digit code to type under Settings → Devices.
+On hardware the captive portal (`feedme2-XXXX`) opens by itself only on an unpaired device with no saved Wi-Fi credentials, and restarts the device after 10 minutes with nobody on it. To change the network later, press on System → Wi-Fi; an unpaired device whose saved password is wrong gets the portal by holding the knob button down while it boots. Once online, an unpaired device shows a QR and a six-digit code to type under Settings → Devices. Sync makes one HTTPS request per loop tick (one TLS connection each), so the screen and the knob stay live during a round; light sleep drops the Wi-Fi association, so the station rejoins after every nap and a requested round keeps the device awake up to 15 s for it. Only the backend's own 401 unpairs the device; the menu Unpair and that 401 both clear the cached house.
 
 ## Versioning
 

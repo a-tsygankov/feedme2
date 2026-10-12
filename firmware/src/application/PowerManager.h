@@ -50,8 +50,12 @@ public:
     // resting on the glass): it does not dim or sleep for up to kMaxHoldMs, and a press while
     // dim wakes it at once.
     void setHeld(bool held) { held_ = held; }
-    // While true light sleep is postponed (a sync round requested or running, a feeding still
-    // queued); dimming is not affected. Also stops the next nap while already asleep.
+    // While true light sleep is postponed; dimming is not affected. Also stops the next nap while
+    // already asleep. App holds the device awake while a sync round is in progress, or while one is
+    // requested on a paired device that is online or still within App::kJoinGraceMs of the request
+    // or of a timer wake (Wi-Fi rejoining after a nap). A queued feeding alone does not: that kept a
+    // paired device with no reachable AP at Dim forever (review of the Phase 2b branch); the next
+    // timer wake brings it back to drain the queue.
     void holdAwake(bool busy) { busy_ = busy; }
     // Advances the tiers. In LightSleep this calls power.lightSleep() again (it blocks until a
     // GPIO or timer wake on the device) unless busy or a timer wake is waiting to be consumed.

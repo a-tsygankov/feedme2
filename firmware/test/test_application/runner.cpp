@@ -24,6 +24,22 @@ void test_pair_unknown_restarts_like_expired();
 void test_pair_pending_for_ten_minutes_restarts_start();
 void test_pair_permanent_400_on_check_is_failed();
 void test_pair_clear_token();
+void test_sync_round_order_and_success();
+void test_sync_transient_failure_keeps_feedings_and_stops();
+void test_sync_permanent_failure_drops_batch_and_continues();
+void test_sync_cat_not_found_drops_only_that_cat();
+void test_sync_id_conflict_settles_those_ids();
+void test_sync_ok_with_fewer_accepted_settles_the_sent_ids();
+void test_sync_unauthorized_clears_token_and_routes_to_pair();
+void test_sync_cached_state_loads_before_network();
+void test_sync_corrupt_cached_state_is_ignored_and_etag_dropped();
+void test_sync_timer_round_every_sync_interval();
+void test_sync_offline_skips_round_until_online();
+void test_sync_heartbeat_syncs_the_clock_when_state_is_304();
+void test_sync_logs_transient_requeues_and_stops();
+void test_sync_logs_permanent_drops_batch_and_continues();
+void test_sync_heartbeat_failure_is_not_fatal();
+void test_sync_state_decode_failure_keeps_old_state();
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -53,5 +69,21 @@ int main() {
     RUN_TEST(test_pair_pending_for_ten_minutes_restarts_start);
     RUN_TEST(test_pair_permanent_400_on_check_is_failed);
     RUN_TEST(test_pair_clear_token);
+    RUN_TEST(test_sync_round_order_and_success);
+    RUN_TEST(test_sync_transient_failure_keeps_feedings_and_stops);
+    RUN_TEST(test_sync_permanent_failure_drops_batch_and_continues);
+    RUN_TEST(test_sync_cat_not_found_drops_only_that_cat);
+    RUN_TEST(test_sync_id_conflict_settles_those_ids);
+    RUN_TEST(test_sync_ok_with_fewer_accepted_settles_the_sent_ids);
+    RUN_TEST(test_sync_unauthorized_clears_token_and_routes_to_pair);
+    RUN_TEST(test_sync_cached_state_loads_before_network);
+    RUN_TEST(test_sync_corrupt_cached_state_is_ignored_and_etag_dropped);
+    RUN_TEST(test_sync_timer_round_every_sync_interval);
+    RUN_TEST(test_sync_offline_skips_round_until_online);
+    RUN_TEST(test_sync_heartbeat_syncs_the_clock_when_state_is_304);
+    RUN_TEST(test_sync_logs_transient_requeues_and_stops);
+    RUN_TEST(test_sync_logs_permanent_drops_batch_and_continues);
+    RUN_TEST(test_sync_heartbeat_failure_is_not_fatal);
+    RUN_TEST(test_sync_state_decode_failure_keeps_old_state);
     return UNITY_END();
 }

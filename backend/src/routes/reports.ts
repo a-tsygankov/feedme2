@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import {
-  aggregateReport, dayBoundsMs, daysBetween, DateKeySchema, defaultBucket, FEEDINGS_CSV_HEADERS, feedingCsvRow, isDateKey, MAX_HOUR_BUCKET_DAYS, MAX_REPORT_DAYS, ReportBucketSchema, toCsv,
+  aggregateReport, dayBoundsMs, daysBetween, DateKeySchema, defaultBucket, FEEDINGS_CSV_HEADERS, feedingCsvRow, isDateKey, MAX_HOUR_BUCKET_DAYS, MAX_REPORT_DAYS, REPORT_MAX_DATE, REPORT_MIN_DATE,
+  ReportBucketSchema, toCsv,
 } from "@feedme2/shared";
 import type { Bindings } from "../env.ts";
 import { db, type Db } from "../db/client.ts";
@@ -14,7 +15,8 @@ import { validationHook } from "../validation.ts";
 
 /**
  * A local-date range in the house's zone. Both ends are inclusive days; the
- * cap keeps a hostile "2000-01-01..2099-12-31" from reading every row.
+ * cap keeps a hostile "2000-01-01..2099-12-31" from reading every row, the
+ * REPORT_MIN_DATE..REPORT_MAX_DATE window keeps the calendar math inside four-digit years.
  */
 const RangeQuery = z.object({
   from: DateKeySchema,
@@ -24,6 +26,13 @@ const RangeQuery = z.object({
 }).superRefine((q, ctx) => {
   // zod still runs this after a field refine failed: "2026-02-30" made daysBetween throw (a 500, not a 400).
   if (!isDateKey(q.from) || !isDateKey(q.to)) return;
+  // Before any calendar math: "9999-12-31" stepped past year 9999 in dayBoundsMs and threw (a 500).
+  // Plain string comparison is exact because isDateKey passed, so both are four-digit years.
+  const outside = (k: string) => k < REPORT_MIN_DATE || k > REPORT_MAX_DATE;
+  const msg = `outside ${REPORT_MIN_DATE}..${REPORT_MAX_DATE}`;
+  if (outside(q.from)) ctx.addIssue({ code: "custom", path: ["from"], message: msg });
+  if (outside(q.to)) ctx.addIssue({ code: "custom", path: ["to"], message: msg });
+  if (outside(q.from) || outside(q.to)) return;
   if (q.to < q.from) ctx.addIssue({ code: "custom", path: ["to"], message: "before from" });
   else if (daysBetween(q.from, q.to) + 1 > MAX_REPORT_DAYS) ctx.addIssue({ code: "custom", path: ["to"], message: `range longer than ${MAX_REPORT_DAYS} days` });
   else if (q.bucket === "hour" && daysBetween(q.from, q.to) + 1 > MAX_HOUR_BUCKET_DAYS) {
@@ -54,6 +63,8 @@ export const reportsRouter = new Hono<{ Bindings: Bindings } & AuthVars>()
     const r = await resolve(d, c.var.houseId, q);
     if (!r) return c.json({ error: "cat_not_found" }, 404);
     const feedings = await new FeedingsRepo(d).listForReport(c.var.houseId, r.fromMs, r.toMs, q.cat);
+    // Same as the CSV: private to the house and stale after the next feeding.
+    c.header("cache-control", "no-store");
     return c.json(aggregateReport({
       feedings,
       cats: r.cats.filter((x) => !q.cat || x.id === q.cat).map((x) => ({ id: x.id, name: x.name, color: x.color, deleted: x.deletedAt !== null })),

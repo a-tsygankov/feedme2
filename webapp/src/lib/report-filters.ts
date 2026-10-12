@@ -1,5 +1,7 @@
 import {
   MAX_REPORT_DAYS,
+  REPORT_MAX_DATE,
+  REPORT_MIN_DATE,
   addDays,
   addMonths,
   daysBetween,
@@ -38,8 +40,8 @@ const CAT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // the calendar math breaks at the year limits: a hand-edited `from=9999-12-15` month stepped
 // into "+010000-01", which isDateKey rejects, and addMonths threw and crashed the page.
 // Plain string comparison is exact here because both ends are four-digit years.
-const MIN_KEY: DateKey = "2000-01-01";
-const MAX_KEY: DateKey = "2999-12-31";
+const MIN_KEY: DateKey = REPORT_MIN_DATE;
+const MAX_KEY: DateKey = REPORT_MAX_DATE;
 const inWindow = (k: DateKey): boolean => isDateKey(k) && k >= MIN_KEY && k <= MAX_KEY;
 const filtersInWindow = (f: ReportFilters): boolean => inWindow(f.from) && inWindow(f.to);
 

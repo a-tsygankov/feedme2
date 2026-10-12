@@ -33,6 +33,8 @@ describe("/api/reports", () => {
   it("summarises the seeded month in the house zone", async () => {
     const res = await summary(s, `from=${SEED_FROM}&to=${SEED_TO}`);
     expect(res.status).toBe(200);
+    // A report is the house's private data and changes with every feeding: no shared or stale copies.
+    expect(res.headers.get("cache-control")).toBe("no-store");
     const r = ReportSummarySchema.parse(await res.json());
     expect(r).toMatchObject({ timeZone: SEED_TZ, bucket: "day" });
     expect(r.totals).toMatchObject({ feedings: 154, amountMg: 5_240_000 });
@@ -66,6 +68,14 @@ describe("/api/reports", () => {
       expect(res.status, qs).toBe(400);
       expect(await res.json()).toMatchObject({ error: "invalid_request" });
     }
+    // Outside 2000..2999: "9999-12-31" made dayBoundsMs step into "+010000-01-01" and throw (a 500).
+    for (const [qs, path] of [["from=9999-12-01&to=9999-12-31", "from"], ["from=1999-12-01&to=1999-12-31", "from"], ["from=2999-12-01&to=3000-01-01", "to"]] as const) {
+      const res = await summary(s, qs);
+      expect(res.status, qs).toBe(400);
+      expect(await res.json(), qs).toMatchObject({ error: "invalid_request", issues: expect.arrayContaining([expect.objectContaining({ path: [path] })]) });
+      expect((await s.fetchAuthed(`/api/reports/export.csv?${qs}`)).status, qs).toBe(400);
+    }
+    expect((await summary(s, "from=2999-12-01&to=2999-12-31")).status).toBe(200);
     // Hour buckets are capped at MAX_HOUR_BUCKET_DAYS (7): 8 days of hours is 192 periods.
     const hours = await summary(s, "from=2026-03-01&to=2026-03-08&bucket=hour");
     expect(hours.status).toBe(400);

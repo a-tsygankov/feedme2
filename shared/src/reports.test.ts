@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { aggregateReport, defaultBucket, MAX_HOUR_BUCKET_DAYS, periodKeys, ReportSummarySchema, type AggregateInput } from "./reports.ts";
-import { dayBoundsMs, midnightMs } from "./zone.ts";
+import { aggregateReport, defaultBucket, MAX_HOUR_BUCKET_DAYS, periodKeyOf, periodKeys, REPORT_MAX_DATE, REPORT_MIN_DATE, ReportSummarySchema, type AggregateInput } from "./reports.ts";
+import { __resetZoneCaches, addDays, dayBoundsMs, isDateKey, midnightMs, startOfWeek } from "./zone.ts";
 import { SEED_CATS, SEED_FROM, SEED_TO, SEED_TZ, seedMonthFeedings } from "./testing/seed-month.ts";
 
 const cats = SEED_CATS.map((c) => ({ ...c, deleted: false }));
@@ -60,6 +60,20 @@ describe("buckets", () => {
     expect(periodKeys("2026-03-01", "2026-03-31", "week")).toEqual(["2026-02-23", "2026-03-02", "2026-03-09", "2026-03-16", "2026-03-23", "2026-03-30"]);
     expect(periodKeys("2026-01-15", "2026-03-02", "month")).toEqual(["2026-01", "2026-02", "2026-03"]);
   });
+  it("derives the week key from the zoned parts exactly as startOfWeek does, every day of 2026", () => {
+    const bad: string[] = [];
+    for (const tz of [SEED_TZ, "America/Santiago", "Pacific/Kiritimati"]) {
+      for (let d = "2026-01-01"; d <= "2026-12-31"; d = addDays(d, 1)) {
+        // First instant, noon and last instant of the local day all belong to that day's week.
+        const start = midnightMs(d, tz), end = midnightMs(addDays(d, 1), tz) - 1;
+        for (const ms of [start, Math.round((start + end) / 2), end]) {
+          const got = periodKeyOf(ms, "week", tz);
+          if (got !== startOfWeek(d) && bad.length < 5) bad.push(`${tz} ${d} ${got}`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
   it("hour buckets on the 23-hour day keep 24 keys and an empty T02", () => {
     const r = aggregateReport(base({ from: "2026-03-29", to: "2026-03-29", bucket: "hour" }));
     expect(r.periods).toHaveLength(24);
@@ -102,16 +116,30 @@ describe("edges", () => {
 describe("limits", () => {
   it("caps hour buckets at a week (7 × 24 = 168 periods)", () => expect(MAX_HOUR_BUCKET_DAYS).toBe(7));
 
-  it("looks up the zone once per feeding (CPU on a two-year range)", () => {
-    // Every zone lookup is one formatToParts call on the cached formatter; the bounds take a handful.
-    // Inputs are built outside the spy: the seed itself uses the zone.
+  it("keeps every derived date key inside a four-digit year", () => {
+    expect([REPORT_MIN_DATE, REPORT_MAX_DATE]).toEqual(["2000-01-01", "2999-12-31"]);
+    // dayBoundsMs reads the day after `to`, the week bucket the Monday before `from`.
+    expect(isDateKey(addDays(REPORT_MAX_DATE, 1))).toBe(true);
+    expect(isDateKey(startOfWeek(REPORT_MIN_DATE))).toBe(true);
+    expect(() => aggregateReport(base({ feedings: [], from: "2999-12-01", to: REPORT_MAX_DATE, bucket: "week" }))).not.toThrow();
+  });
+
+  it("asks Intl once per UTC day, not once per feeding (CPU on a two-year range)", () => {
+    // Cold caches, or the count says nothing: a warm cache answers every feeding without Intl.
+    // Each UTC day costs two formatToParts calls (its first and last second); the 23-hour
+    // 2026-03-29 adds two per quarter-hour that holds a feeding (5), the bounds two more days.
+    // 31 days + 2 bound days, ×2, + 5 quarters ×2 = 76; the bound is 2 × (31 + 2) + 16 = 82,
+    // below the 154 feedings, so even one uncached lookup per feeding fails it.
     const inputs = (["hour", "day", "week", "month"] as const).map((bucket) => base({ bucket }));
     const spy = vi.spyOn(Intl.DateTimeFormat.prototype, "formatToParts");
     try {
       for (const input of inputs) {
+        __resetZoneCaches();
         spy.mockClear();
         aggregateReport(input);
-        expect(spy.mock.calls.length, input.bucket).toBeLessThanOrEqual(input.feedings.length + 16);
+        const n = spy.mock.calls.length;
+        expect(n, input.bucket).toBeLessThanOrEqual(2 * (31 + 2) + 16);
+        expect(n, input.bucket).toBeLessThan(input.feedings.length);
       }
     } finally {
       spy.mockRestore();

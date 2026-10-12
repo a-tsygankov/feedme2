@@ -7,6 +7,13 @@ import { FoodUnitSchema, type FoodUnit } from "./api.ts";
 import { addDays, dayBoundsMs, daysBetween, isDateKey, startOfWeek, zonedParts, type DateKey } from "./zone.ts";
 
 export const MAX_REPORT_DAYS = 732;
+/**
+ * The only dates a report may name. feedme2 holds no data before 2020; the window exists so every
+ * key derived from from/to stays a valid four-digit date: "9999-12-31" made dayBoundsMs step into
+ * "+010000-01-01" and throw (a 500), and string comparison of keys is exact only at four digits.
+ */
+export const REPORT_MIN_DATE = "2000-01-01";
+export const REPORT_MAX_DATE = "2999-12-31";
 /** Hour buckets past a week are unreadable bars (7 × 24 = 168) and a large periods array; the route rejects more. */
 export const MAX_HOUR_BUCKET_DAYS = 7;
 export const DateKeySchema = z.string().refine(isDateKey, "expected a real date YYYY-MM-DD");
@@ -73,7 +80,13 @@ function periodKeyFromParts(p: ZonedParts, bucket: ReportBucket): string {
   const day = `${p.y}-${pad(p.m)}-${pad(p.d)}`;
   if (bucket === "hour") return `${day}T${pad(p.h)}`;
   if (bucket === "day") return day;
-  if (bucket === "week") return startOfWeek(day);
+  if (bucket === "week") {
+    // The Monday straight from the parts: startOfWeek(day) re-parsed the key per feeding and made
+    // week reports ~4x slower than day ones. Most Mondays share the month; Date.UTC normalises
+    // the others (a day of 0 or less) into the month before.
+    const monday = p.d - p.weekday;
+    return monday >= 1 ? `${p.y}-${pad(p.m)}-${pad(monday)}` : new Date(Date.UTC(p.y, p.m - 1, monday)).toISOString().slice(0, 10);
+  }
   return day.slice(0, 7);
 }
 

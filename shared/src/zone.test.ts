@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { addDays, addMonths, dateKeyOf, dayBoundsMs, daysBetween, isDateKey, midnightMs, parseDateKey, startOfMonth, startOfWeek, weekdayOf, zonedParts } from "./zone.ts";
+import { __resetZoneCaches, __zoneCacheSizes, addDays, addMonths, dateKeyOf, dayBoundsMs, daysBetween, isDateKey, midnightMs, parseDateKey, startOfMonth, startOfWeek, weekdayOf, zonedParts } from "./zone.ts";
 
 describe("date keys", () => {
   it("parses real dates only", () => {
@@ -107,5 +107,29 @@ describe("zonedParts against Intl directly", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("zone caches", () => {
+  it("share one entry between spellings Intl resolves to the same zone", () => {
+    __resetZoneCaches();
+    const ms = Date.UTC(2026, 2, 28, 23, 30);
+    expect(dateKeyOf(ms, "Europe/Berlin")).toBe("2026-03-29");
+    expect(dateKeyOf(ms, "europe/berlin")).toBe("2026-03-29");
+    expect(dateKeyOf(ms, "EUROPE/BERLIN")).toBe("2026-03-29");
+    expect(__zoneCacheSizes().zones).toBe(1);
+  });
+  it("stay bounded however many spellings, offsets or bad names arrive", () => {
+    __resetZoneCaches();
+    const ms = Date.UTC(2026, 0, 1, 12);
+    for (let i = 0; i < 300; i++) {
+      dateKeyOf(ms, `Not/AZone${i}`);
+      dateKeyOf(ms, `+${String(Math.floor(i / 60) % 24).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}`);
+    }
+    const sizes = __zoneCacheSizes();
+    expect(sizes.zones).toBeLessThanOrEqual(64);
+    expect(sizes.aliases).toBeLessThanOrEqual(64);
+    // Still right after the caps cleared.
+    expect(dateKeyOf(Date.UTC(2026, 2, 28, 23, 30), "Europe/Berlin")).toBe("2026-03-29");
   });
 });

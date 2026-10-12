@@ -6,7 +6,7 @@ Household cat-feeding tracker: a knob-driven ESP32 dial (Elecrow CrowPanel 1.28"
 
 | Dir | What | Deploys to |
 |---|---|---|
-| `shared/` | zod schemas, ring buffer, version compare (TS only) | bundled into both |
+| `shared/` | zod schemas, units and hunger rules, house-zone calendar math, report aggregation, CSV, ring buffer, version compare (TS only) | bundled into both |
 | `backend/` | Hono Worker + D1 | `feedme2-api.atsyg-feedme.workers.dev` |
 | `webapp/` | React 18 + Vite PWA | `feedme2-webapp.pages.dev` |
 | `firmware/` | PlatformIO / LVGL 9 for CrowPanel: `src/{domain,ports,application,adapters,screens,assets}` | flashed over USB (`pio run -e crowpanel -t upload`), later OTA |
@@ -51,6 +51,21 @@ pnpm --filter @feedme2/device-sim start sync                              # send
 The fake device keeps its token and queues in `tools/device-sim/device-sim.json`; see `tools/device-sim/README.md` for every command and the exit codes.
 
 The pre-commit hook needs a working `python`/`python3`/`py`; without one it skips the bump and CI's version check catches it. PlatformIO (`pip install platformio`) provides `pio`.
+
+## Reports
+
+`/reports` (the Reports tab) answers "how much, how often, when" for a day, a Monday-to-Sunday week, a calendar month or a custom range, house-wide or for one cat (the cat filter hides when the house has one cat; a removed cat's feedings still count, labelled "Name (removed)"):
+
+- tiles: feedings, amount (in the house unit, or cans with the unit toggle), cans, mean interval and longest gap between two feedings of the same cat;
+- charts: feedings and amount per period stacked by cat in each cat's colour, a histogram of the time between feedings, and a weekday × hour heatmap; every chart has a data-table fallback for screen readers;
+- drill-down: month → week → day → that day's feedings, by tapping a bar or a table row; Back walks up one level, and the arrows shift the range;
+- **Download CSV**: one row per feeding (`date,time,cat,amount,unit,grams,entered_value,entered_unit,source,note`), in the house zone and unit, UTF-8 with a BOM for Excel; cells that a spreadsheet would run as a formula get a leading `'`.
+
+Every bound, bucket and label is in the **house's** time zone (Settings → timezone), never the phone's: a phone in Tokyo looking at a Berlin house sees Berlin days, and a DST day is still one day (23 or 25 hours). Weeks start on Monday for every house. Cans use the house's current can size for the whole range. The filters live in the URL (`range`, `from`, `to`, `cat`, `unit`), so a report is a shareable link; a bad link falls back to this week.
+
+Limits: dates must lie in 2000-01-01..2999-12-31 and a range covers at most 732 days (a longer pasted link is cut to its first 732 days); a one-day range charts by hour, up to 92 days by day, up to 400 by week, beyond that by month (the API takes hour buckets for at most 7 days); a day's feeding list shows its latest 200 feedings. Reports are online-only: offline, the last loaded report stays on screen, and with nothing cached the page says "Reports need a connection". The cat page (`/cats/:id`) shows the same numbers for the cat's last 30 days, with a link that opens them in Reports.
+
+The API behind it is `GET /api/reports/summary` and `GET /api/reports/export.csv` (see `handoff.md`); the aggregation is `aggregateReport` in `shared/src/reports.ts`, the same code the tests snapshot over a seeded March 2026.
 
 ## Firmware
 

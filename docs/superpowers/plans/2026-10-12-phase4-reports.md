@@ -41,7 +41,7 @@
 scripts/test_workflow_guards.py                  Task 0 (pins the guards)
 shared/src/zone.ts            + zone.test.ts      Task 1 calendar math in an IANA zone
 shared/src/reports.ts         + reports.test.ts   Task 2 schemas + aggregateReport (+ __snapshots__)
-shared/test-fixtures/report-month.json            Task 2 seeded month (not fixtures/: that dir bumps firmware)
+shared/src/testing/seed-month.ts                  Task 2 seeded month (test-only, not exported from index; not fixtures/: that dir bumps firmware)
 shared/src/csv.ts             + csv.test.ts       Task 3 RFC 4180 + formula-injection guard, feedings CSV rows
 shared/src/index.ts                               Tasks 1–3 exports
 webapp/src/lib/day-boundary.ts                    Task 1 delegates to shared zone math
@@ -61,6 +61,12 @@ handoff.md, README.md, docs/handoffs/2026-10-12-phase4-execution-handoff.md   Ta
 
 Task order and parallelism: 0 ∥ 1; 2 and 3 after 1 (2 ∥ 3); 4 after 2 and 3; 5 ∥ 6 after 1 (webapp only); 7 after 4, 5, 6; 8 after 7; 9 after 7; 10 last.
 
+**Corrections recorded during execution** (the task text below is left as written):
+- A 425-day custom range (`2025-01-01..2026-03-01`) buckets by **month**, not week: `defaultBucket` switches to months above 400 days, and Task 6's `chartBucket` test expects `"month"`.
+- `POST /api/feedings` answers **201** (not 200); the seeding helpers in Tasks 4 and 9 assert 201.
+- `@testing-library/*` is **not installed** (and no dependency was added), so the webapp tests of Tasks 5, 7 and 8 use `react-dom/client` + `act()` like `Sheet.test.tsx`, not `render`/`screen`/`fireEvent`/`within`/`waitFor`.
+- `drillTo` takes an optional third argument, `drillTo(f, key, level?)`: a day key is ambiguous in the month view (the drill table opens its week, a day bar opens the day), so the caller says which.
+
 ---
 
 ## Task 0: CI hygiene and the handoff after Phase 2
@@ -74,7 +80,7 @@ Two CI faults surfaced at the Phase 2 merge: (a) `workflow_dispatch` deploys wha
 
 **Interfaces:** none (CI only).
 
-- [ ] **Step 1: Failing guard tests** — `scripts/test_workflow_guards.py` (runs under `python -m unittest discover -s scripts`; PyYAML is not guaranteed in CI, so check the job blocks as text):
+- [x] **Step 1: Failing guard tests** — `scripts/test_workflow_guards.py` (runs under `python -m unittest discover -s scripts`; PyYAML is not guaranteed in CI, so check the job blocks as text):
 
 ```python
 """Pins the deploy workflow's safety rules (incident 2026-10-12: PR #2's merge run was
@@ -114,9 +120,9 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Run** `python -m unittest scripts.test_workflow_guards -v` → 3 failures.
+- [x] **Step 2: Run** `python -m unittest scripts.test_workflow_guards -v` → 3 failures.
 
-- [ ] **Step 3: Edit `deploy.yml`.**
+- [x] **Step 3: Edit `deploy.yml`.**
 
 Concurrency:
 ```yaml
@@ -154,11 +160,11 @@ Deploy jobs: replace the dispatch clause in both `backend-deploy` and `webapp-de
 ```
 (same shape with `webapp-build` / `webapp` for `webapp-deploy`). Check every other job that writes to production for the same clause.
 
-- [ ] **Step 4: Run** `python -m unittest discover -s scripts` → all green (42 + 3). Parse the YAML once: `python -c "import yaml; yaml.safe_load(open('.github/workflows/deploy.yml'))"` (scratch venv if PyYAML is missing).
+- [x] **Step 4: Run** `python -m unittest discover -s scripts` → all green (42 + 3). Parse the YAML once: `python -c "import yaml; yaml.safe_load(open('.github/workflows/deploy.yml'))"` (scratch venv if PyYAML is missing).
 
-- [ ] **Step 5: handoff.md** as listed under Files.
+- [x] **Step 5: handoff.md** as listed under Files.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 ```bash
 git add .github/workflows/deploy.yml scripts/test_workflow_guards.py handoff.md
 git commit -m "ci: deploy only main on dispatch; main runs are not cancelled and diff from the last green run
@@ -187,7 +193,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `midnightMs(k: DateKey, tz: string): number` — the first instant of local day `k` (handles zones whose midnight is skipped by DST).
   - `dayBoundsMs(from: DateKey, to: DateKey, tz: string): { fromMs: number; toMs: number }` — `[midnight(from), midnight(to + 1))`.
 
-- [ ] **Step 1: Failing tests** `shared/src/zone.test.ts`:
+- [x] **Step 1: Failing tests** `shared/src/zone.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -252,9 +258,9 @@ describe("instants in a zone", () => {
 
 (If the Santiago transition date differs in the runtime's tz database, pick the 2026 September transition the runtime reports — `Intl` is the source of truth — and keep the assertion shape.)
 
-- [ ] **Step 2: Run** `pnpm --filter @feedme2/shared test -- zone` → FAIL (module missing).
+- [x] **Step 2: Run** `pnpm --filter @feedme2/shared test -- zone` → FAIL (module missing).
 
-- [ ] **Step 3: Implement** `shared/src/zone.ts`:
+- [x] **Step 3: Implement** `shared/src/zone.ts`:
 
 ```ts
 /**
@@ -365,9 +371,9 @@ export function startOfDayInZone(nowMs: number, timeZone: string): number {
 }
 ```
 
-- [ ] **Step 4: Run** `pnpm --filter @feedme2/shared test && pnpm --filter webapp test -- day-boundary && pnpm -r typecheck` → green.
+- [x] **Step 4: Run** `pnpm --filter @feedme2/shared test && pnpm --filter webapp test -- day-boundary && pnpm -r typecheck` → green.
 
-- [ ] **Step 5: Commit** (the hook bumps webapp and worker for `shared/`; stage both package.json files)
+- [x] **Step 5: Commit** (the hook bumps webapp and worker for `shared/`; stage both package.json files)
 ```bash
 git add shared/src/zone.ts shared/src/zone.test.ts shared/src/index.ts webapp/src/lib/day-boundary.ts webapp/package.json backend/package.json
 git commit -m "feat(shared): calendar math in the house zone with dst-safe midnights; dashboard day boundary uses it
@@ -436,7 +442,7 @@ Rules the implementation must follow (each pinned below):
 - Hour buckets use the local wall hour: on a 25-hour day both 02:xx hours share key `T02`; on a 23-hour day `T02` stays empty.
 - `heatmap[weekday][hour]` counts feedings by local weekday and wall hour.
 
-- [ ] **Step 1: The seeded month** `shared/src/testing/seed-month.ts`:
+- [x] **Step 1: The seeded month** `shared/src/testing/seed-month.ts`:
 
 ```ts
 /**
@@ -500,7 +506,7 @@ function buildFeedings(salt: string, mochi: string, luna: string): ReportFeeding
 }
 ```
 
-- [ ] **Step 2: Failing tests** `shared/src/reports.test.ts`:
+- [x] **Step 2: Failing tests** `shared/src/reports.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -605,9 +611,9 @@ describe("edges", () => {
 });
 ```
 
-- [ ] **Step 3: Run** `pnpm --filter @feedme2/shared test -- reports` → FAIL (module missing).
+- [x] **Step 3: Run** `pnpm --filter @feedme2/shared test -- reports` → FAIL (module missing).
 
-- [ ] **Step 4: Implement** `shared/src/reports.ts`:
+- [x] **Step 4: Implement** `shared/src/reports.ts`:
 
 ```ts
 /**
@@ -746,9 +752,9 @@ export function aggregateReport(i: AggregateInput): ReportSummary {
 
 (Feedings of a cat id that is not in `i.cats` still count in totals, periods and heatmap but have no `perCat` row; the route always passes every cat of the house, so that only guards against a race with a cat delete.)
 
-- [ ] **Step 5: Run** `pnpm --filter @feedme2/shared test` → green, snapshot written. Read the snapshot once and check it holds 31 periods and 7×24 heatmap rows before committing it.
+- [x] **Step 5: Run** `pnpm --filter @feedme2/shared test` → green, snapshot written. Read the snapshot once and check it holds 31 periods and 7×24 heatmap rows before committing it.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 ```bash
 git add shared/src/reports.ts shared/src/reports.test.ts shared/src/__snapshots__/reports.test.ts.snap shared/src/testing/seed-month.ts shared/src/index.ts webapp/package.json backend/package.json
 git commit -m "feat(shared): report aggregation in the house zone with a seeded-month snapshot
@@ -773,7 +779,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `interface CsvFeeding { fedAt: number; catName: string; amountMg: number; enteredUnit: FoodUnit; enteredValue: string; source: "device" | "web"; note: string | null }`.
   - `feedingCsvRow(f: CsvFeeding, tz: string, unit: FoodUnit, canSizeMg: number): Array<string | number | null>` — date and `HH:MM` in the house zone; `amount` = `fromMg` rounded to 2 decimals in the house unit; `unit` = house unit; `grams` = `amountMg / 1000` rounded to 3 decimals.
 
-- [ ] **Step 1: Failing tests** `shared/src/csv.test.ts`:
+- [x] **Step 1: Failing tests** `shared/src/csv.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -807,7 +813,7 @@ describe("csv", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL. **Step 3: Implement** `shared/src/csv.ts`:
+- [x] **Step 2: Run** → FAIL. **Step 3: Implement** `shared/src/csv.ts`:
 
 ```ts
 /** CSV for exports (spec §1.3 "CSV export"). RFC 4180 quoting plus gigsy's formula-injection guard. */
@@ -843,7 +849,7 @@ export function feedingCsvRow(f: CsvFeeding, tz: string, unit: FoodUnit, canSize
 }
 ```
 
-- [ ] **Step 4: Run** `pnpm --filter @feedme2/shared test && pnpm -r typecheck` → green. **Step 5: Commit**
+- [x] **Step 4: Run** `pnpm --filter @feedme2/shared test && pnpm -r typecheck` → green. **Step 5: Commit**
 ```bash
 git add shared/src/csv.ts shared/src/csv.test.ts shared/src/index.ts webapp/package.json backend/package.json
 git commit -m "feat(shared): csv cells with the formula guard and a feedings row in the house zone
@@ -869,7 +875,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `GET /api/reports/export.csv?from=&to=[&cat=]` → 200 `text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="feedme2-<from>-<to>.csv"`, body = UTF-8 BOM + `toCsv([FEEDINGS_CSV_HEADERS, ...rows])`.
   - Errors: 400 `invalid_request` (bad date, `to` before `from` at path `to`, span over 732 days at path `to`, bad bucket, bad uuid); 404 `{error:"cat_not_found"}` when `cat` is not a cat of this house (removed cats are fine); 401 without a house token.
 
-- [ ] **Step 1: Failing tests** `backend/test/reports.test.ts` (seed through the real API like `feedings.test.ts`; POST batches of at most 100; the seed is in the past, so the 5-minute future guard never fires):
+- [x] **Step 1: Failing tests** `backend/test/reports.test.ts` (seed through the real API like `feedings.test.ts`; POST batches of at most 100; the seed is in the past, so the 5-minute future guard never fires):
 
 ```ts
 import { ReportSummarySchema } from "@feedme2/shared";
@@ -960,9 +966,9 @@ describe("/api/reports", () => {
 ```
 `fetch_` is the unauthenticated request helper: use `SELF.fetch(new Request("http://x" + path))` from `cloudflare:test` (see how `test/helpers/api.ts` builds requests and reuse its base URL).
 
-- [ ] **Step 2: Run** `pnpm --filter backend test -- reports` → FAIL (404 on the route).
+- [x] **Step 2: Run** `pnpm --filter backend test -- reports` → FAIL (404 on the route).
 
-- [ ] **Step 3: Implement.** Repos (Drizzle, same style as `page()`):
+- [x] **Step 3: Implement.** Repos (Drizzle, same style as `page()`):
 ```ts
 // cats.ts
 listIncludingDeleted(houseId: string): Promise<Row[]> {
@@ -1048,9 +1054,9 @@ export const reportsRouter = new Hono<{ Bindings: Bindings } & AuthVars>()
 ```
 Mount in `index.ts`: `.route("/api/reports", reportsRouter)` next to `/api/feedings`. Adjust names to what the repos actually export (`toApiHouse`, the Row `deletedAt` field, `x.color`) and say so in the commit body if they differ.
 
-- [ ] **Step 4: Run** `pnpm --filter backend test && pnpm --filter backend typecheck` → green.
+- [x] **Step 4: Run** `pnpm --filter backend test && pnpm --filter backend typecheck` → green.
 
-- [ ] **Step 5: Commit** (worker bump)
+- [x] **Step 5: Commit** (worker bump)
 ```bash
 git add backend/src/routes/reports.ts backend/test/reports.test.ts backend/src/repos/feedings.ts backend/src/repos/cats.ts backend/src/index.ts backend/package.json
 git commit -m "feat(backend): report summary and csv export over a house-zone date range
@@ -1076,7 +1082,7 @@ Spec §4.4 asks for "a `<FeedingChart kind=…>` family". gigsy has no chart lib
   - `FeedingChart(props: { kind: "bars"; …BarChart props } | { kind: "heatmap"; …Heatmap props })`.
   - Constant `ACCENT = "rgb(var(--c-emerald-600))"` exported from `BarChart.tsx` for single-series charts.
 
-- [ ] **Step 1: Failing tests** `charts.test.tsx` (vitest + jsdom + @testing-library/react, as `HungerRing.test.tsx` does):
+- [x] **Step 1: Failing tests** `charts.test.tsx` (vitest + jsdom + @testing-library/react, as `HungerRing.test.tsx` does):
 
 ```tsx
 import { describe, expect, it, vi } from "vitest";
@@ -1138,9 +1144,9 @@ describe("Heatmap", () => {
 });
 ```
 
-- [ ] **Step 2: Run** `pnpm --filter webapp test -- charts` → FAIL.
+- [x] **Step 2: Run** `pnpm --filter webapp test -- charts` → FAIL.
 
-- [ ] **Step 3: Implement.** `BarChart.tsx` core (ChartFrame and Heatmap follow the same shape):
+- [x] **Step 3: Implement.** `BarChart.tsx` core (ChartFrame and Heatmap follow the same shape):
 
 ```tsx
 import type { KeyboardEvent, ReactNode } from "react";
@@ -1222,9 +1228,9 @@ export function ChartFrame({ title, empty, emptyText = "No feedings in this rang
 
 `Heatmap.tsx`: `viewBox="0 0 240 70"`, cell 10 × 10, `<rect fill={ACCENT} fill-opacity=…>` row-major (weekday × hour), `<title>` per cell "Mon 07:00 – 4", labels as HTML around the SVG; table: headers `["", "0", …, "23"]`, rows per weekday.
 
-- [ ] **Step 4: Run** `pnpm --filter webapp test -- charts && pnpm --filter webapp typecheck` → green.
+- [x] **Step 4: Run** `pnpm --filter webapp test -- charts && pnpm --filter webapp typecheck` → green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add webapp/src/components/charts webapp/package.json
 git commit -m "feat(webapp): svg bar chart and heatmap on the token layer with data-table fallbacks
@@ -1252,7 +1258,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `drillTo(f: ReportFilters, key: string): ReportFilters` — a week key (Monday) → `{range:"week", from:key}`; a day key → `{range:"day", from:key}`; a month key `YYYY-MM` → `{range:"month", from:key + "-01"}`; keeps `cat` and `unit`.
   - `rangeTitle(f: ReportFilters): string` — `"Sun 29 Mar 2026"`, `"23 – 29 Mar 2026"`, `"March 2026"`, `"1 Mar 2026 – 31 Mar 2026"`; formatted from the date key with `Intl.DateTimeFormat("en-GB", { timeZone: "UTC" })` on `Date.UTC(...)` of the key, so the browser zone never shifts a day.
 
-- [ ] **Step 1: Failing tests** `report-filters.test.ts`:
+- [x] **Step 1: Failing tests** `report-filters.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -1308,9 +1314,9 @@ describe("report filters", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL. **Step 3: Implement** to the interface (pure functions over date keys; the only `Intl` use is `rangeTitle`, formatting `Date.UTC(y, m - 1, d)` with `timeZone: "UTC"`; a week spanning two months reads `"30 Mar – 5 Apr 2026"`, two years `"29 Dec 2025 – 4 Jan 2026"`). **Step 4: Run** → green.
+- [x] **Step 2: Run** → FAIL. **Step 3: Implement** to the interface (pure functions over date keys; the only `Intl` use is `rangeTitle`, formatting `Date.UTC(y, m - 1, d)` with `timeZone: "UTC"`; a week spanning two months reads `"30 Mar – 5 Apr 2026"`, two years `"29 Dec 2025 – 4 Jan 2026"`). **Step 4: Run** → green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add webapp/src/lib/report-filters.ts webapp/src/lib/report-filters.test.ts webapp/package.json
 git commit -m "feat(webapp): report filters in the url with monday weeks, shifting and drill targets
@@ -1345,7 +1351,7 @@ Screen layout (top to bottom), all values from one `ReportSummary`:
 
 Every navigation writes the URL with `setParams(toSearchParams(next), { replace: false })` so the back button walks back up the drill-down. `today` for `parseReportFilters` is `dateKeyOf(Date.now(), house.settings.timezone)`.
 
-- [ ] **Step 1: Failing tests.** `report-format.test.ts` pins `formatDuration` (`null` → "—", 2700 → "45 m", 43_111 → "11 h 58 m", 64_800 → "18 h", 93_600 → "1 d 2 h"), `formatTotal` (5_240_000 mg in g → `formatAmount`'s output; can mode → "33.61 cans"), `periodLabel` for each bucket.
+- [x] **Step 1: Failing tests.** `report-format.test.ts` pins `formatDuration` (`null` → "—", 2700 → "45 m", 43_111 → "11 h 58 m", 64_800 → "18 h", 93_600 → "1 d 2 h"), `formatTotal` (5_240_000 mg in g → `formatAmount`'s output; can mode → "33.61 cans"), `periodLabel` for each bucket.
 
 `Reports.test.tsx` (render inside `QueryClientProvider` + `MemoryRouter initialEntries={["/reports?range=month&from=2026-03-01"]}` with a `Routes` that also renders a `<LocationProbe/>` printing `location.search`; mock `api.reportSummary` with `vi.spyOn` returning `aggregateReport({ ...seedMonth() fields, bucket: "day", timeZone: "Europe/Berlin", foodUnit: "g", canSizeMg: 155_922, from: "2026-03-01", to: "2026-03-31", cats: seedMonth().cats.map((c) => ({ ...c, deleted: false })) })` (import `seedMonth` from `../../../shared/src/testing/seed-month.ts`); mock `useHouse`/`useCats` the way `DevicesSection.test.tsx` mocks its hooks):
 
@@ -1391,9 +1397,9 @@ it("downloads the CSV for the current range", async () => {
 ```
 Test setup: `const seed = seedMonth();` and `const monthSummary = aggregateReport({ feedings: seed.feedings, cats: seed.cats.map((c) => ({ ...c, deleted: false })), from: "2026-03-01", to: "2026-03-31", timeZone: "Europe/Berlin", bucket: "day", foodUnit: "g", canSizeMg: 155_922 });`; `vi.mock("../hooks/use-cats.ts")` and `vi.mock("../hooks/use-house.ts")` with `catsMock = vi.mocked(useCats)` defaulting to both seed cats and `useHouse` returning a house whose settings carry `timezone: "Europe/Berlin"`, `foodUnit: "g"`, `canSizeMg: 155_922`; `vi.mock("../lib/api-client.ts", async (orig) => ({ ...(await orig()), api: { ...(await orig<typeof import("../lib/api-client.ts")>()).api, reportSummary: vi.fn().mockResolvedValue(monthSummary), exportCsv: vi.fn(), listFeedings: vi.fn() } }))` in the style of `DevicesSection.test.tsx:11`. Check the `NetworkError` constructor signature in `api-client.ts` before using it.
 
-- [ ] **Step 2: Run** `pnpm --filter webapp test -- Reports report-format` → FAIL.
+- [x] **Step 2: Run** `pnpm --filter webapp test -- Reports report-format` → FAIL.
 
-- [ ] **Step 3: Implement** to the layout above. `api-client.ts` additions:
+- [x] **Step 3: Implement** to the layout above. `api-client.ts` additions:
 ```ts
 reportSummary: (q: { from: string; to: string; cat?: string; bucket?: ReportBucket }): Promise<ReportSummary> => {
   const params = new URLSearchParams();
@@ -1408,9 +1414,9 @@ exportCsv: (q: { from: string; to: string; cat?: string }): Promise<Blob> => {
 ```
 Keep each component under ~150 lines; `Reports.tsx` wires state and delegates.
 
-- [ ] **Step 4: Run** `pnpm --filter webapp test && pnpm --filter webapp typecheck && pnpm --filter webapp build` → green. Run the dev stack once (README "local development") and open `/reports` on a house with a few feedings: check light and dark theme, Pixel 7 width (412 px), keyboard focus on bars and rows.
+- [x] **Step 4: Run** `pnpm --filter webapp test && pnpm --filter webapp typecheck && pnpm --filter webapp build` → green. Run the dev stack once (README "local development") and open `/reports` on a house with a few feedings: check light and dark theme, Pixel 7 width (412 px), keyboard focus on bars and rows.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add webapp/src/screens/Reports.tsx webapp/src/screens/Reports.test.tsx webapp/src/hooks/use-report.ts webapp/src/lib/report-format.ts webapp/src/lib/report-format.test.ts webapp/src/lib/download.ts webapp/src/components/report webapp/src/lib/api-client.ts webapp/src/App.tsx webapp/src/components/TabBar.tsx webapp/package.json
 git commit -m "feat(webapp): reports page with tiles, charts, drill-down and csv download
@@ -1430,9 +1436,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `useReport`, `ReportFilters`, `toSearchParams` (Tasks 6–7), `BarChart`, `ACCENT` (Task 5), `formatDuration`, `formatTotal` (Task 7), `addDays`, `dateKeyOf`.
 - Produces: `CatTrends({ cat }: { cat: Cat })` — `data-testid="cat-trends"`, link `data-testid="cat-trends-link"`; the last 30 house-zone days (`from = addDays(today, -29)`, `to = today`, `range: "custom"`, `cat: cat.id`): an "Amount per day" `BarChart` in the cat's colour, three tiles (feedings, mean interval, longest gap) and a link "Open in Reports" to `/reports?{toSearchParams(filters)}`. Offline with no cached data: a one-line "Trends need a connection" instead of the panel (the history list below keeps working offline).
 
-- [ ] **Step 1: Failing test** `CatTrends.test.tsx`: with `api.reportSummary` mocked, asserts the request (`from` = today − 29 in the house zone, `cat` = the id, `bucket: "day"`), 30 bars, the colour of a visible bar = the cat colour, the link's `href` (`/reports?range=custom&from=…&to=…&cat=…`), and the offline line on `NetworkError`.
-- [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** `pnpm --filter webapp test && pnpm --filter webapp typecheck` → green.
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Failing test** `CatTrends.test.tsx`: with `api.reportSummary` mocked, asserts the request (`from` = today − 29 in the house zone, `cat` = the id, `bucket: "day"`), 30 bars, the colour of a visible bar = the cat colour, the link's `href` (`/reports?range=custom&from=…&to=…&cat=…`), and the offline line on `NetworkError`.
+- [x] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** `pnpm --filter webapp test && pnpm --filter webapp typecheck` → green.
+- [x] **Step 5: Commit**
 ```bash
 git add webapp/src/components/report/CatTrends.tsx webapp/src/components/report/CatTrends.test.tsx webapp/src/screens/CatPage.tsx webapp/package.json
 git commit -m "feat(webapp): last-30-days trends on the cat page
@@ -1452,7 +1458,7 @@ Spec §7 row 4: "e2e over a seeded month of feedings". The browser runs in **Asi
 - Consumes: `requireTestAuth`, `signInAsTestHouse`, `uniqueHouseName` (`e2e/helpers/test-auth.ts`); `seedMonth`, `randomSalt`, `SEED_TZ`, `SEED_FROM`, `SEED_TO` (relative import from `../../shared/src/testing/seed-month.ts`); the Reports screen's test ids (Task 7).
 - Produces: `seedReportMonth(page: Page, accessToken: string): Promise<{ cats: [SeedCat, SeedCat] }>` in `e2e/helpers/seed.ts` — PATCH `/api/house` `{ timezone: SEED_TZ }`, POST both cats, POST the 154 feedings in batches of ≤ 100 (`enteredUnit: "g"`, `enteredValue` = grams as a string), asserting 201 each time (`POST /api/feedings` answers 201).
 
-- [ ] **Step 1: The spec** `webapp/e2e/reports.spec.ts`:
+- [x] **Step 1: The spec** `webapp/e2e/reports.spec.ts`:
 
 ```ts
 import { expect, test } from "@playwright/test";
@@ -1525,9 +1531,9 @@ test("a cat page shows its last 30 days and opens them in Reports", async ({ pag
 ```
 Add `import { addCat } from "./helpers/ui.ts";` at the top. The day list's times are in `<time>` elements (Task 7 `DayFeedings`).
 
-- [ ] **Step 2: Run against the local stack** the way the CI job `webapp-e2e-full` does (`.github/workflows/deploy.yml`): in `backend/`, `cp .dev.vars.example .dev.vars` (if missing), `pnpm exec wrangler d1 migrations apply feedme2-db --local`, `pnpm exec wrangler dev --port 8787`; in `webapp/`, `pnpm dev --port 5192 --host 127.0.0.1`; then `E2E_BASE_URL=http://127.0.0.1:5192 E2E_REQUIRE_AUTH=1 pnpm --filter webapp exec playwright test --project=chromium e2e/reports.spec.ts`. Expected: both tests pass. Then run the whole suite the same way: everything green (the earlier 18 plus these 2).
+- [x] **Step 2: Run against the local stack** the way the CI job `webapp-e2e-full` does (`.github/workflows/deploy.yml`): in `backend/`, `cp .dev.vars.example .dev.vars` (if missing), `pnpm exec wrangler d1 migrations apply feedme2-db --local`, `pnpm exec wrangler dev --port 8787`; in `webapp/`, `pnpm dev --port 5192 --host 127.0.0.1`; then `E2E_BASE_URL=http://127.0.0.1:5192 E2E_REQUIRE_AUTH=1 pnpm --filter webapp exec playwright test --project=chromium e2e/reports.spec.ts`. Expected: both tests pass. Then run the whole suite the same way: everything green (the earlier 18 plus these 2).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 ```bash
 git add webapp/e2e/reports.spec.ts webapp/e2e/helpers/seed.ts webapp/package.json
 git commit -m "test(webapp): seeded-month e2e across a dst day from a browser in another zone, with csv
@@ -1554,7 +1560,7 @@ Decisions to record (taken by this plan; Andrey may overrule):
 7. No chart library; the palette is the cat's own colour per series and the accent token for single series (no `dataviz` skill exists in this setup, so these are the rules).
 8. Reports are online-only; a cached report still shows offline.
 
-- [ ] **Step 1: Docs** as listed.
+- [x] **Step 1: Docs** as listed.
 - [ ] **Step 2: Full verification**
 ```bash
 pnpm -r typecheck && pnpm -r test && python -m unittest discover -s scripts && BASE_REF=origin/main python scripts/check_version_bump.py

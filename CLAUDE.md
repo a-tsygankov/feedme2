@@ -4,6 +4,8 @@ Spec: `docs/superpowers/specs/2026-09-20-feedme2-design.md`. Plans: `docs/superp
 
 ## Layout
 - `shared/` TypeScript-only workspace package (`@feedme2/shared`): zod API contracts (incl. the device and pairing contracts in `shared/src/device.ts`), units and hunger rules, ring buffer, version compare. Imported by backend and webapp as source.
+- Single homes in `shared/src/`: `zone.ts` for all house-zone calendar math (the dashboard day boundary and reports both use it; never the browser's zone), `reports.ts` for report aggregation, `csv.ts` for CSV. `shared/src/testing/` (the seeded month) is test-only and never exported from `index.ts`.
+- Report queries live under the `["report"]` key root, never `["feedings"]` (the dashboard rewrites that root as `Feeding[]`). `["report"]` is invalidated after a sync that sent feedings, a cat-page edit or delete, and any house or cat settings change.
 - `backend/` Hono Worker `feedme2-api` on D1 `feedme2-db`. Migrations are hand-written numbered SQL in `backend/migrations/`; never edit one in place, add a new one.
 - `webapp/` React 18 + Vite 5 PWA on Pages `feedme2-webapp`. `/api/*` is proxied by `functions/api/[[path]].ts`. No `dark:` Tailwind utilities: theming is the token layer in `src/styles/tokens/` plus `data-theme` on `<html>`.
 - `tools/device-sim/` workspace package (`@feedme2/device-sim`, not deployed): imports `shared/` as source, speaks `/api/pair/*` and `/api/device/*` like the firmware will, and is used by the Playwright system e2e. Its CLI is documented in its README.

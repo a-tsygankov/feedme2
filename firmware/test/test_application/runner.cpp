@@ -40,6 +40,14 @@ void test_sync_logs_transient_requeues_and_stops();
 void test_sync_logs_permanent_drops_batch_and_continues();
 void test_sync_heartbeat_failure_is_not_fatal();
 void test_sync_state_decode_failure_keeps_old_state();
+void test_power_awake_dims_then_sleeps_and_input_wakes();
+void test_power_input_while_dim_is_swallowed_once();
+void test_power_timer_wake_due_once_per_interval();
+void test_power_sleep_timeout_from_settings_bounds_light_sleep_call();
+void test_power_sleep_timeout_below_sixty_seconds_clamps_to_sixty();
+void test_power_held_knob_never_sleeps_and_its_wake_is_swallowed();
+void test_power_hold_awake_postpones_light_sleep_but_not_dim();
+void test_power_timers_survive_millis_wrap();
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -85,5 +93,13 @@ int main() {
     RUN_TEST(test_sync_logs_permanent_drops_batch_and_continues);
     RUN_TEST(test_sync_heartbeat_failure_is_not_fatal);
     RUN_TEST(test_sync_state_decode_failure_keeps_old_state);
+    RUN_TEST(test_power_awake_dims_then_sleeps_and_input_wakes);
+    RUN_TEST(test_power_input_while_dim_is_swallowed_once);
+    RUN_TEST(test_power_timer_wake_due_once_per_interval);
+    RUN_TEST(test_power_sleep_timeout_from_settings_bounds_light_sleep_call);
+    RUN_TEST(test_power_sleep_timeout_below_sixty_seconds_clamps_to_sixty);
+    RUN_TEST(test_power_held_knob_never_sleeps_and_its_wake_is_swallowed);
+    RUN_TEST(test_power_hold_awake_postpones_light_sleep_but_not_dim);
+    RUN_TEST(test_power_timers_survive_millis_wrap);
     return UNITY_END();
 }

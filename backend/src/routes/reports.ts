@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import {
   aggregateReport, dayBoundsMs, daysBetween, DateKeySchema, defaultBucket, FEEDINGS_CSV_HEADERS, feedingCsvRow, isDateKey, MAX_HOUR_BUCKET_DAYS, MAX_REPORT_DAYS, REPORT_MAX_DATE, REPORT_MIN_DATE,
-  ReportBucketSchema, toCsv,
+  ReportBucketSchema, toCsv, UuidSchema,
 } from "@feedme2/shared";
 import type { Bindings } from "../env.ts";
 import { db, type Db } from "../db/client.ts";
@@ -21,7 +21,8 @@ import { validationHook } from "../validation.ts";
 const RangeQuery = z.object({
   from: DateKeySchema,
   to: DateKeySchema,
-  cat: z.string().uuid().optional(),
+  // Not zod's .uuid(): it is case-insensitive, so an uppercase id passed here and missed the case-sensitive D1 key (a 404, not a 400).
+  cat: UuidSchema.optional(),
   bucket: ReportBucketSchema.optional(),
 }).superRefine((q, ctx) => {
   // zod still runs this after a field refine failed: "2026-02-30" made daysBetween throw (a 500, not a 400).

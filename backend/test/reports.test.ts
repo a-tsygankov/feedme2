@@ -84,6 +84,15 @@ describe("/api/reports", () => {
     expect((await summary(s, `from=2026-03-01&to=2026-03-31&cat=${crypto.randomUUID()}`)).status).toBe(404);
   });
 
+  it("takes the cat id only in its canonical lowercase form, like every other route", async () => {
+    // zod's .uuid() is case-insensitive: an uppercase id passed validation and missed the case-sensitive D1 key (a 404).
+    const upper = SEED_CATS[0].id.toUpperCase();
+    const res = await summary(s, `from=${SEED_FROM}&to=${SEED_TO}&cat=${upper}`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "invalid_request", issues: [{ path: ["cat"] }] });
+    expect((await s.fetchAuthed(`/api/reports/export.csv?from=${SEED_FROM}&to=${SEED_TO}&cat=${upper}`)).status).toBe(400);
+  });
+
   it("is scoped to the caller's house and needs a token", async () => {
     const other = await signup();
     const r = ReportSummarySchema.parse(await (await summary(other, `from=${SEED_FROM}&to=${SEED_TO}`)).json());

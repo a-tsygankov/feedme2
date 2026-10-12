@@ -23,7 +23,8 @@ export type CatColor = z.infer<typeof CatColorSchema>;
 
 /** Lowercase canonical form only: D1 text primary keys are case-sensitive,
  * `crypto.randomUUID()` is lowercase, and firmware must match. */
-const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, "lowercase uuid");
+export const UuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, "lowercase uuid");
+const uuid = UuidSchema;
 /** Capped at 2100-01-01 so a far-future fedAt is a 400, and D1 integers stay safe. */
 const epochMs = z.number().int().nonnegative().max(4_102_444_800_000);
 /** feedings.fed_at is CHECK (fed_at > 0): reject 0 here so the DB never answers with a 500. */

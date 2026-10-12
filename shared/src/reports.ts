@@ -4,9 +4,11 @@
  */
 import { z } from "zod";
 import { FoodUnitSchema, type FoodUnit } from "./api.ts";
-import { addDays, dateKeyOf, dayBoundsMs, daysBetween, isDateKey, startOfWeek, zonedParts, type DateKey } from "./zone.ts";
+import { addDays, dayBoundsMs, daysBetween, isDateKey, startOfWeek, zonedParts, type DateKey } from "./zone.ts";
 
 export const MAX_REPORT_DAYS = 732;
+/** Hour buckets past a week are unreadable bars (7 × 24 = 168) and a large periods array; the route rejects more. */
+export const MAX_HOUR_BUCKET_DAYS = 7;
 export const DateKeySchema = z.string().refine(isDateKey, "expected a real date YYYY-MM-DD");
 export const ReportBucketSchema = z.enum(["hour", "day", "week", "month"]);
 export type ReportBucket = z.infer<typeof ReportBucketSchema>;
@@ -38,14 +40,14 @@ export const ReportSummarySchema = z.object({
     longestGap: z.object({ catId: z.string(), sec: z.number().int(), fromMs: z.number().int(), toMs: z.number().int() }).nullable(),
   }),
   perCat: z.array(z.object({
-    catId: z.string(), feedings: z.number().int(), amountMg: z.number().int(),
+    catId: z.string(), feedings: z.number().int().nonnegative(), amountMg: z.number().int().nonnegative(),
     meanIntervalSec: z.number().int().nullable(), longestGapSec: z.number().int().nullable(),
   })),
   periods: z.array(z.object({
-    key: z.string(), feedings: z.number().int(), amountMg: z.number().int(),
-    byCat: z.record(z.string(), z.object({ feedings: z.number().int(), amountMg: z.number().int() })),
+    key: z.string(), feedings: z.number().int().nonnegative(), amountMg: z.number().int().nonnegative(),
+    byCat: z.record(z.string(), z.object({ feedings: z.number().int().nonnegative(), amountMg: z.number().int().nonnegative() })),
   })),
-  intervals: z.array(z.object({ label: z.string(), minSec: z.number().int(), maxSec: z.number().int().nullable(), count: z.number().int() })),
+  intervals: z.array(z.object({ label: z.string(), minSec: z.number().int(), maxSec: z.number().int().nullable(), count: z.number().int().nonnegative() })).length(INTERVAL_BUCKETS.length),
   heatmap: z.array(z.array(z.number().int()).length(24)).length(7),   // [weekday Mon=0][hour 0..23]
 });
 export type ReportSummary = z.infer<typeof ReportSummarySchema>;
@@ -64,13 +66,18 @@ export function defaultBucket(from: DateKey, to: DateKey): ReportBucket {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-export function periodKeyOf(ms: number, bucket: ReportBucket, tz: string): string {
-  const day = dateKeyOf(ms, tz);
-  if (bucket === "hour") return `${day}T${pad(zonedParts(ms, tz).h)}`;
+type ZonedParts = ReturnType<typeof zonedParts>;
+
+/** The one period-key rule; aggregateReport reuses the feeding's parts so it never asks Intl twice. */
+function periodKeyFromParts(p: ZonedParts, bucket: ReportBucket): string {
+  const day = `${p.y}-${pad(p.m)}-${pad(p.d)}`;
+  if (bucket === "hour") return `${day}T${pad(p.h)}`;
   if (bucket === "day") return day;
   if (bucket === "week") return startOfWeek(day);
   return day.slice(0, 7);
 }
+
+export const periodKeyOf = (ms: number, bucket: ReportBucket, tz: string): string => periodKeyFromParts(zonedParts(ms, tz), bucket);
 
 export function periodKeys(from: DateKey, to: DateKey, bucket: ReportBucket): string[] {
   const keys: string[] = [];
@@ -102,15 +109,19 @@ export function aggregateReport(i: AggregateInput): ReportSummary {
   const heatmap = Array.from({ length: 7 }, () => new Array<number>(24).fill(0));
   const byCat = new Map<string, ReportFeeding[]>();
   let amountMg = 0;
+  // A feeding of a cat id missing from i.cats still counts in totals, periods and the heatmap but
+  // gets no perCat row. Only a race with a cat delete can cause it: the route passes every cat of
+  // the house, removed ones included.
   for (const f of inRange) {
     amountMg += f.amountMg;
-    const p = periods.get(periodKeyOf(f.fedAt, i.bucket, i.timeZone));
+    // One Intl lookup per feeding (the dominant CPU cost on a two-year range): period key and heatmap cell share it.
+    const zp = zonedParts(f.fedAt, i.timeZone);
+    const p = periods.get(periodKeyFromParts(zp, i.bucket));
     if (p) {
       p.feedings++; p.amountMg += f.amountMg;
       const c = (p.byCat[f.catId] ??= { feedings: 0, amountMg: 0 });
       c.feedings++; c.amountMg += f.amountMg;
     }
-    const zp = zonedParts(f.fedAt, i.timeZone);
     const row = heatmap[zp.weekday]!;
     row[zp.h] = (row[zp.h] ?? 0) + 1;
     (byCat.get(f.catId) ?? byCat.set(f.catId, []).get(f.catId)!).push(f);

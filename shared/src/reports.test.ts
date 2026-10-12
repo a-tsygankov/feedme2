@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { aggregateReport, defaultBucket, periodKeys, ReportSummarySchema, type AggregateInput } from "./reports.ts";
+import { describe, expect, it, vi } from "vitest";
+import { aggregateReport, defaultBucket, MAX_HOUR_BUCKET_DAYS, periodKeys, ReportSummarySchema, type AggregateInput } from "./reports.ts";
 import { dayBoundsMs, midnightMs } from "./zone.ts";
 import { SEED_CATS, SEED_FROM, SEED_TO, SEED_TZ, seedMonthFeedings } from "./testing/seed-month.ts";
 
@@ -96,5 +96,33 @@ describe("edges", () => {
     expect(aggregateReport(base({ cats: removed })).cats.map((c) => c.name)).toEqual(["Mochi", "Luna"]);
     const onlyMochi = seedMonthFeedings().filter((f) => f.catId === SEED_CATS[0].id);
     expect(aggregateReport(base({ cats: removed, feedings: onlyMochi })).cats.map((c) => c.name)).toEqual(["Mochi"]);
+  });
+});
+
+describe("limits", () => {
+  it("caps hour buckets at a week (7 × 24 = 168 periods)", () => expect(MAX_HOUR_BUCKET_DAYS).toBe(7));
+
+  it("looks up the zone once per feeding (CPU on a two-year range)", () => {
+    // Every zone lookup is one formatToParts call on the cached formatter; the bounds take a handful.
+    // Inputs are built outside the spy: the seed itself uses the zone.
+    const inputs = (["hour", "day", "week", "month"] as const).map((bucket) => base({ bucket }));
+    const spy = vi.spyOn(Intl.DateTimeFormat.prototype, "formatToParts");
+    try {
+      for (const input of inputs) {
+        spy.mockClear();
+        aggregateReport(input);
+        expect(spy.mock.calls.length, input.bucket).toBeLessThanOrEqual(input.feedings.length + 16);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("the schema rejects a short interval histogram and negative counts", () => {
+    const r = aggregateReport(base());
+    expect(ReportSummarySchema.safeParse({ ...r, intervals: r.intervals.slice(1) }).success).toBe(false);
+    expect(ReportSummarySchema.safeParse({ ...r, perCat: [{ ...r.perCat[0]!, feedings: -1 }] }).success).toBe(false);
+    expect(ReportSummarySchema.safeParse({ ...r, periods: [{ ...r.periods[0]!, amountMg: -1 }] }).success).toBe(false);
+    expect(ReportSummarySchema.safeParse({ ...r, periods: [{ ...r.periods[0]!, byCat: { x: { feedings: -1, amountMg: 0 } } }] }).success).toBe(false);
   });
 });

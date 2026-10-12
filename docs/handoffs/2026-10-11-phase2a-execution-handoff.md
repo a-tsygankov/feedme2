@@ -27,7 +27,7 @@ One line per plan task; the SHA is the feature commit, with the follow-up fix co
 
 ## How it was verified
 
-Counts reported by the implementers and the whole-branch review on 2026-10-11 (the dispatcher's Task 12 Step 2 run is the authority before the push): shared **67+**, backend **215+**, device-sim **14+**, webapp **384+**, scripts (version tooling) **42**, firmware native **8**. Local Playwright e2e against wrangler dev (`E2E_BASE_URL=http://127.0.0.1:5173 E2E_REQUIRE_AUTH=1`): **18/18**, including the pairing of a simulated device. The simulator CLI also drove a real pairing by hand (`pair`, confirm in the web app, `feed`, `sync`). Whole-branch review verdict: mergeable; its must-fixes were applied by the code agent in Task 12.
+Full verification run before the push on 2026-10-11 (`pnpm -r typecheck && pnpm -r test`, scripts, firmware native, version check — all green): shared **68**, backend **217**, device-sim **15**, webapp **384**, scripts (version tooling) **42**, firmware native **8**. Local Playwright e2e against wrangler dev (`E2E_BASE_URL=http://127.0.0.1:5173 E2E_REQUIRE_AUTH=1`): **18/18**, including the pairing of a simulated device. The simulator CLI also drove a real pairing by hand (`pair`, confirm in the web app, `feed`, `sync`). Whole-branch review verdict: mergeable; its must-fixes were applied by the code agent in Task 12.
 
 ## Deviations from the plan worth knowing
 

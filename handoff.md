@@ -39,7 +39,7 @@ All under `/api`. Live in production since 2026-10-11: everything except the Pha
 `/login`, `/setup`; behind the auth gate: `/` (dashboard), `/cats/:id` (cat history), `/settings`; anything else redirects to `/`. Hidden console: triple-tap the logo. Phase 2a adds the Devices section in `/settings` and the deep link `/settings?pair=<code>#devices` (survives login; the section scrolls into view and pre-fills the code).
 
 ## Versions on the branch tip
-webapp 0.1.38 · worker 0.1.38 · schema `0002_devices_pairings` · firmware 0.1.8 (production still runs webapp 0.1.30, worker 0.1.25, schema 0001 and the Phase 0 firmware value until the Phase 2a merge deploys).
+webapp 0.1.39 · worker 0.1.39 · schema `0002_devices_pairings` · firmware 0.1.8 (production still runs webapp 0.1.30, worker 0.1.25, schema 0001 and the Phase 0 firmware value until the Phase 2a merge deploys).
 
 ## Open questions (spec §0)
 Q1 battery pin · Q2 touch-controller rail (spike: `docs/spikes/2026-09-deep-sleep-touch-wake.md`) · Q3 shipped with five avatar poses (A1, A4, B1, C1, C2), the two new poses still unmade · Q4 shipped as a per-install opaque `x-client-id` · Q5 shipped as `CAN_PRESETS` plus custom grams.

@@ -117,6 +117,9 @@ private:
     void applyState();
     void printIdle();
     void printAmount();
+    // Prints "screen=<to> from=<from>" (and Idle's line) the moment the router differs from what
+    // was last printed; called before a sync round can run so the scenarios see it first.
+    void flushScreenChange();
     void afterTick();
     uint64_t fingerprint() const;
 

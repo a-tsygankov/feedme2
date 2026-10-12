@@ -80,6 +80,11 @@ void App::tick(uint32_t nowMs) {
             sync_.requestRound("paired");
         }
     }
+    // The screen line goes out before the round that the input (or the pairing) just requested:
+    // with the network up the round runs synchronously inside sync_.tick(), and wokwi-cli's
+    // wait-serial streams lines without rescanning, so "sync ok" printed ahead of "screen=fed"
+    // (or "screen=idle" after pairing) hung the feed and boot scenarios.
+    flushScreenChange();
     sync_.tick(nowMs);
     // A 401 on any device call cleared the token (Review Focus 3); the unpaired device must show
     // the Pair screen and start a new pairing, wherever the knob was.
@@ -87,17 +92,20 @@ void App::tick(uint32_t nowMs) {
     afterTick();
 }
 
+void App::flushScreenChange() {
+    if (router_.current() == lastScreen_) return;
+    log_.event(("screen=" + std::string(screenName(router_.current()))).c_str(),
+               ("from=" + std::string(screenName(lastScreen_))).c_str());
+    lastScreen_ = router_.current();
+    if (lastScreen_ == ScreenId::Idle) printIdle();
+}
+
 void App::afterTick() {
     if (sync_.generation() != seenGeneration_) {
         applyState();
         if (router_.current() == ScreenId::Idle && lastScreen_ == ScreenId::Idle) printIdle();
     }
-    if (router_.current() != lastScreen_) {
-        log_.event(("screen=" + std::string(screenName(router_.current()))).c_str(),
-                   ("from=" + std::string(screenName(lastScreen_))).c_str());
-        lastScreen_ = router_.current();
-        if (lastScreen_ == ScreenId::Idle) printIdle();
-    }
+    flushScreenChange();
     const uint64_t fp = fingerprint();
     if (fp != lastFingerprint_) { lastFingerprint_ = fp; ++uiGeneration_; }
 }
@@ -364,6 +372,11 @@ uint64_t App::fingerprint() const {
     mix(model_.isSynced() ? 1 : 0);
     mix(sync_.lastRoundOk() ? 1 : 0);
     mix(feedings_.queue().size());
+    // Time-derived state changes with no input: Idle's hunger level crosses its thresholds on its
+    // own, and History's "N min ago" ages tick over once a minute. Without these a screen that
+    // redraws only on uiGeneration() showed a stale level until the knob moved.
+    mix(static_cast<uint64_t>(selectedLevel()));
+    mix(static_cast<uint64_t>(wallNowMs() / 60000));
     return h;
 }
 

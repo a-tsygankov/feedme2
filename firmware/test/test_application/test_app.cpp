@@ -97,6 +97,14 @@ void test_app_boot_unpaired_shows_pair_and_starts_pairing() {
     TEST_ASSERT_EQUAL_UINT32(3, r.app->roster().count());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] idle cat=Mochi level=content"));
     TEST_ASSERT_TRUE(r.app->clockSynced());
+    // wokwi-cli's wait-serial streams lines and never rescans: the screen change must print before
+    // the round it triggers (the fake network answers on the same tick). The roster only arrives
+    // with that round, so Idle first renders empty and Mochi's line follows "sync ok".
+    TEST_ASSERT_TRUE(r.serialIndex("paired house=") < r.serialIndex("screen=idle"));
+    TEST_ASSERT_TRUE(r.serialIndex("screen=idle") < r.serialIndex("sync start reason=paired"));
+    TEST_ASSERT_TRUE(r.serialIndex("screen=idle") < r.serialIndex("idle cat=none level=none"));
+    TEST_ASSERT_TRUE(r.serialIndex("idle cat=none level=none") < r.serialIndex("sync start reason=paired"));
+    TEST_ASSERT_TRUE(r.serialIndex("sync ok accepted=0 state=changed") < r.serialIndex("idle cat=Mochi level=content"));
 }
 
 void test_app_boot_paired_with_cached_state_renders_idle_and_requests_sync() {
@@ -137,6 +145,17 @@ void test_app_boot_paired_with_cached_state_renders_idle_and_requests_sync() {
     TEST_ASSERT_EQUAL_STRING("boot", r.app->sync().last().reason.c_str());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync ok accepted=0 state=changed"));
     TEST_ASSERT_TRUE(r.app->clockSynced());
+    // Time alone changes what Idle shows: Mochi crosses content → peckish 9000 s after the feeding
+    // with no input and no round, so uiGeneration() must bump for it. Both ticks sit in the same
+    // wall-clock minute, so the level is the only thing that moved.
+    r.tick(5'399'540);
+    TEST_ASSERT_EQUAL(domain::HungerLevel::Content, r.app->selectedLevel());
+    const uint32_t before = r.app->uiGeneration();
+    r.tick(5'399'600);   // same minute, same level: nothing to redraw
+    TEST_ASSERT_EQUAL_UINT32(before, r.app->uiGeneration());
+    r.tick(5'400'540);
+    TEST_ASSERT_EQUAL(domain::HungerLevel::Peckish, r.app->selectedLevel());
+    TEST_ASSERT_TRUE(r.app->uiGeneration() > before);
 }
 
 void test_app_knob_feed_flow_single_cat() {
@@ -171,6 +190,8 @@ void test_app_knob_feed_flow_single_cat() {
     TEST_ASSERT_EQUAL_UINT32(1, r.net.postedFeedings.size());
     TEST_ASSERT_EQUAL_STRING("feeding", r.app->sync().last().reason.c_str());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync ok accepted=1 state=changed"));
+    // The feed scenario waits for "screen=fed" and then "sync ok": the screen must print first.
+    TEST_ASSERT_TRUE(r.serialIndex("screen=fed") < r.serialIndex("sync ok accepted=1"));
     TEST_ASSERT_TRUE(r.app->feedings().queue().empty());
     TEST_ASSERT_EQUAL_UINT32(1, r.app->feedings().recent().size());
     TEST_ASSERT_EQUAL_INT32(45000, r.app->feedings().recent()[0].amountMg);
@@ -195,6 +216,13 @@ void test_app_knob_feed_flow_single_cat() {
     const size_t queued = r.serialCount("feeding queued");
     r.pushAndTick(InputEvent::Press, 4000);
     r.pushAndTick(InputEvent::LongPress, 4100);
+    TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
+    TEST_ASSERT_EQUAL(domain::Phase::Idle, r.app->flow().phase());
+    TEST_ASSERT_EQUAL_UINT32(queued, r.serialCount("feeding queued"));
+    // So does a double tap (spec §5.2: both are "back").
+    r.pushAndTick(InputEvent::Press, 5000);
+    TEST_ASSERT_EQUAL(ScreenId::Amount, r.screen());
+    r.pushAndTick(InputEvent::DoubleTap, 5100);
     TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
     TEST_ASSERT_EQUAL(domain::Phase::Idle, r.app->flow().phase());
     TEST_ASSERT_EQUAL_UINT32(queued, r.serialCount("feeding queued"));
@@ -288,18 +316,25 @@ void test_app_double_tap_history_and_long_press_system_menu() {
 
 void test_app_unauthorized_during_sync_returns_to_pair() {
     Rig r;
-    r.net.online = true;
     r.net.logResults.push_back(test::StubNetwork::status(202));
     r.net.stateResults.push_back(test::StubNetwork::status(401));
     r.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"424242\",\"expiresAt\":600000,\"pollAfterSec\":3}"));
     r.app->begin();
     TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
+    // The boot round is parked offline; the person starts a feeding, then Wi-Fi comes up and the
+    // round lands a 401 while the knob is on Amount: the flow is cancelled, not left half-drafted.
+    r.pushAndTick(InputEvent::Press, 5);
+    TEST_ASSERT_EQUAL(ScreenId::Amount, r.screen());
     const uint32_t gen = r.app->uiGeneration();
+    r.net.online = true;
     r.tick(10);   // boot round → 401
     TEST_ASSERT_TRUE(r.app->sync().last().unauthorized);
     TEST_ASSERT_FALSE(r.app->pair().isPaired());
     TEST_ASSERT_EQUAL(ScreenId::Pair, r.screen());
-    TEST_ASSERT_TRUE(r.serialHas("[feedme2] screen=pair from=idle"));
+    TEST_ASSERT_TRUE(r.app->router().atRoot());
+    TEST_ASSERT_EQUAL(domain::Phase::Idle, r.app->flow().phase());
+    TEST_ASSERT_TRUE(r.serialHas("[feedme2] screen=pair from=amount"));
+    TEST_ASSERT_TRUE(r.serialIndex("screen=pair") < r.serialIndex("pair start"));
     TEST_ASSERT_EQUAL_UINT32(1, r.net.pairStarts.size());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] pair start code=424242"));
     // The cached house is gone mid-session: Idle's inputs must survive an empty roster.
@@ -445,6 +480,8 @@ void test_app_unpair_long_press_clears_token() {
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] screen=pair from=unpair"));
     TEST_ASSERT_EQUAL_UINT32(1, r.net.pairStarts.size());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] pair start code=424242"));
+    // The pair scenario waits for "screen=pair" and then "pair start": that order, on this path too.
+    TEST_ASSERT_TRUE(r.serialIndex("screen=pair") < r.serialIndex("pair start"));
     TEST_ASSERT_EQUAL_STRING("Pair", r.app->menuLabel(1));
 }
 

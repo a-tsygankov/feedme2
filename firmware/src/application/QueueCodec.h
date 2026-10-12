@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include <ArduinoJson.h>
+#include <ArduinoJson.h>   // not needed by these declarations; the codec tests use JsonDocument through this include
 #include "domain/FeedFlow.h"
 
 namespace feedme2::application {

@@ -30,6 +30,11 @@ class PowerManager {
 public:
     static constexpr uint32_t kDimAfterMs = 15'000;
     static constexpr uint32_t kSleepAfterMs = 30'000;
+    // A hold longer than this is a stuck input (a touch controller reporting a finger forever),
+    // not a person: past it the hold stops resetting the idle timer, so the device still dims
+    // and sleeps. A release and a new press start a fresh hold. The longest real hold, the
+    // unpair long-press arc, is well under this.
+    static constexpr uint32_t kMaxHoldMs = 10'000;
     static constexpr uint8_t kAwakeBacklight = 100;
     static constexpr uint8_t kDimBacklight = 30;
     // A house can set sleep_timeout_sec very low; below this the device would never finish a
@@ -42,7 +47,8 @@ public:
     // dim or asleep the event is the wake event and consumeWakeEvent() reports it once.
     void noteInput(uint32_t nowMs);
     // While true the device counts as receiving input continuously (the long-press arc, a finger
-    // resting on the glass): it never dims or sleeps, and a press while dim wakes it at once.
+    // resting on the glass): it does not dim or sleep for up to kMaxHoldMs, and a press while
+    // dim wakes it at once.
     void setHeld(bool held) { held_ = held; }
     // While true light sleep is postponed (a sync round requested or running, a feeding still
     // queued); dimming is not affected. Also stops the next nap while already asleep.
@@ -70,10 +76,14 @@ private:
     uint32_t napMs(uint32_t nowMs) const;
 
     ports::IPower& power_;
+    // Unused so far: the plan fixes this ctor shape, and Phase 3 (deep sleep) reads the wake
+    // reason through it; tick() takes nowMs so the tests drive time without a clock stub.
     ports::IClock& clock_;
     LogService& log_;
     PowerTier tier_ = PowerTier::Awake;
     uint32_t lastInputMs_ = 0;
+    uint32_t holdSinceMs_ = 0;   // first tick of the current hold; valid while holding_
+    bool holding_ = false;
     uint32_t nextTimerAtMs_ = 0;
     int32_t sleepTimeoutSec_ = 300;
     int32_t syncIntervalSec_ = 21'600;

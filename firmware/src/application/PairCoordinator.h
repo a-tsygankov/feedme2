@@ -39,6 +39,8 @@ public:
 
     bool isPaired() const;
     std::string token() const;
+    // Stamps the attempt with clock.monotonicMs(); App must feed tick() the same clock source,
+    // or the pending cap and the poll cadence measure against two different origins.
     void start();
     void tick(uint32_t nowMs);
     const PairView& view() const { return view_; }

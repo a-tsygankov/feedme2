@@ -17,8 +17,10 @@ void PowerManager::enter(PowerTier next) {
     tier_ = next;
     switch (next) {
         case PowerTier::Awake:
-            power_.setBacklight(kAwakeBacklight);
+            // Sleep-out first: EspPower waits 120 ms for SLPOUT, and a backlight already on
+            // would show that as a blank flash before the retained frame reappears.
             if (prev == PowerTier::LightSleep) power_.displaySleep(false);
+            power_.setBacklight(kAwakeBacklight);
             // The event that brought us here must not reach the screens: a person turning the
             // knob at a dark screen expects it to light up, not the cat to change.
             wakePending_ = true;
@@ -66,8 +68,14 @@ uint32_t PowerManager::napMs(uint32_t nowMs) const {
 
 void PowerManager::tick(uint32_t nowMs) {
     if (held_) {
-        noteInput(nowMs);
-        return;
+        if (!holding_) { holding_ = true; holdSinceMs_ = nowMs; }
+        if (nowMs - holdSinceMs_ <= kMaxHoldMs) {
+            noteInput(nowMs);
+            return;
+        }
+        // A stuck hold: fall through and let the idle timers run from the last counted tick.
+    } else {
+        holding_ = false;
     }
     const uint32_t idle = nowMs - lastInputMs_;
     if (tier_ == PowerTier::Awake && idle >= kDimAfterMs) enter(PowerTier::Dim);

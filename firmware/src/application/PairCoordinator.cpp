@@ -12,8 +12,10 @@ PairCoordinator::PairCoordinator(ports::INetwork& net, ports::IStorage& storage,
 
 std::string PairCoordinator::token() const {
     std::string t;
-    // IStorage::read is non-const (NVS handles); the coordinator itself does not change.
-    if (!const_cast<ports::IStorage&>(storage_).read(kTokenKey, t)) return "";
+    // IStorage::read is non-const (NvsStorage opens and closes its handle), but storage_ is a
+    // reference member, and a const member function does not make the referent const: the
+    // port is a collaborator, not part of this object's state, so no cast is needed.
+    if (!storage_.read(kTokenKey, t)) return "";
     return t;
 }
 
@@ -87,7 +89,12 @@ void PairCoordinator::poll(uint32_t nowMs) {
     if (!r.ok()) { fail(r, nowMs); return; }                                 // 400 on check: the body is wrong, a new start() is the fix
 
     JsonDocument doc;
-    if (deserializeJson(doc, r.body)) return;
+    if (deserializeJson(doc, r.body)) {
+        // Keep the code and poll again, but say so: a captive portal or a proxy answering 200
+        // with HTML would otherwise look like a server that never confirms.
+        log_.warn("pair check unparsable", ("{\"status\":" + std::to_string(r.status) + "}").c_str());
+        return;
+    }
     const char* status = doc["status"] | "";
     if (std::strcmp(status, "pending") == 0) return;
     if (std::strcmp(status, "confirmed") == 0) {

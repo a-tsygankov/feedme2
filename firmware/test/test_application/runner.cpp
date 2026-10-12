@@ -23,6 +23,7 @@ void test_pair_poll_secret_is_identical_in_start_and_every_check_and_fresh_per_s
 void test_pair_unknown_restarts_like_expired();
 void test_pair_pending_for_ten_minutes_restarts_start();
 void test_pair_permanent_400_on_check_is_failed();
+void test_pair_unparsable_check_body_warns_and_keeps_polling();
 void test_pair_clear_token();
 void test_sync_round_order_and_success();
 void test_sync_transient_failure_keeps_feedings_and_stops();
@@ -53,6 +54,8 @@ void test_power_timer_wake_due_once_per_interval();
 void test_power_sleep_timeout_from_settings_bounds_light_sleep_call();
 void test_power_sleep_timeout_below_sixty_seconds_clamps_to_sixty();
 void test_power_held_knob_never_sleeps_and_its_wake_is_swallowed();
+void test_power_stuck_hold_stops_resetting_idle_after_ten_seconds();
+void test_power_wake_from_sleep_sleeps_out_before_backlight();
 void test_power_hold_awake_postpones_light_sleep_but_not_dim();
 void test_power_timers_survive_millis_wrap();
 void test_app_boot_unpaired_shows_pair_and_starts_pairing();
@@ -96,6 +99,7 @@ int main() {
     RUN_TEST(test_pair_unknown_restarts_like_expired);
     RUN_TEST(test_pair_pending_for_ten_minutes_restarts_start);
     RUN_TEST(test_pair_permanent_400_on_check_is_failed);
+    RUN_TEST(test_pair_unparsable_check_body_warns_and_keeps_polling);
     RUN_TEST(test_pair_clear_token);
     RUN_TEST(test_sync_round_order_and_success);
     RUN_TEST(test_sync_transient_failure_keeps_feedings_and_stops);
@@ -126,6 +130,8 @@ int main() {
     RUN_TEST(test_power_sleep_timeout_from_settings_bounds_light_sleep_call);
     RUN_TEST(test_power_sleep_timeout_below_sixty_seconds_clamps_to_sixty);
     RUN_TEST(test_power_held_knob_never_sleeps_and_its_wake_is_swallowed);
+    RUN_TEST(test_power_stuck_hold_stops_resetting_idle_after_ten_seconds);
+    RUN_TEST(test_power_wake_from_sleep_sleeps_out_before_backlight);
     RUN_TEST(test_power_hold_awake_postpones_light_sleep_but_not_dim);
     RUN_TEST(test_power_timers_survive_millis_wrap);
     RUN_TEST(test_app_boot_unpaired_shows_pair_and_starts_pairing);

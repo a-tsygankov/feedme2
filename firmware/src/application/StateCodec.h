@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
-#include <ArduinoJson.h>
+#include <ArduinoJson.h>   // not needed by these declarations; the codec tests use JsonDocument through this include
 #include "domain/DeviceState.h"
 
 namespace feedme2::application {

@@ -113,6 +113,21 @@ void test_pair_permanent_400_on_check_is_failed() {
     TEST_ASSERT_TRUE(r.net.pairStarts[0].pollSecret != r.net.pairStarts[1].pollSecret);
 }
 
+void test_pair_unparsable_check_body_warns_and_keeps_polling() {
+    Rig r;
+    r.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"123456\",\"expiresAt\":600000,\"pollAfterSec\":3}"));
+    r.pc.start();
+    r.net.pairCheckResults.push_back(test::StubNetwork::ok("<html>captive portal</html>"));
+    r.pc.tick(3100);
+    // The code stays on screen and the next poll still happens, but the field log says why nothing moved.
+    TEST_ASSERT_EQUAL(application::PairPhase::Pending, r.pc.view().phase);
+    TEST_ASSERT_EQUAL_STRING("warn pair check unparsable {\"status\":200}", r.serial.lines.back().c_str());
+    r.net.pairCheckResults.push_back(test::StubNetwork::ok("{\"status\":\"pending\"}"));
+    r.pc.tick(6200);
+    TEST_ASSERT_EQUAL_UINT32(2, r.net.pairChecks.size());
+    TEST_ASSERT_EQUAL(application::PairPhase::Pending, r.pc.view().phase);
+}
+
 void test_pair_clear_token() {
     Rig r;
     r.store.kv["token"] = "tok";
@@ -122,5 +137,6 @@ void test_pair_clear_token() {
     TEST_ASSERT_FALSE(r.pc.isPaired());
     TEST_ASSERT_EQUAL_STRING("", r.net.token.c_str());
     TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("token"));
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("name"));
     TEST_ASSERT_EQUAL(application::PairPhase::Idle, r.pc.view().phase);
 }

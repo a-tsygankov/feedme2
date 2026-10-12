@@ -1,5 +1,7 @@
 #include <unity.h>
 #include <cstdint>
+#include <string>
+#include <vector>
 #include "application/LogService.h"
 #include "application/PowerManager.h"
 #include "stubs.h"
@@ -8,10 +10,14 @@ using application::PowerTier;
 
 namespace {
 // StubPower only counts lightSleep calls; the max-ms argument is what bounds the timer wake,
-// so this rig records it too.
+// so this rig records it too, and the order of the panel calls (sleep-out must precede the
+// backlight on the board, or the lit panel shows a blank frame for the 120 ms SLPOUT wait).
 struct CapturingPower : test::StubPower {
     uint32_t lastMaxMs = 0;
+    std::vector<std::string> calls;
     void lightSleep(uint32_t maxMs) override { lastMaxMs = maxMs; ++lightSleeps; }
+    void setBacklight(uint8_t p) override { calls.push_back("backlight=" + std::to_string(p)); test::StubPower::setBacklight(p); }
+    void displaySleep(bool on) override { calls.push_back(on ? "sleep-in" : "sleep-out"); test::StubPower::displaySleep(on); }
 };
 struct Rig {
     CapturingPower power; test::StubClock clk; test::StubLogSink serial; test::StubFileQueue files;
@@ -107,7 +113,7 @@ void test_power_sleep_timeout_from_settings_bounds_light_sleep_call() {
     r.pm.tick(31'000);
     TEST_ASSERT_EQUAL_INT(1, r.power.lightSleeps);
     TEST_ASSERT_TRUE(r.power.lastMaxMs > 0);
-    TEST_ASSERT_TRUE(r.power.lastMaxMs <= 600'000u);
+    TEST_ASSERT_EQUAL_UINT32(600'000, r.power.lastMaxMs);
     // A sync due sooner than the timeout bounds the nap so the timer wake lands on the round.
     Rig s;
     s.pm.setSleepTimeoutSec(600);
@@ -149,23 +155,66 @@ void test_power_held_knob_never_sleeps_and_its_wake_is_swallowed() {
     r.pm.tick(0);
     r.pm.setHeld(true);
     r.pm.tick(20'000);
-    r.pm.tick(100'000);
+    r.pm.tick(29'000);   // a 9 s hold: the long-press arc, well under kMaxHoldMs
     TEST_ASSERT_EQUAL(PowerTier::Awake, r.pm.tier());
     TEST_ASSERT_EQUAL_INT(100, r.power.backlight);
     TEST_ASSERT_EQUAL_INT(0, r.power.lightSleeps);
     TEST_ASSERT_FALSE(r.pm.consumeWakeEvent());
     // Release: the idle timers run from the release, not from the press.
     r.pm.setHeld(false);
-    r.pm.tick(114'999);
+    r.pm.tick(43'999);
     TEST_ASSERT_EQUAL(PowerTier::Awake, r.pm.tier());
-    r.pm.tick(115'001);
+    r.pm.tick(44'001);
     TEST_ASSERT_EQUAL(PowerTier::Dim, r.pm.tier());
     // Pressing down while dim wakes the screen at once; the Press/LongPress that follows is swallowed.
     r.pm.setHeld(true);
-    r.pm.tick(116'000);
+    r.pm.tick(45'000);
     TEST_ASSERT_EQUAL(PowerTier::Awake, r.pm.tier());
     TEST_ASSERT_TRUE(r.pm.consumeWakeEvent());
     TEST_ASSERT_FALSE(r.pm.consumeWakeEvent());
+}
+
+void test_power_stuck_hold_stops_resetting_idle_after_ten_seconds() {
+    // A touch controller reporting a finger forever must not pin the device Awake for good.
+    Rig r;
+    r.pm.tick(0);
+    r.pm.setHeld(true);
+    r.pm.tick(1'000);
+    r.pm.tick(10'999);   // 9.999 s into the hold: still input
+    TEST_ASSERT_EQUAL(PowerTier::Awake, r.pm.tier());
+    r.pm.tick(11'001);   // past kMaxHoldMs: the hold no longer counts, idle runs from the last reset
+    r.pm.tick(25'998);
+    TEST_ASSERT_EQUAL(PowerTier::Awake, r.pm.tier());
+    r.pm.tick(26'000);   // 15 s after the last counted hold tick (10'999)
+    TEST_ASSERT_EQUAL(PowerTier::Dim, r.pm.tier());
+    r.pm.tick(41'001);
+    TEST_ASSERT_EQUAL(PowerTier::LightSleep, r.pm.tier());
+    TEST_ASSERT_EQUAL_INT(1, r.power.lightSleeps);
+    // A real release and a new press count again: it wakes the screen and is swallowed once.
+    r.pm.setHeld(false);
+    r.pm.tick(41'002);
+    r.pm.setHeld(true);
+    r.pm.tick(42'000);
+    TEST_ASSERT_EQUAL(PowerTier::Awake, r.pm.tier());
+    TEST_ASSERT_TRUE(r.pm.consumeWakeEvent());
+    r.pm.tick(52'000);   // exactly kMaxHoldMs into the new hold: still input (the cap is inclusive)
+    TEST_ASSERT_EQUAL(PowerTier::Awake, r.pm.tier());
+    r.pm.tick(66'999);
+    TEST_ASSERT_EQUAL(PowerTier::Awake, r.pm.tier());
+    r.pm.tick(67'001);   // 15 s after the last counted tick of the new hold (52'000)
+    TEST_ASSERT_EQUAL(PowerTier::Dim, r.pm.tier());
+}
+
+void test_power_wake_from_sleep_sleeps_out_before_backlight() {
+    Rig r;
+    r.pm.tick(0);
+    r.pm.tick(31'000);
+    TEST_ASSERT_EQUAL(PowerTier::LightSleep, r.pm.tier());
+    r.power.calls.clear();
+    r.pm.noteInput(32'000);
+    TEST_ASSERT_EQUAL_UINT32(2, r.power.calls.size());
+    TEST_ASSERT_EQUAL_STRING("sleep-out", r.power.calls[0].c_str());
+    TEST_ASSERT_EQUAL_STRING("backlight=100", r.power.calls[1].c_str());
 }
 
 void test_power_hold_awake_postpones_light_sleep_but_not_dim() {

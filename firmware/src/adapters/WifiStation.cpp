@@ -57,14 +57,11 @@ bool WifiStation::connect(const std::string& ssid, const std::string& pass, uint
     if (ssid.empty()) return false;
     ssid_ = ssid;
     pass_ = pass;
-    WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    // WiFi.begin() is asynchronous; the association is now in flight and ensureConnected() must
-    // not restart it on its next probe, so it is booked like one of its own re-kicks. A budget of 0
+    // WiFi.begin() is asynchronous; the association is now in flight and booked exactly like an
+    // ensureConnected() re-kick, so the probe leaves it alone for kJoinBudgetMs. A budget of 0
     // returns at once and main.cpp's loop (which probes once a second) picks up the join.
-    reconnectPending_ = true;
-    lastReconnectMs_ = millis();
+    beginJoin(millis());
     // Unsigned delta rather than a `millis() < deadline` compare: a deadline computed near the
     // 49-day wrap would already be in the past and the first connect after it would fail instantly.
     const uint32_t started = millis();
@@ -75,26 +72,41 @@ bool WifiStation::connect(const std::string& ssid, const std::string& pass, uint
     return ensureConnected();
 }
 
+void WifiStation::beginJoin(uint32_t nowMs) {
+    joinInFlight_ = true;
+    lastBeginMs_ = nowMs;
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid_.c_str(), pass_.c_str());
+}
+
 bool WifiStation::ensureConnected() {
-    if (WiFi.status() == WL_CONNECTED) {
-        if (reconnectPending_) {
+    const wl_status_t status = WiFi.status();
+    if (status == WL_CONNECTED) {
+        if (joinInFlight_) {
             // The connected transition of a join this object kicked off (boot or a wake re-kick):
-            // start SNTP here rather than in connect(), which no longer waits for the association.
+            // start SNTP here rather than in connect(), which does not wait for the association.
             // Zero offsets: the app renders in the house timezone from the server's tzOffsetMin.
             configTime(0, 0, "pool.ntp.org", "time.google.com");
-            reconnectPending_ = false;
+            joinInFlight_ = false;
         }
         return true;
     }
     if (ssid_.empty()) return false;  // connect() never ran: nothing to re-associate with
     const uint32_t now = millis();
-    // Rate limited: a begin() while the previous attempt is still associating restarts it and
-    // the device would never finish connecting.
-    if (reconnectPending_ && now - lastReconnectMs_ < kReconnectIntervalMs) return false;
-    reconnectPending_ = true;
-    lastReconnectMs_ = now;
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid_.c_str(), pass_.c_str());
+    const uint32_t sinceBegin = now - lastBeginMs_;
+    if (joinInFlight_) {
+        // A begin() restarts the association, so an attempt that is still joining must not be
+        // re-kicked: with only the 5 s gate every join slower than that (slow DHCP, weak signal;
+        // 3-8 s is normal) was restarted and some stations never came up. The attempt keeps its
+        // kJoinBudgetMs unless the stack has already given up on it (wrong password, AP out of
+        // range), in which case only the gate below applies.
+        const bool failed = status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL;
+        if (!failed && sinceBegin < kJoinBudgetMs) return false;
+    }
+    // Never two begin() calls closer than the gate, whichever path led here (a drop after a
+    // successful join re-kicks at once because the last begin() is long past).
+    if (sinceBegin < kReconnectIntervalMs) return false;
+    beginJoin(now);
     return false;
 }
 

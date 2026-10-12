@@ -25,15 +25,22 @@ public:
     // False when nothing is stored or the blob is torn; the caller runs the captive portal then.
     bool loadCredentials(ports::IStorage& storage, std::string& ssid, std::string& pass);
 
-    // Blocks up to budgetMs for the association + DHCP. On success starts SNTP
-    // (pool.ntp.org, time.google.com) so the system clock is sane for TLS and
-    // log timestamps; wall time for the app still comes from the server `now`.
+    // Keeps the credentials and issues WiFi.begin(), which is asynchronous: the association is
+    // then "in flight" and owned by ensureConnected(), which gives it kJoinBudgetMs before it may
+    // be re-kicked and starts SNTP (pool.ntp.org, time.google.com) on the connected transition so
+    // the clock is sane for TLS and log timestamps (app wall time still comes from the server
+    // `now`). With budgetMs == 0 (main.cpp) it returns at once and the once-a-second probe picks
+    // the join up; a budgetMs > 0 additionally polls for the association that long before
+    // returning. Returns whether the station is connected on return.
     bool connect(const std::string& ssid, const std::string& pass, uint32_t budgetMs = kDefaultBudgetMs);
-    // Non-blocking. A manual esp_light_sleep_start() (EspPower::lightSleep) drops the association:
-    // only esp_pm's automatic light sleep coordinates with modem sleep. So after every wake the
-    // first sync would see WL_CONNECTED gone. This returns the current status and, when it has
-    // dropped, re-kicks WiFi.begin() with the credentials connect() was given, at most once per
-    // kReconnectIntervalMs; App calls it after wake and lets SyncService's transient path retry.
+    // Non-blocking and cheap (one status read plus timestamps). A manual esp_light_sleep_start()
+    // (EspPower::lightSleep) drops the association: only esp_pm's automatic light sleep coordinates
+    // with modem sleep. So after every wake the first sync would see WL_CONNECTED gone. This
+    // returns the current status and, when it has dropped, re-kicks WiFi.begin() with the
+    // credentials connect() was given. A begin() this object issued is left alone for
+    // kJoinBudgetMs unless the stack reports a definitive failure (WL_CONNECT_FAILED,
+    // WL_NO_SSID_AVAIL); re-kicks are never closer than kReconnectIntervalMs apart. App calls it
+    // after wake and lets SyncService's transient path retry.
     bool ensureConnected();
     bool isConnected() const;
     // dBm, 0 when not associated.
@@ -41,13 +48,23 @@ public:
     // Named networks in range, strongest first; blocking (~2-3 s).
     std::vector<std::pair<std::string, int8_t>> scan();
 
+    // Minimum spacing between two WiFi.begin() calls from this object.
     static constexpr uint32_t kReconnectIntervalMs = 5000;
+    // How long an in-flight association may take before ensureConnected() restarts it. A join
+    // normally takes 3-8 s (DHCP, weak signal), so re-kicking at the 5 s gate restarted every slow
+    // join and some stations never came up; the association gets its own, longer budget.
+    static constexpr uint32_t kJoinBudgetMs = 15000;
 
 private:
+    void beginJoin(uint32_t nowMs);
+
     std::string ssid_;
     std::string pass_;
-    uint32_t lastReconnectMs_ = 0;
-    bool reconnectPending_ = false;
+    // millis() of the last WiFi.begin() this object issued: both the kReconnectIntervalMs gate
+    // and the kJoinBudgetMs budget count from it.
+    uint32_t lastBeginMs_ = 0;
+    // True from a WiFi.begin() until WL_CONNECTED is observed (SNTP starts on that transition).
+    bool joinInFlight_ = false;
 };
 
 }  // namespace feedme2::adapters

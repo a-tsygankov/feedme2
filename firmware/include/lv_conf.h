@@ -13,6 +13,9 @@
 #define LV_USE_LOG             1
 #define LV_LOG_LEVEL           LV_LOG_LEVEL_WARN
 
+/* Decoded-image cache off: the cat PNGs are drawn once per screen and PSRAM is not worth spending on a cache. */
+#define LV_CACHE_DEF_SIZE      0
+
 /* No LV_TICK_CUSTOM: LVGL 9 dropped it. main.cpp registers the tick with lv_tick_set_cb(millis). */
 
 /* ── widgets ──────────────────────────────────────────────── */
@@ -26,6 +29,8 @@
 #define LV_USE_DROPDOWN        1
 #define LV_USE_FLEX            1
 #define LV_USE_QRCODE          1
+#define LV_USE_IMAGE           1
+#define LV_USE_LODEPNG         1   /* PNG decode for the cat images */
 
 /* ── fonts ────────────────────────────────────────────────── */
 /* 10/12 added in dev-23 so the mini task pill renders its title at
@@ -37,6 +42,8 @@
 #define LV_FONT_MONTSERRAT_14  1
 #define LV_FONT_MONTSERRAT_18  1
 #define LV_FONT_MONTSERRAT_22  1
+#define LV_FONT_MONTSERRAT_24  1
+#define LV_FONT_MONTSERRAT_48  1
 #define LV_FONT_DEFAULT        &lv_font_montserrat_14
 
 #endif /* LV_CONF_H */

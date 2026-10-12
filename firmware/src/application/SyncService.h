@@ -39,9 +39,15 @@ struct RoundResult {
 };
 
 // One sync round (spec §5.3): feedings → logs → state (If-None-Match) → heartbeat. Rounds are
-// requested (wake, feeding, paired, timer, boot) and run from tick() when the network is online
+// requested (wake, feeding, paired, timer, boot) and start from tick() when the network is online
 // and the device is paired; the state JSON and ETag are cached in storage so Idle renders before
 // Wi-Fi. Every server `now` (feedings, state, heartbeat) corrects the ClockModel.
+//
+// A round is a step machine: each tick() makes at most ONE request (a feedings batch, a logs
+// batch, the state, the heartbeat), so main.cpp renders and reads the knob between them. The
+// whole round in one tick blocked the loop for 3–5 s on the S3 (up to 32 s at the 8 s timeouts)
+// and froze the Fed screen and the knob (review of the Phase 2b branch). last() and the
+// "sync ok" / "sync stopped" lines appear when the round completes or stops.
 class SyncService {
 public:
     static constexpr const char* kStateKey = "state";
@@ -60,28 +66,47 @@ public:
     void loadCachedState();
     bool hasState() const { return hasState_; }
     const domain::DeviceState& state() const { return state_; }
-    // Flags a round; it runs on the next tick that finds the device online and paired. The first
-    // reason wins until that round runs.
+    // Flags a round; it starts on the next tick that finds the device online, paired and not
+    // already in a round. The first reason wins until that round starts.
     void requestRound(const char* reason);
     bool roundRequested() const { return requested_; }
+    // True from the tick that starts a round until the tick that completes or stops it.
+    bool roundInProgress() const { return step_ != Step::Idle; }
     void tick(uint32_t nowMs);
+    // The last round that completed or stopped (a round in progress is not reflected yet).
     const RoundResult& last() const { return last_; }
-    // Increments whenever state_ changes (cached load or a 200 from the server).
+    // Increments whenever state_ changes (cached load, a 200 from the server, or forgetState()).
     uint32_t generation() const { return generation_; }
     bool lastRoundOk() const { return lastOk_; }
     uint32_t lastOkAtMs() const { return lastOkAtMs_; }
     void setHeartbeatInfo(HeartbeatInfo info) { heartbeat_ = std::move(info); }
+    // Drops the cached house (RAM and NVS, state and ETag): the pairing it belonged to is gone,
+    // by a server 401 or the menu Unpair. The next GET is unconditional.
+    void forgetState();
 
 private:
-    void runRound(uint32_t nowMs);
-    bool syncFeedings(RoundResult& r);
-    bool syncLogs(RoundResult& r);
-    bool syncState(RoundResult& r);
-    void syncHeartbeat(RoundResult& r, uint32_t nowMs);
+    enum class Step : uint8_t { Idle, Feedings, Logs, State, Heartbeat };
+    static const char* stepName(Step s);
+
+    void startRound(uint32_t nowMs);
+    void advance(uint32_t nowMs);
+    void finishRound(uint32_t nowMs);
+    // One request each. They return false when the round stopped, true when it goes on (step_
+    // moves to the next step once this one is done).
+    bool stepFeedings();
+    bool stepLogs();
+    bool stepState();
+    void stepHeartbeat(uint32_t nowMs);
+    void enterLogs();
     void applyState(const std::string& json, const std::string& etag, bool persist);
     void syncClock(int64_t serverNowMs);
-    void stop(RoundResult& r, const char* step, const ports::NetResult& res);
-    void unauthorized(RoundResult& r, const char* step);
+    void stop(const char* step, const ports::NetResult& res);
+    void unauthorized(const char* step);
+    // A 401 on a step: the API's revocation unpairs (unauthorized), any other stops the round.
+    void refused(const char* step, const ports::NetResult& res);
+    // A 401 that is the API's own revocation ({"error":"unauthorized"}, requireDevice): anything
+    // else (a captive portal, a proxy, any TLS peer under setInsecure()) is transient.
+    static bool revoked(const ports::NetResult& res);
 
     ports::INetwork& net_;
     ports::IStorage& storage_;
@@ -101,6 +126,11 @@ private:
     bool lastOk_ = false;
     uint32_t lastOkAtMs_ = 0;
     uint32_t lastRoundAtMs_ = 0;
+    // The round in progress.
+    Step step_ = Step::Idle;
+    RoundResult cur_;
+    size_t feedingPosts_ = 0;   // POSTs left this round (bounded at the round's start)
+    size_t logBatches_ = 0;     // logs batches left this round (bounded on entering the step)
 };
 
 }  // namespace feedme2::application

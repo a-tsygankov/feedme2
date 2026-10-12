@@ -64,6 +64,10 @@ struct FedSummary {
 class App {
 public:
     static constexpr uint32_t kFedMs = 2000;
+    // How long a requested round holds an offline device awake for Wi-Fi to (re)join: matches
+    // WifiStation's join budget. A manual light sleep drops the association, so without this
+    // window a timer wake would find the device offline and nap again before the stack rejoined.
+    static constexpr uint32_t kJoinGraceMs = 15'000;
     static constexpr int kMenuCount = 4;   // Wi-Fi · Pair/Unpair · About · Sleep now
     static constexpr const char* kNoCat = "none";
 
@@ -120,7 +124,7 @@ public:
 private:
     void dispatch(InputEvent ev, uint32_t nowMs);
     void onIdle(InputEvent ev);
-    void onAmount(InputEvent ev, uint32_t nowMs);
+    void onAmount(InputEvent ev);
     void onSystem(InputEvent ev, uint32_t nowMs);
     void openMenuItem(uint32_t nowMs);
     void goToPair();
@@ -131,10 +135,13 @@ private:
     // was last printed; called before a sync round can run so the scenarios see it first.
     void flushScreenChange();
     void afterTick();
+    // Tracks when a round request starts waiting for the network (the join window).
+    void noteRoundWait(uint32_t nowMs);
     uint64_t fingerprint() const;
 
     ports::IClock& clock_;
     ports::IInput& input_;
+    ports::INetwork& network_;
     const char* fwVersion_;
     domain::ClockModel model_;
     LogService log_;
@@ -151,7 +158,10 @@ private:
     uint32_t stateAtMs_ = 0;        // monotonic time the current state (cache or server) was applied
     uint32_t seenGeneration_ = 0;   // sync_.generation() already applied to the roster/power
     domain::ScreenId lastScreen_ = domain::ScreenId::Boot;
-    uint32_t fedSinceMs_ = 0;
+    uint32_t fedSinceMs_ = 0;       // valid once fedArmed_
+    bool fedArmed_ = false;         // Fed has been rendered at least once and its 2 s are running
+    uint32_t roundWaitSinceMs_ = 0; // when a requested round last started waiting for the network
+    bool roundWasRequested_ = false;
     int historyOffset_ = 0;
     int menuIndex_ = 0;
     bool portalRequested_ = false;

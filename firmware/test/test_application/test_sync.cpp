@@ -40,6 +40,18 @@ struct Rig {
         net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1700000000000}"));
     }
 };
+// A round is several ticks now (one request each): tick until the round this tick starts (or the
+// one already running) completes. The guard keeps a step-machine bug from hanging the suite.
+void runRound(Rig& r, uint32_t ms) {
+    r.sync.tick(ms);
+    for (int guard = 0; r.sync.roundInProgress() && guard < 100; ++guard) r.sync.tick(ms);
+    TEST_ASSERT_FALSE(r.sync.roundInProgress());
+}
+// requireDevice()'s 401 body: only this answer means the pairing is gone.
+const char* const kRevoked = "{\"error\":\"unauthorized\"}";
+size_t calls(const Rig& r) {
+    return r.net.postedFeedings.size() + r.net.postedLogs.size() + r.net.ifNoneMatch.size() + r.net.postedHeartbeats.size();
+}
 std::string sample() { return readFixture("device-state.sample.json"); }
 std::string replaceAll(std::string s, const std::string& from, const std::string& to) {
     for (size_t p = s.find(from); p != std::string::npos; p = s.find(from, p + to.size())) s.replace(p, from.size(), to);
@@ -54,7 +66,7 @@ void test_sync_round_order_and_success() {
     r.net.feedingResults.push_back(test::StubNetwork::ok("{\"accepted\":[\"" + id + "\"],\"clamped\":[],\"now\":1700000000000}"));
     r.pushHappyRound(sample());
     r.sync.requestRound("feeding");
-    r.sync.tick(10);
+    runRound(r, 10);
     const auto& last = r.sync.last();
     TEST_ASSERT_TRUE(last.ran);
     TEST_ASSERT_EQUAL_INT(1, last.feedingsSent);
@@ -86,7 +98,7 @@ void test_sync_round_order_and_success() {
     r.net.stateResults.push_back(test::StubNetwork::status(304));
     r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1700000001000}"));
     r.sync.requestRound("wake");
-    r.sync.tick(20);
+    runRound(r, 20);
     TEST_ASSERT_EQUAL_STRING("W/\"abc\"", r.net.ifNoneMatch[1].c_str());
     TEST_ASSERT_FALSE(r.sync.last().stateChanged);
     TEST_ASSERT_EQUAL_UINT32(1, r.sync.generation());
@@ -98,7 +110,7 @@ void test_sync_transient_failure_keeps_feedings_and_stops() {
     r.queueOne("cat-a");
     r.net.feedingResults.push_back(test::StubNetwork::status(503));
     r.sync.requestRound("feeding");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.sync.last().ran);
     TEST_ASSERT_EQUAL_STRING("feedings", r.sync.last().stoppedBy.c_str());
     TEST_ASSERT_FALSE(r.sync.lastRoundOk());
@@ -114,7 +126,7 @@ void test_sync_permanent_failure_drops_batch_and_continues() {
     r.net.feedingResults.push_back(test::StubNetwork::status(400, "{\"error\":\"invalid_request\"}"));
     r.pushHappyRound(sample());
     r.sync.requestRound("feeding");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.feedings.queue().empty());
     TEST_ASSERT_EQUAL_INT(0, r.sync.last().feedingsAccepted);
     TEST_ASSERT_TRUE(r.serialHas("error feedings rejected"));
@@ -130,7 +142,7 @@ void test_sync_cat_not_found_drops_only_that_cat() {
     r.net.feedingResults.push_back(test::StubNetwork::ok("{\"accepted\":[\"" + keep + "\"],\"clamped\":[],\"now\":1700000000000}"));
     r.pushHappyRound(sample());
     r.sync.requestRound("feeding");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.feedings.queue().empty());
     TEST_ASSERT_EQUAL_UINT32(2, r.net.postedFeedings.size());
     TEST_ASSERT_TRUE(r.net.postedFeedings[1].find("cat-gone") == std::string::npos);
@@ -145,7 +157,7 @@ void test_sync_id_conflict_settles_those_ids() {
     r.net.feedingResults.push_back(test::StubNetwork::status(409, "{\"error\":\"id_conflict\",\"ids\":[\"" + id + "\"]}"));
     r.pushHappyRound(sample());
     r.sync.requestRound("feeding");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.feedings.queue().empty());
     TEST_ASSERT_EQUAL_UINT32(1, r.net.postedFeedings.size());
     TEST_ASSERT_TRUE(r.sync.lastRoundOk());
@@ -159,7 +171,7 @@ void test_sync_ok_with_fewer_accepted_settles_the_sent_ids() {
     r.net.feedingResults.push_back(test::StubNetwork::ok("{\"accepted\":[],\"clamped\":[],\"now\":1700000000000}"));
     r.pushHappyRound(sample());
     r.sync.requestRound("feeding");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.feedings.queue().empty());
     TEST_ASSERT_EQUAL_UINT32(1, r.net.postedFeedings.size());
     TEST_ASSERT_TRUE(r.serialHas("warn feedings already on server"));
@@ -168,9 +180,9 @@ void test_sync_ok_with_fewer_accepted_settles_the_sent_ids() {
 void test_sync_unauthorized_clears_token_and_routes_to_pair() {
     Rig r;
     r.net.logResults.push_back(test::StubNetwork::status(202));
-    r.net.stateResults.push_back(test::StubNetwork::status(401));
+    r.net.stateResults.push_back(test::StubNetwork::status(401, kRevoked));
     r.sync.requestRound("boot");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.sync.last().unauthorized);
     TEST_ASSERT_EQUAL_STRING("state", r.sync.last().stoppedBy.c_str());
     TEST_ASSERT_FALSE(r.pair.isPaired());
@@ -178,7 +190,7 @@ void test_sync_unauthorized_clears_token_and_routes_to_pair() {
     TEST_ASSERT_TRUE(r.net.postedHeartbeats.empty());
     // Unpaired now: a requested round must not run (it would 401 again forever).
     r.sync.requestRound("timer");
-    r.sync.tick(20);
+    runRound(r, 20);
     TEST_ASSERT_EQUAL_UINT32(1, r.net.ifNoneMatch.size());
 }
 
@@ -208,7 +220,7 @@ void test_sync_corrupt_cached_state_is_ignored_and_etag_dropped() {
     r.net.stateResults.push_back(test::StubNetwork::ok(sample(), "W/\"abc\""));
     r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1}"));
     r.sync.requestRound("boot");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_EQUAL_STRING("", r.net.ifNoneMatch[0].c_str());
     TEST_ASSERT_TRUE(r.sync.hasState());
 }
@@ -218,14 +230,14 @@ void test_sync_timer_round_every_sync_interval() {
     r.store.kv["state"] = replaceAll(sample(), "\"syncIntervalSec\": 21600", "\"syncIntervalSec\": 60");
     r.sync.loadCachedState();
     TEST_ASSERT_EQUAL_INT32(60, r.sync.state().settings.syncIntervalSec);
-    r.sync.tick(1000);
+    runRound(r, 1000);
     TEST_ASSERT_FALSE(r.sync.last().ran);
-    r.sync.tick(61000);
+    runRound(r, 61000);
     TEST_ASSERT_TRUE(r.sync.last().ran);
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync start reason=timer"));
     // The next timer round is one interval after the last one, not every tick.
     const size_t starts = r.serial.lines.size();
-    r.sync.tick(62000);
+    runRound(r, 62000);
     TEST_ASSERT_EQUAL_UINT32(starts, r.serial.lines.size());
 }
 
@@ -233,16 +245,16 @@ void test_sync_offline_skips_round_until_online() {
     Rig r;
     r.net.online = false;
     r.sync.requestRound("wake");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_FALSE(r.sync.last().ran);
     TEST_ASSERT_TRUE(r.net.ifNoneMatch.empty());
     r.net.online = true;
     r.net.logResults.push_back(test::StubNetwork::status(202));
-    r.sync.tick(20);
+    runRound(r, 20);
     TEST_ASSERT_TRUE(r.sync.last().ran);
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync start reason=wake"));
     // The request was consumed: no second round without a new request.
-    r.sync.tick(30);
+    runRound(r, 30);
     TEST_ASSERT_EQUAL_UINT32(1, r.net.ifNoneMatch.size());
 }
 
@@ -256,7 +268,7 @@ void test_sync_heartbeat_syncs_the_clock_when_state_is_304() {
     r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1700000000000}"));
     r.clk.ms = 5000;
     r.sync.requestRound("boot");
-    r.sync.tick(5000);
+    runRound(r, 5000);
     TEST_ASSERT_EQUAL_STRING("W/\"x\"", r.net.ifNoneMatch[0].c_str());
     TEST_ASSERT_FALSE(r.sync.last().stateChanged);
     TEST_ASSERT_TRUE(r.sync.last().heartbeatOk);
@@ -270,7 +282,7 @@ void test_sync_logs_transient_requeues_and_stops() {
     r.log.info("keep me");
     r.net.logResults.push_back(test::StubNetwork::status(503));
     r.sync.requestRound("wake");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_EQUAL_STRING("logs", r.sync.last().stoppedBy.c_str());
     TEST_ASSERT_EQUAL_INT(0, r.sync.last().logsSent);
     TEST_ASSERT_TRUE(r.net.ifNoneMatch.empty());
@@ -286,7 +298,7 @@ void test_sync_logs_permanent_drops_batch_and_continues() {
     r.net.stateResults.push_back(test::StubNetwork::ok(sample(), "W/\"abc\""));
     r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1}"));
     r.sync.requestRound("wake");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.sync.lastRoundOk());
     TEST_ASSERT_EQUAL_UINT32(1, r.net.ifNoneMatch.size());
     TEST_ASSERT_TRUE(r.serialHas("warn logs rejected"));
@@ -301,7 +313,7 @@ void test_sync_heartbeat_failure_is_not_fatal() {
     r.net.stateResults.push_back(test::StubNetwork::ok(sample(), "W/\"abc\""));
     r.net.heartbeatResults.push_back(test::StubNetwork::status(500));
     r.sync.requestRound("boot");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_FALSE(r.sync.last().heartbeatOk);
     TEST_ASSERT_TRUE(r.sync.lastRoundOk());
     TEST_ASSERT_TRUE(r.serialHas("warn heartbeat failed"));
@@ -318,7 +330,7 @@ void test_sync_state_decode_failure_keeps_old_state() {
     r.net.stateResults.push_back(test::StubNetwork::ok("{\"house\":{}}", "W/\"bad\""));
     r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1}"));
     r.sync.requestRound("boot");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_EQUAL_UINT32(2, r.sync.state().cats.size());
     TEST_ASSERT_EQUAL_UINT32(1, r.sync.generation());
     TEST_ASSERT_FALSE(r.sync.last().stateChanged);
@@ -336,7 +348,7 @@ void test_sync_non_json_2xx_keeps_feedings_and_stops() {
     r.queueOne("cat-a");
     r.net.feedingResults.push_back(test::StubNetwork::status(201, "<html>"));
     r.sync.requestRound("feeding");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_EQUAL_STRING("feedings", r.sync.last().stoppedBy.c_str());
     TEST_ASSERT_FALSE(r.sync.lastRoundOk());
     TEST_ASSERT_EQUAL_INT(0, r.sync.last().feedingsAccepted);
@@ -346,7 +358,7 @@ void test_sync_non_json_2xx_keeps_feedings_and_stops() {
     // An empty 200 (a dropped body) is the same thing.
     r.net.feedingResults.push_back(test::StubNetwork::ok(""));
     r.sync.requestRound("wake");
-    r.sync.tick(20);
+    runRound(r, 20);
     TEST_ASSERT_EQUAL_STRING("feedings", r.sync.last().stoppedBy.c_str());
     TEST_ASSERT_EQUAL_UINT32(1, r.feedings.queue().size());
 }
@@ -359,7 +371,7 @@ void test_sync_state_write_failure_drops_the_etag() {
     r.store.failKey = "state";
     r.pushHappyRound(sample());
     r.sync.requestRound("boot");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.sync.lastRoundOk());
     TEST_ASSERT_TRUE(r.sync.hasState());   // the RAM copy is applied either way
     TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("state"));
@@ -373,14 +385,14 @@ void test_sync_304_without_state_is_transient_and_retried() {
     r.net.logResults.push_back(test::StubNetwork::status(202));
     r.net.stateResults.push_back(test::StubNetwork::status(304));
     r.sync.requestRound("boot");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_FALSE(r.sync.hasState());
     TEST_ASSERT_EQUAL_STRING("state", r.sync.last().stoppedBy.c_str());
     TEST_ASSERT_FALSE(r.sync.lastRoundOk());
     TEST_ASSERT_TRUE(r.net.postedHeartbeats.empty());
     // No state means no syncIntervalSec, yet the stopped round still gets its 60 s retry.
     r.pushHappyRound(sample());
-    r.sync.tick(10 + application::SyncService::kRetryAfterMs);
+    runRound(r, 10 + application::SyncService::kRetryAfterMs);
     TEST_ASSERT_TRUE(r.sync.hasState());
     TEST_ASSERT_TRUE(r.sync.lastRoundOk());
 }
@@ -393,9 +405,9 @@ void test_sync_unauthorized_erases_cached_state() {
     r.store.kv["etag"] = "W/\"x\"";
     r.sync.loadCachedState();
     r.net.logResults.push_back(test::StubNetwork::status(202));
-    r.net.stateResults.push_back(test::StubNetwork::status(401));
+    r.net.stateResults.push_back(test::StubNetwork::status(401, kRevoked));
     r.sync.requestRound("boot");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.sync.last().unauthorized);
     TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("state"));
     TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("etag"));
@@ -405,7 +417,7 @@ void test_sync_unauthorized_erases_cached_state() {
     r.store.kv["token"] = "tok2";
     r.pushHappyRound(sample());
     r.sync.requestRound("paired");
-    r.sync.tick(20);
+    runRound(r, 20);
     TEST_ASSERT_EQUAL_STRING("", r.net.ifNoneMatch[1].c_str());
     TEST_ASSERT_TRUE(r.sync.hasState());
     TEST_ASSERT_EQUAL_STRING("W/\"abc\"", r.store.kv["etag"].c_str());
@@ -420,22 +432,22 @@ void test_sync_stopped_round_retries_after_sixty_seconds() {
     const std::string id = r.queueOne("cat-a");
     r.net.feedingResults.push_back(test::StubNetwork::status(503));
     r.sync.requestRound("feeding");
-    r.sync.tick(1000);
+    runRound(r, 1000);
     TEST_ASSERT_EQUAL_STRING("feedings", r.sync.last().stoppedBy.c_str());
-    r.sync.tick(1000 + application::SyncService::kRetryAfterMs - 1);
+    runRound(r, 1000 + application::SyncService::kRetryAfterMs - 1);
     TEST_ASSERT_EQUAL_UINT32(1, r.net.postedFeedings.size());
     r.net.feedingResults.push_back(test::StubNetwork::ok("{\"accepted\":[\"" + id + "\"],\"clamped\":[],\"now\":1700000000000}"));
     r.pushHappyRound(sample());
-    r.sync.tick(1000 + application::SyncService::kRetryAfterMs);
+    runRound(r, 1000 + application::SyncService::kRetryAfterMs);
     TEST_ASSERT_EQUAL_UINT32(2, r.net.postedFeedings.size());
     TEST_ASSERT_TRUE(r.sync.lastRoundOk());
     TEST_ASSERT_TRUE(r.feedings.queue().empty());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync start reason=timer"));
     // After a good round the full interval applies again: nothing at +60 s, a round at +6 h.
-    r.sync.tick(1000 + 2 * application::SyncService::kRetryAfterMs);
+    runRound(r, 1000 + 2 * application::SyncService::kRetryAfterMs);
     TEST_ASSERT_EQUAL_UINT32(1, r.net.ifNoneMatch.size());
     r.pushHappyRound(sample());
-    r.sync.tick(1000 + application::SyncService::kRetryAfterMs + 21600u * 1000u);
+    runRound(r, 1000 + application::SyncService::kRetryAfterMs + 21600u * 1000u);
     TEST_ASSERT_EQUAL_UINT32(2, r.net.ifNoneMatch.size());
 }
 
@@ -452,7 +464,7 @@ void test_sync_sends_the_queue_in_batches_of_twenty() {
     r.net.feedingResults.push_back(test::StubNetwork::ok(accepted(20, 25)));
     r.pushHappyRound(sample());
     r.sync.requestRound("feeding");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_EQUAL_UINT32(2, r.net.postedFeedings.size());
     TEST_ASSERT_TRUE(r.net.postedFeedings[0].find(ids[19]) != std::string::npos);
     TEST_ASSERT_TRUE(r.net.postedFeedings[0].find(ids[20]) == std::string::npos);
@@ -467,9 +479,9 @@ void test_sync_sends_the_queue_in_batches_of_twenty() {
 void test_sync_unauthorized_on_feedings_clears_token_and_keeps_queue() {
     Rig r;
     r.queueOne("cat-a");
-    r.net.feedingResults.push_back(test::StubNetwork::status(401));
+    r.net.feedingResults.push_back(test::StubNetwork::status(401, kRevoked));
     r.sync.requestRound("feeding");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.sync.last().unauthorized);
     TEST_ASSERT_EQUAL_STRING("feedings", r.sync.last().stoppedBy.c_str());
     TEST_ASSERT_FALSE(r.pair.isPaired());
@@ -489,7 +501,7 @@ void test_sync_first_requested_reason_wins_until_the_round_runs() {
     r.sync.requestRound("wake");
     TEST_ASSERT_TRUE(r.sync.roundRequested());
     r.pushHappyRound(sample());
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_FALSE(r.sync.roundRequested());
     TEST_ASSERT_EQUAL_STRING("feeding", r.sync.last().reason.c_str());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync start reason=feeding"));
@@ -498,14 +510,14 @@ void test_sync_first_requested_reason_wins_until_the_round_runs() {
     r.net.stateResults.push_back(test::StubNetwork::status(304));
     r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1700000001000}"));
     r.sync.requestRound("wake");
-    r.sync.tick(20);
+    runRound(r, 20);
     TEST_ASSERT_EQUAL_STRING("wake", r.sync.last().reason.c_str());
     // A null reason is tolerated as an empty one, not a crash.
     r.net.logResults.push_back(test::StubNetwork::status(202));
     r.net.stateResults.push_back(test::StubNetwork::status(304));
     r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1700000002000}"));
     r.sync.requestRound(nullptr);
-    r.sync.tick(30);
+    runRound(r, 30);
     TEST_ASSERT_EQUAL_STRING("", r.sync.last().reason.c_str());
     TEST_ASSERT_TRUE(r.sync.lastRoundOk());
 }
@@ -517,7 +529,7 @@ void test_sync_heartbeat_carries_the_info_app_sets() {
     r.sync.setHeartbeatInfo(info);
     r.pushHappyRound(sample());
     r.sync.requestRound("timer");
-    r.sync.tick(65'400);
+    runRound(r, 65'400);
     TEST_ASSERT_EQUAL_UINT32(1, r.net.postedHeartbeats.size());
     JsonDocument d;
     TEST_ASSERT_FALSE(deserializeJson(d, r.net.postedHeartbeats[0]));
@@ -530,7 +542,7 @@ void test_sync_heartbeat_carries_the_info_app_sets() {
     Rig bare;
     bare.pushHappyRound(sample());
     bare.sync.requestRound("boot");
-    bare.sync.tick(999);
+    runRound(bare, 999);
     TEST_ASSERT_FALSE(deserializeJson(d, bare.net.postedHeartbeats[0]));
     TEST_ASSERT_EQUAL_STRING("0.0.0", d["fwVersion"]);
     TEST_ASSERT_EQUAL_STRING("unknown", d["resetReason"]);
@@ -544,9 +556,9 @@ void test_sync_unauthorized_on_heartbeat_unpairs_and_drops_the_fresh_state() {
     Rig r;
     r.net.logResults.push_back(test::StubNetwork::status(202));
     r.net.stateResults.push_back(test::StubNetwork::ok(sample(), "W/\"abc\""));
-    r.net.heartbeatResults.push_back(test::StubNetwork::status(401));
+    r.net.heartbeatResults.push_back(test::StubNetwork::status(401, kRevoked));
     r.sync.requestRound("boot");
-    r.sync.tick(10);
+    runRound(r, 10);
     TEST_ASSERT_TRUE(r.sync.last().stateChanged);   // the state step did succeed first
     TEST_ASSERT_TRUE(r.sync.last().unauthorized);
     TEST_ASSERT_FALSE(r.sync.last().heartbeatOk);
@@ -559,4 +571,158 @@ void test_sync_unauthorized_on_heartbeat_unpairs_and_drops_the_fresh_state() {
     TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("etag"));
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync stopped at=heartbeat status=401"));
     TEST_ASSERT_FALSE(r.serialHas("[feedme2] sync ok"));
+}
+
+// Review of the Phase 2b branch: the round ran feedings → logs → state → heartbeat inside one
+// tick (3–5 s of HTTPS on the S3, up to 32 s at the 8 s timeouts) and main.cpp renders only after
+// tick() returns, so the knob and the Fed screen froze for the whole round. One request per tick.
+void test_sync_one_tick_performs_at_most_one_network_call() {
+    Rig r;
+    std::vector<std::string> ids;
+    for (int i = 0; i < 25; ++i) ids.push_back(r.queueOne("cat-a"));
+    auto accepted = [&](size_t from, size_t to) {
+        std::string body = "{\"accepted\":[";
+        for (size_t i = from; i < to; ++i) body += (i == from ? "\"" : ",\"") + ids[i] + "\"";
+        return body + "],\"clamped\":[],\"now\":1700000000000}";
+    };
+    r.net.feedingResults.push_back(test::StubNetwork::ok(accepted(0, 20)));
+    r.net.feedingResults.push_back(test::StubNetwork::ok(accepted(20, 25)));
+    r.pushHappyRound(sample());
+    r.sync.requestRound("feeding");
+    // Two feedings batches, one logs batch, the state, the heartbeat: five ticks, one call each.
+    for (uint32_t t = 1; t <= 5; ++t) {
+        const size_t before = calls(r);
+        r.sync.tick(10 * t);
+        TEST_ASSERT_EQUAL_UINT32(before + 1, calls(r));
+        if (t < 5) {
+            TEST_ASSERT_TRUE(r.sync.roundInProgress());
+            // The round's outcome is only known (and printed) once it completes.
+            TEST_ASSERT_FALSE(r.sync.last().ran);
+            TEST_ASSERT_FALSE(r.serialHas("[feedme2] sync ok"));
+        }
+    }
+    TEST_ASSERT_FALSE(r.sync.roundInProgress());
+    TEST_ASSERT_EQUAL_UINT32(2, r.net.postedFeedings.size());
+    TEST_ASSERT_EQUAL_UINT32(1, r.net.postedLogs.size());
+    TEST_ASSERT_EQUAL_UINT32(1, r.net.ifNoneMatch.size());
+    TEST_ASSERT_EQUAL_UINT32(1, r.net.postedHeartbeats.size());
+    TEST_ASSERT_EQUAL_INT(25, r.sync.last().feedingsAccepted);
+    TEST_ASSERT_TRUE(r.sync.lastRoundOk());
+    TEST_ASSERT_EQUAL_UINT32(50, r.sync.lastOkAtMs());   // the tick that completed it
+    TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync ok accepted=25 state=changed"));
+    // Done: further ticks make no calls until the next request.
+    r.sync.tick(60);
+    TEST_ASSERT_EQUAL_UINT32(5, calls(r));
+}
+
+// A feeding requested while a round is running is not lost: it starts the next round as soon as
+// this one completes, under its own reason.
+void test_sync_request_during_a_round_runs_the_next_round() {
+    Rig r;
+    r.pushHappyRound(sample());
+    r.sync.requestRound("boot");
+    r.sync.tick(10);   // logs
+    TEST_ASSERT_TRUE(r.sync.roundInProgress());
+    TEST_ASSERT_FALSE(r.sync.roundRequested());
+    const std::string id = r.queueOne("cat-a");
+    r.sync.requestRound("feeding");
+    TEST_ASSERT_TRUE(r.sync.roundRequested());
+    runRound(r, 20);
+    TEST_ASSERT_EQUAL_STRING("boot", r.sync.last().reason.c_str());
+    TEST_ASSERT_TRUE(r.net.postedFeedings.empty());
+    r.net.feedingResults.push_back(test::StubNetwork::ok("{\"accepted\":[\"" + id + "\"],\"clamped\":[],\"now\":1700000000000}"));
+    r.net.logResults.push_back(test::StubNetwork::status(202));
+    r.net.stateResults.push_back(test::StubNetwork::status(304));
+    r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1700000001000}"));
+    runRound(r, 30);
+    TEST_ASSERT_EQUAL_STRING("feeding", r.sync.last().reason.c_str());
+    TEST_ASSERT_TRUE(r.feedings.queue().empty());
+}
+
+// The token travels over setInsecure() TLS: any peer on the path can answer 401. Only the API's
+// own {"error":"unauthorized"} (requireDevice) unpairs and wipes the house; anything else is a
+// transient failure that keeps the token, the state and the queue and retries in 60 s.
+void test_sync_401_without_the_api_body_is_transient() {
+    Rig r;
+    r.store.kv["state"] = sample();
+    r.store.kv["etag"] = "W/\"x\"";
+    r.sync.loadCachedState();
+    r.queueOne("cat-a");
+    r.net.feedingResults.push_back(test::StubNetwork::status(401, "<html>login</html>"));
+    r.sync.requestRound("feeding");
+    runRound(r, 10);
+    TEST_ASSERT_EQUAL_STRING("feedings", r.sync.last().stoppedBy.c_str());
+    TEST_ASSERT_FALSE(r.sync.last().unauthorized);
+    TEST_ASSERT_TRUE(r.pair.isPaired());
+    TEST_ASSERT_EQUAL_UINT32(1, r.feedings.queue().size());
+    TEST_ASSERT_TRUE(r.sync.hasState());
+    TEST_ASSERT_EQUAL_STRING("W/\"x\"", r.store.kv["etag"].c_str());
+    TEST_ASSERT_FALSE(r.serialHas("device unpaired by server"));
+    TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync stopped at=feedings status=401"));
+    // Another error code is not the API's revocation either; the 60 s retry still applies.
+    r.net.feedingResults.push_back(test::StubNetwork::status(401, "{\"error\":\"forbidden\"}"));
+    runRound(r, 10 + application::SyncService::kRetryAfterMs);
+    TEST_ASSERT_EQUAL_UINT32(2, r.net.postedFeedings.size());
+    TEST_ASSERT_TRUE(r.pair.isPaired());
+    TEST_ASSERT_EQUAL_UINT32(1, r.feedings.queue().size());
+    // Nor is an empty body; on the heartbeat that is a warning, never fatal.
+    r.feedings.markAccepted({r.feedings.queue().items()[0].id});
+    r.net.logResults.push_back(test::StubNetwork::status(202));
+    r.net.stateResults.push_back(test::StubNetwork::status(304));
+    r.net.heartbeatResults.push_back(test::StubNetwork::status(401));
+    r.sync.requestRound("wake");
+    runRound(r, 20 + application::SyncService::kRetryAfterMs);
+    TEST_ASSERT_TRUE(r.pair.isPaired());
+    TEST_ASSERT_TRUE(r.sync.hasState());
+    TEST_ASSERT_TRUE(r.sync.lastRoundOk());
+    TEST_ASSERT_TRUE(r.serialHas("warn heartbeat failed"));
+    // The API's own body still unpairs.
+    r.net.logResults.push_back(test::StubNetwork::status(401, kRevoked));
+    r.sync.requestRound("wake");
+    runRound(r, 30 + application::SyncService::kRetryAfterMs);
+    TEST_ASSERT_TRUE(r.sync.last().unauthorized);
+    TEST_ASSERT_FALSE(r.pair.isPaired());
+    TEST_ASSERT_FALSE(r.sync.hasState());
+}
+
+// The menu unpair goes through the same wipe as a server 401: the old house's state and ETag go,
+// so the next pairing's first GET is unconditional and the new house lands as "state=changed".
+void test_sync_forget_state_erases_the_cache_and_the_etag() {
+    Rig r;
+    r.store.kv["state"] = sample();
+    r.store.kv["etag"] = "W/\"x\"";
+    r.sync.loadCachedState();
+    TEST_ASSERT_EQUAL_UINT32(1, r.sync.generation());
+    r.sync.forgetState();
+    TEST_ASSERT_FALSE(r.sync.hasState());
+    TEST_ASSERT_EQUAL_UINT32(0, r.sync.state().cats.size());
+    TEST_ASSERT_EQUAL_UINT32(2, r.sync.generation());
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("state"));
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("etag"));
+    r.pushHappyRound(sample());
+    r.sync.requestRound("paired");
+    runRound(r, 10);
+    TEST_ASSERT_EQUAL_STRING("", r.net.ifNoneMatch[0].c_str());
+    TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync ok accepted=0 state=changed"));
+}
+
+// A menu unpair can land between two steps of a round: the rest of the round must not go out
+// with no token (it would 401 and print a server unpair that never happened).
+void test_sync_round_in_progress_is_abandoned_when_the_device_unpairs() {
+    Rig r;
+    r.pushHappyRound(sample());
+    r.sync.requestRound("boot");
+    r.sync.tick(10);   // logs
+    TEST_ASSERT_TRUE(r.sync.roundInProgress());
+    r.pair.clearToken();
+    r.sync.forgetState();
+    r.sync.tick(20);
+    TEST_ASSERT_FALSE(r.sync.roundInProgress());
+    TEST_ASSERT_TRUE(r.net.ifNoneMatch.empty());
+    TEST_ASSERT_TRUE(r.net.postedHeartbeats.empty());
+    TEST_ASSERT_FALSE(r.serialHas("[feedme2] sync ok"));
+    TEST_ASSERT_FALSE(r.serialHas("device unpaired by server"));
+    // Unpaired, no timer round is requested either: the pairing asks for its own.
+    r.sync.tick(20 + application::SyncService::kRetryAfterMs);
+    TEST_ASSERT_FALSE(r.sync.roundRequested());
 }

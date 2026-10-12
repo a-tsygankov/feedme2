@@ -1,8 +1,8 @@
 name: 'unpair from the system menu returns to pair and pairs again'
 version: 1
 author: 'feedme2'
-# Starts like boot. A menu unpair clears the token but keeps the cached house, so after the
-# re-pair Idle already shows Mochi and the state round answers 304: only "accepted=0" is asserted.
+# Starts like boot. A menu unpair clears the token and the cached house with its ETag (the same
+# wipe as a server 401), so the re-pair's first GET is unconditional and the state lands as changed.
 steps:
   - wait-serial: '[feedme2] boot ok'
   - wait-serial: '[feedme2] screen=pair'
@@ -23,4 +23,4 @@ steps:
   - wait-serial: '[feedme2] pair start code=424242'
   - wait-serial: '[feedme2] paired house='
   - wait-serial: '[feedme2] screen=idle'
-  - wait-serial: '[feedme2] sync ok accepted=0'
+  - wait-serial: '[feedme2] sync ok accepted=0 state=changed'

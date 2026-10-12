@@ -21,7 +21,7 @@ bool isBack(InputEvent ev) { return ev == InputEvent::DoubleTap || ev == InputEv
 }  // namespace
 
 App::App(AppDeps d)
-    : clock_(d.clock), input_(d.input), fwVersion_(d.fwVersion ? d.fwVersion : "0.0.0"),
+    : clock_(d.clock), input_(d.input), network_(d.network), fwVersion_(d.fwVersion ? d.fwVersion : "0.0.0"),
       log_(d.serial, d.files, d.clock, model_),
       feedings_(d.files, d.random, model_, log_),
       pair_(d.network, d.storage, d.clock, d.random, log_, d.deviceId, d.hwModel, fwVersion_),
@@ -46,7 +46,15 @@ void App::begin() {
     // SyncService until it is, and pairing retries on its own timers.
     if (paired) sync_.requestRound("boot");
     else pair_.start();
+    noteRoundWait(nowMs_);
     afterTick();
+}
+
+void App::noteRoundWait(uint32_t nowMs) {
+    // A new request (feeding, wake, pairing, the sync timer) opens a join window for Wi-Fi.
+    const bool requested = sync_.roundRequested();
+    if (requested && !roundWasRequested_) roundWaitSinceMs_ = nowMs;
+    roundWasRequested_ = requested;
 }
 
 void App::tick(uint32_t nowMs) {
@@ -54,7 +62,19 @@ void App::tick(uint32_t nowMs) {
     model_.setMonotonic(nowMs);
     const bool held = input_.isHeld();
     power_.setHeld(held);
-    power_.holdAwake(sync_.roundRequested() || !feedings_.queue().empty());
+    // Review of the Phase 2b branch: holding awake for any request or queued feeding kept a paired
+    // device with no reachable AP at Dim forever (SyncService parks the request while offline).
+    // Only a running round, or one that can start (online, or Wi-Fi still inside its join window),
+    // holds it; the timer wake brings the device back to drain the queue later.
+    const bool roundCanStart = sync_.roundRequested() && pair_.isPaired() &&
+                               (network_.isOnline() || nowMs - roundWaitSinceMs_ < kJoinGraceMs);
+    power_.holdAwake(sync_.roundInProgress() || roundCanStart);
+    // Fed's 2 s start on the first tick after it was entered, i.e. after main.cpp rendered it once:
+    // stamped at commit, a slow tick (a request timing out) popped it after a single frame.
+    if (router_.current() == ScreenId::Fed && !fedArmed_) {
+        fedArmed_ = true;
+        fedSinceMs_ = nowMs;
+    }
     power_.tick(nowMs);
     arc_.update(nowMs, held);
 
@@ -67,9 +87,13 @@ void App::tick(uint32_t nowMs) {
         if (power_.consumeWakeEvent()) sync_.requestRound("wake");
         else dispatch(ev, nowMs);
     }
-    if (power_.timerWakeDue(nowMs)) sync_.requestRound("timer");
+    if (power_.timerWakeDue(nowMs)) {
+        sync_.requestRound("timer");
+        // Every timer wake gets its own join window, even with an older request still parked.
+        roundWaitSinceMs_ = nowMs;
+    }
 
-    if (router_.current() == ScreenId::Fed && nowMs - fedSinceMs_ >= kFedMs) {
+    if (router_.current() == ScreenId::Fed && fedArmed_ && nowMs - fedSinceMs_ >= kFedMs) {
         flow_.finishFed();
         router_.pop();
     }
@@ -81,11 +105,12 @@ void App::tick(uint32_t nowMs) {
         }
     }
     // The screen line goes out before the round that the input (or the pairing) just requested:
-    // with the network up the round runs synchronously inside sync_.tick(), and wokwi-cli's
-    // wait-serial streams lines without rescanning, so "sync ok" printed ahead of "screen=fed"
-    // (or "screen=idle" after pairing) hung the feed and boot scenarios.
+    // the round's first request runs inside sync_.tick(), and wokwi-cli's wait-serial streams
+    // lines without rescanning, so "sync start" printed ahead of "screen=fed" (or "screen=idle"
+    // after pairing) hung the feed and boot scenarios.
     flushScreenChange();
     sync_.tick(nowMs);
+    noteRoundWait(nowMs);
     // A 401 on any device call cleared the token (Review Focus 3); the unpaired device must show
     // the Pair screen and start a new pairing, wherever the knob was.
     if (!pair_.isPaired() && router_.current() != ScreenId::Pair) goToPair();
@@ -101,7 +126,9 @@ void App::flushScreenChange() {
 }
 
 void App::afterTick() {
-    if (sync_.generation() != seenGeneration_) {
+    // A state fetched mid-round is applied when the round completes, one request later: the boot
+    // and pair scenarios wait for "sync ok" before "idle cat=Mochi", and wait-serial never rescans.
+    if (sync_.generation() != seenGeneration_ && !sync_.roundInProgress()) {
         applyState();
         if (router_.current() == ScreenId::Idle && lastScreen_ == ScreenId::Idle) printIdle();
     }
@@ -148,7 +175,7 @@ void App::dispatch(InputEvent ev, uint32_t nowMs) {
             onIdle(ev);
             return;
         case ScreenId::Amount:
-            onAmount(ev, nowMs);
+            onAmount(ev);
             return;
         case ScreenId::Fed:
             if (ev == InputEvent::Press || isBack(ev)) { flow_.finishFed(); router_.pop(); }
@@ -182,6 +209,9 @@ void App::dispatch(InputEvent ev, uint32_t nowMs) {
         case ScreenId::UnpairConfirm:
             if (ev == InputEvent::LongPress) {
                 pair_.clearToken();
+                // The old house goes with the pairing, as on a server 401: kept, it rendered until
+                // the next pairing's first round and its ETag made that round a 304.
+                sync_.forgetState();
                 log_.event("unpaired", "by=menu");
                 goToPair();
             } else if (ev == InputEvent::DoubleTap) {
@@ -218,7 +248,7 @@ void App::onIdle(InputEvent ev) {
     }
 }
 
-void App::onAmount(InputEvent ev, uint32_t nowMs) {
+void App::onAmount(InputEvent ev) {
     const int delta = rotationOf(ev);
     if (delta != 0) {
         flow_.rotate(delta);
@@ -239,7 +269,7 @@ void App::onAmount(InputEvent ev, uint32_t nowMs) {
         log_.event("fed", kv);
         router_.replaceRoot(ScreenId::Idle);
         router_.push(ScreenId::Fed);
-        fedSinceMs_ = nowMs;
+        fedArmed_ = false;   // armed on the next tick, once Fed is on the glass
         sync_.requestRound("feeding");
         return;
     }
@@ -274,7 +304,7 @@ void App::openMenuItem(uint32_t nowMs) {
         case 3:
             // "Sleep now": the PowerManager has no direct entry into LightSleep, so the last input is
             // backdated past the sleep threshold and its next tick walks Awake → Dim → LightSleep
-            // (unless a round or a queued feeding holds it awake). The wake lands on Idle.
+            // (unless a round running or about to start holds it awake). The wake lands on Idle.
             router_.replaceRoot(ScreenId::Idle);
             power_.noteInput(nowMs - PowerManager::kSleepAfterMs);
             return;
@@ -369,7 +399,7 @@ uint64_t App::fingerprint() const {
     mix(static_cast<uint64_t>(flow_.phase()));
     mix(static_cast<uint64_t>(static_cast<int64_t>(flow_.amountMg())));
     mix(static_cast<uint64_t>(flow_.scale()));
-    mix(sync_.generation());
+    mix(seenGeneration_);   // the state the screens render, not one still mid-round
     mix(static_cast<uint64_t>(power_.tier()));
     mix(static_cast<uint64_t>(menuIndex_));
     mix(static_cast<uint64_t>(historyOffset_));

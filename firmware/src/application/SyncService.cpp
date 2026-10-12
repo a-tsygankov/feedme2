@@ -76,7 +76,30 @@ void SyncService::requestRound(const char* reason) {
     requested_ = true;
 }
 
+const char* SyncService::stepName(Step s) {
+    switch (s) {
+        case Step::Feedings: return "feedings";
+        case Step::Logs: return "logs";
+        case Step::State: return "state";
+        case Step::Heartbeat: return "heartbeat";
+        case Step::Idle: break;
+    }
+    return "idle";
+}
+
 void SyncService::tick(uint32_t nowMs) {
+    if (step_ != Step::Idle) {
+        if (!pair_.isPaired()) {
+            // The menu unpaired the device between two steps: the rest would go out with no token,
+            // 401, and read as a server revocation. The round is dropped; the pairing asks for its own.
+            log_.info("sync abandoned", ("{\"at\":\"" + std::string(stepName(step_)) + "\"}").c_str());
+            step_ = Step::Idle;
+            cur_ = RoundResult{};
+            return;
+        }
+        advance(nowMs);
+        return;
+    }
     // 0 = no interval known (no state yet): only a stopped round re-arms the timer then.
     uint32_t due = hasState_ && state_.settings.syncIntervalSec > 0 ? static_cast<uint32_t>(state_.settings.syncIntervalSec) * 1000u : 0;
     if (last_.ran && !lastOk_ && !last_.unauthorized) {
@@ -85,49 +108,106 @@ void SyncService::tick(uint32_t nowMs) {
         // device is unpaired and tick() would only park the request until it pairs again.
         due = due > 0 ? std::min(due, kRetryAfterMs) : kRetryAfterMs;
     }
-    if (due > 0 && nowMs - lastRoundAtMs_ >= due) requestRound("timer");
+    // Unpaired, a timer request could only park, and it would then give its name to the round
+    // the pairing requests ("paired").
+    if (due > 0 && pair_.isPaired() && nowMs - lastRoundAtMs_ >= due) requestRound("timer");
     if (!requested_ || !net_.isOnline() || !pair_.isPaired()) return;
     requested_ = false;
-    runRound(nowMs);
+    startRound(nowMs);
+    advance(nowMs);
 }
 
-void SyncService::runRound(uint32_t nowMs) {
+void SyncService::startRound(uint32_t nowMs) {
     lastRoundAtMs_ = nowMs;
-    RoundResult r;
-    r.ran = true;
-    r.reason = reason_;
+    cur_ = RoundResult{};
+    cur_.ran = true;
+    cur_.reason = reason_;
     log_.event("sync start", ("reason=" + reason_).c_str());
-    if (syncFeedings(r) && syncLogs(r) && syncState(r)) syncHeartbeat(r, nowMs);
-    lastOk_ = r.stoppedBy.empty();
+    // Every feedings outcome removes at least one sent id (a 404 may drop a single cat's feedings
+    // and re-send the rest), so the queue length bounds the POSTs; the bound only keeps a future
+    // mistake there from turning into an endless round. A feeding committed mid-round waits for
+    // the next round, which its commit requested.
+    feedingPosts_ = feedings_.queue().size();
+    step_ = Step::Feedings;
+}
+
+void SyncService::enterLogs() {
+    step_ = Step::Logs;
+    // Bounded on entry: a warn logged during the drain adds a pending line, and an unbounded
+    // drain of a server that 400s everything would never end.
+    logBatches_ = (log_.pending() + kLogBatch - 1) / kLogBatch;
+}
+
+void SyncService::advance(uint32_t nowMs) {
+    // A step with nothing (left) to send hands over within the same tick; a request ends the tick.
+    if (step_ == Step::Feedings && (feedingPosts_ == 0 || feedings_.queue().empty())) enterLogs();
+    if (step_ == Step::Logs && (logBatches_ == 0 || log_.pending() == 0)) step_ = Step::State;
+    bool going = true;
+    switch (step_) {
+        case Step::Feedings: going = stepFeedings(); break;
+        case Step::Logs: going = stepLogs(); break;
+        case Step::State: going = stepState(); break;
+        case Step::Heartbeat: stepHeartbeat(nowMs); going = false; break;
+        case Step::Idle: return;
+    }
+    if (!going) finishRound(nowMs);
+}
+
+void SyncService::finishRound(uint32_t nowMs) {
+    step_ = Step::Idle;
+    lastOk_ = cur_.stoppedBy.empty();
     if (lastOk_) {
         lastOkAtMs_ = nowMs;
-        log_.event("sync ok", ("accepted=" + std::to_string(r.feedingsAccepted) + " state=" + (r.stateChanged ? "changed" : "same")).c_str());
+        log_.event("sync ok", ("accepted=" + std::to_string(cur_.feedingsAccepted) + " state=" + (cur_.stateChanged ? "changed" : "same")).c_str());
     }
-    last_ = std::move(r);
+    last_ = std::move(cur_);
+    cur_ = RoundResult{};
 }
 
-void SyncService::stop(RoundResult& r, const char* step, const ports::NetResult& res) {
-    r.stoppedBy = step;
+void SyncService::stop(const char* step, const ports::NetResult& res) {
+    cur_.stoppedBy = step;
     log_.event("sync stopped", ("at=" + std::string(step) + " status=" + std::to_string(res.status)).c_str());
 }
 
-void SyncService::unauthorized(RoundResult& r, const char* step) {
-    // Tokens are per pairing: a 401 means this one was revoked (forget or re-pair), so retrying
-    // can only 401 again. Clear it and let App route to Pair (Review Focus 3).
-    pair_.clearToken();
+bool SyncService::revoked(const ports::NetResult& res) {
+    if (res.kind != Kind::Unauthorized) return false;
+    JsonDocument doc;
+    if (deserializeJson(doc, res.body) || !doc.is<JsonObject>()) return false;
+    return std::string(doc["error"] | "") == "unauthorized";
+}
+
+void SyncService::refused(const char* step, const ports::NetResult& res) {
+    if (revoked(res)) {
+        unauthorized(step);
+        return;
+    }
+    // The token travels over setInsecure() TLS, so any peer on the path (a hotel portal, a proxy)
+    // can answer 401. Unpairing on that would wipe the house for a stranger: retry instead.
+    log_.warn("401 not from the api", statusJson(res.status, "at", step).c_str());
+    stop(step, res);
+}
+
+void SyncService::forgetState() {
     // The cached state belongs to the old pairing: after a re-pair (to another house, maybe) it
     // must not render from RAM nor from NVS on the next boot, and the next GET must be unconditional.
     storage_.erase(kStateKey);
     storage_.erase(kEtagKey);
+    etag_.clear();
     if (hasState_) {
         state_ = domain::DeviceState{};
         hasState_ = false;
-        etag_.clear();
         ++generation_;
     }
-    r.unauthorized = true;
+}
+
+void SyncService::unauthorized(const char* step) {
+    // Tokens are per pairing: the API's 401 means this one was revoked (forget or re-pair), so
+    // retrying can only 401 again. Clear it and let App route to Pair (Review Focus 3).
+    pair_.clearToken();
+    forgetState();
+    cur_.unauthorized = true;
     log_.warn("device unpaired by server", statusJson(401, "at", step).c_str());
-    r.stoppedBy = step;
+    cur_.stoppedBy = step;
     log_.event("sync stopped", ("at=" + std::string(step) + " status=401").c_str());
 }
 
@@ -135,105 +215,99 @@ void SyncService::syncClock(int64_t serverNowMs) {
     if (serverNowMs > 0) model_.syncFromServer(serverNowMs, clock_.monotonicMs());
 }
 
-bool SyncService::syncFeedings(RoundResult& r) {
-    // Every outcome below removes at least one sent id (a 404 may drop a single cat's feedings and
-    // re-send the rest), so the queue length bounds the POSTs; the bound only keeps a future
-    // mistake there from turning into an endless loop.
-    size_t budget = feedings_.queue().size();
-    while (budget-- > 0 && !feedings_.queue().empty()) {
-        const auto batch = feedings_.headBatch(kFeedingBatch);
-        std::vector<std::string> sentIds;
-        for (const auto& d : batch) sentIds.push_back(d.id);
-        r.feedingsSent += static_cast<int>(batch.size());
-        const ports::NetResult res = net_.postFeedings(encodeDraftsArray(batch));
-        switch (res.kind) {
-            case Kind::Ok: {
-                int64_t now = 0;
-                std::vector<std::string> accepted;
-                if (!decodeFeedingsResponse(res.body, accepted, now)) {
-                    // Not our server's answer (a portal, a truncated body): keep the queue and try later.
-                    log_.warn("feedings response unreadable", statusJson(res.status).c_str());
-                    stop(r, "feedings", res);
-                    return false;
-                }
-                // A 201 settles every id sent: one missing from `accepted` is a duplicate the server
-                // already holds (a retry after a lost response; ON CONFLICT DO NOTHING), never a rejection —
-                // foreign ids are a 409 and unknown cats a 404 before anything is written.
-                if (accepted.size() < sentIds.size())
-                    log_.warn("feedings already on server", ("{\"n\":" + std::to_string(sentIds.size() - accepted.size()) + "}").c_str());
-                feedings_.markAccepted(sentIds);
-                r.feedingsAccepted += static_cast<int>(sentIds.size());
-                syncClock(now);
-                break;
-            }
-            case Kind::Unauthorized:
-                unauthorized(r, "feedings");
+bool SyncService::stepFeedings() {
+    --feedingPosts_;
+    const auto batch = feedings_.headBatch(kFeedingBatch);
+    std::vector<std::string> sentIds;
+    for (const auto& d : batch) sentIds.push_back(d.id);
+    cur_.feedingsSent += static_cast<int>(batch.size());
+    const ports::NetResult res = net_.postFeedings(encodeDraftsArray(batch));
+    switch (res.kind) {
+        case Kind::Ok: {
+            int64_t now = 0;
+            std::vector<std::string> accepted;
+            if (!decodeFeedingsResponse(res.body, accepted, now)) {
+                // Not our server's answer (a portal, a truncated body): keep the queue and try later.
+                log_.warn("feedings response unreadable", statusJson(res.status).c_str());
+                stop("feedings", res);
                 return false;
-            case Kind::Transient:
-            case Kind::NotModified:
-                stop(r, "feedings", res);
-                return false;
-            case Kind::Permanent: {
-                // Retrying the same body cannot help, so something must leave the queue or the device
-                // would post this batch every round forever.
-                std::vector<std::string> listed;
-                const std::string code = rejection(res.body, res.status == 404 ? "catIds" : "ids", listed);
-                std::vector<std::string> drop;
-                if (code == "cat_not_found") {
-                    // The cat was deleted on the web; its feedings have nowhere to go. The rest stay.
-                    for (const auto& d : batch)
-                        if (std::find(listed.begin(), listed.end(), d.catId) != listed.end()) drop.push_back(d.id);
-                    if (!drop.empty()) {
-                        log_.warn("feedings dropped: cat not found", ("{\"n\":" + std::to_string(drop.size()) + "}").c_str());
-                    }
-                } else if (code == "id_conflict") {
-                    // The id exists under another house; the server will never take it, so it is "done".
-                    for (const auto& id : sentIds)
-                        if (std::find(listed.begin(), listed.end(), id) != listed.end()) drop.push_back(id);
-                    if (!drop.empty()) {
-                        log_.warn("feedings dropped: id conflict", ("{\"n\":" + std::to_string(drop.size()) + "}").c_str());
-                        r.feedingsAccepted += static_cast<int>(drop.size());
-                    }
-                }
-                if (drop.empty()) {
-                    // 400 (or a rejection naming nothing in the batch): the whole batch is poisoned.
-                    drop = sentIds;
-                    log_.error("feedings rejected", statusJson(res.status, "error", code).c_str());
-                }
-                feedings_.markAccepted(drop);
-                break;
             }
+            // A 201 settles every id sent: one missing from `accepted` is a duplicate the server
+            // already holds (a retry after a lost response; ON CONFLICT DO NOTHING), never a rejection —
+            // foreign ids are a 409 and unknown cats a 404 before anything is written.
+            if (accepted.size() < sentIds.size())
+                log_.warn("feedings already on server", ("{\"n\":" + std::to_string(sentIds.size() - accepted.size()) + "}").c_str());
+            feedings_.markAccepted(sentIds);
+            cur_.feedingsAccepted += static_cast<int>(sentIds.size());
+            syncClock(now);
+            break;
+        }
+        case Kind::Unauthorized:
+            refused("feedings", res);
+            return false;
+        case Kind::Transient:
+        case Kind::NotModified:
+            stop("feedings", res);
+            return false;
+        case Kind::Permanent: {
+            // Retrying the same body cannot help, so something must leave the queue or the device
+            // would post this batch every round forever.
+            std::vector<std::string> listed;
+            const std::string code = rejection(res.body, res.status == 404 ? "catIds" : "ids", listed);
+            std::vector<std::string> drop;
+            if (code == "cat_not_found") {
+                // The cat was deleted on the web; its feedings have nowhere to go. The rest stay.
+                for (const auto& d : batch)
+                    if (std::find(listed.begin(), listed.end(), d.catId) != listed.end()) drop.push_back(d.id);
+                if (!drop.empty()) {
+                    log_.warn("feedings dropped: cat not found", ("{\"n\":" + std::to_string(drop.size()) + "}").c_str());
+                }
+            } else if (code == "id_conflict") {
+                // The id exists under another house; the server will never take it, so it is "done".
+                for (const auto& id : sentIds)
+                    if (std::find(listed.begin(), listed.end(), id) != listed.end()) drop.push_back(id);
+                if (!drop.empty()) {
+                    log_.warn("feedings dropped: id conflict", ("{\"n\":" + std::to_string(drop.size()) + "}").c_str());
+                    cur_.feedingsAccepted += static_cast<int>(drop.size());
+                }
+            }
+            if (drop.empty()) {
+                // 400 (or a rejection naming nothing in the batch): the whole batch is poisoned.
+                drop = sentIds;
+                log_.error("feedings rejected", statusJson(res.status, "error", code).c_str());
+            }
+            feedings_.markAccepted(drop);
+            break;
         }
     }
+    // Further batches go out on the next ticks; the logs step starts on the tick after the last one.
+    if (feedingPosts_ == 0 || feedings_.queue().empty()) enterLogs();
     return true;
 }
 
-bool SyncService::syncLogs(RoundResult& r) {
-    // Bounded up front: a warn logged below adds a pending line, and an unbounded drain of a
-    // server that 400s everything would never end.
-    size_t batches = (log_.pending() + kLogBatch - 1) / kLogBatch;
-    while (batches-- > 0 && log_.pending() > 0) {
-        auto batch = log_.takeBatch(kLogBatch);
-        const ports::NetResult res = net_.postLogs(joinArray(batch));
-        switch (res.kind) {
-            case Kind::Ok:
-                r.logsSent += static_cast<int>(batch.size());
-                break;
-            case Kind::Unauthorized:
-                log_.requeue(std::move(batch));
-                unauthorized(r, "logs");
-                return false;
-            case Kind::Transient:
-            case Kind::NotModified:
-                log_.requeue(std::move(batch));
-                stop(r, "logs", res);
-                return false;
-            case Kind::Permanent:
-                // The server rejected the lines themselves; requeueing would resend the poison every round.
-                log_.warn("logs rejected", ("{\"status\":" + std::to_string(res.status) + ",\"dropped\":" + std::to_string(batch.size()) + "}").c_str());
-                break;
-        }
+bool SyncService::stepLogs() {
+    --logBatches_;
+    auto batch = log_.takeBatch(kLogBatch);
+    const ports::NetResult res = net_.postLogs(joinArray(batch));
+    switch (res.kind) {
+        case Kind::Ok:
+            cur_.logsSent += static_cast<int>(batch.size());
+            break;
+        case Kind::Unauthorized:
+            log_.requeue(std::move(batch));
+            refused("logs", res);
+            return false;
+        case Kind::Transient:
+        case Kind::NotModified:
+            log_.requeue(std::move(batch));
+            stop("logs", res);
+            return false;
+        case Kind::Permanent:
+            // The server rejected the lines themselves; requeueing would resend the poison every round.
+            log_.warn("logs rejected", ("{\"status\":" + std::to_string(res.status) + ",\"dropped\":" + std::to_string(batch.size()) + "}").c_str());
+            break;
     }
+    if (logBatches_ == 0 || log_.pending() == 0) step_ = Step::State;
     return true;
 }
 
@@ -259,42 +333,47 @@ void SyncService::applyState(const std::string& json, const std::string& etag, b
     syncClock(state_.nowMs);
 }
 
-bool SyncService::syncState(RoundResult& r) {
+bool SyncService::stepState() {
     const uint32_t before = generation_;
     const ports::NetResult res = net_.getState(hasState_ ? etag_ : "");
     switch (res.kind) {
         case Kind::Ok:
             applyState(res.body, res.etag, true);
-            r.stateChanged = generation_ != before;
-            return true;
+            cur_.stateChanged = generation_ != before;
+            break;
         case Kind::NotModified:
-            if (hasState_) return true;
+            if (hasState_) break;
             // No If-None-Match went out, so this 304 is a proxy's or a server bug; taking it would
             // leave Idle blank until the next round. Retry instead.
-            stop(r, "state", res);
+            stop("state", res);
             return false;
         case Kind::Unauthorized:
-            unauthorized(r, "state");
+            refused("state", res);
             return false;
         case Kind::Transient:
         case Kind::Permanent:
-            stop(r, "state", res);
+            stop("state", res);
             return false;
     }
+    step_ = Step::Heartbeat;
     return true;
 }
 
-void SyncService::syncHeartbeat(RoundResult& r, uint32_t nowMs) {
+void SyncService::stepHeartbeat(uint32_t nowMs) {
     const std::string body = encodeHeartbeat(heartbeat_.fw.c_str(), nowMs / 1000u, heartbeat_.resetReason.c_str(),
                                              heartbeat_.freeHeap, heartbeat_.batteryPct);
     const ports::NetResult res = net_.postHeartbeat(body);
     if (res.ok()) {
-        r.heartbeatOk = true;
+        cur_.heartbeatOk = true;
         // A 304 state carries no `now`, so after a reboot with cached state this is the first clock sync.
         syncClock(serverNowOf(res.body));
         return;
     }
-    if (res.kind == Kind::Unauthorized) { unauthorized(r, "heartbeat"); return; }
+    if (revoked(res)) {
+        unauthorized("heartbeat");
+        return;
+    }
+    // Never fatal, a stranger's 401 included: the round's data already went out.
     log_.warn("heartbeat failed", statusJson(res.status).c_str());
 }
 

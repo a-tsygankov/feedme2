@@ -53,6 +53,12 @@ struct Rig {
         net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1700003600000}"));
     }
     ScreenId screen() const { return app->router().current(); }
+    // A round is one request per tick: tick at `ms` until the one in progress completes.
+    void settle(uint32_t ms) {
+        tick(ms);
+        for (int guard = 0; app->sync().roundInProgress() && guard < 100; ++guard) tick(ms);
+        TEST_ASSERT_FALSE(app->sync().roundInProgress());
+    }
 };
 }  // namespace
 
@@ -88,7 +94,7 @@ void test_app_boot_unpaired_shows_pair_and_starts_pairing() {
     r.net.online = true;
     r.net.pairCheckResults.push_back(test::StubNetwork::ok("{\"status\":\"confirmed\",\"deviceToken\":\"tok\",\"houseId\":\"h\",\"deviceName\":\"Kitchen\"}"));
     r.pushHappyRound();
-    r.tick(6300);
+    r.settle(6300);
     TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] paired house=h"));
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] screen=idle"));
@@ -141,7 +147,7 @@ void test_app_boot_paired_with_cached_state_renders_idle_and_requests_sync() {
     // The boot round runs once the network is up and prints the sync line the scenarios wait for.
     r.net.online = true;
     r.pushHappyRound();
-    r.tick(40);
+    r.settle(40);
     TEST_ASSERT_EQUAL_STRING("boot", r.app->sync().last().reason.c_str());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync ok accepted=0 state=changed"));
     TEST_ASSERT_TRUE(r.app->clockSynced());
@@ -163,7 +169,7 @@ void test_app_knob_feed_flow_single_cat() {
     r.net.online = true;
     r.pushHappyRound();
     r.app->begin();
-    r.tick(0);   // boot round
+    r.settle(0);   // boot round
     r.pushAndTick(InputEvent::Press, 100);
     TEST_ASSERT_EQUAL(ScreenId::Amount, r.screen());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] screen=amount"));
@@ -176,10 +182,11 @@ void test_app_knob_feed_flow_single_cat() {
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] amount cat=Mochi mg=40000"));
     r.pushAndTick(InputEvent::RotateCW, 300);
     // Press logs it: one draft of 45 g, queued and persisted, Fed on screen, and the feeding round
-    // runs on the same tick because the network is up.
+    // starts on the same tick because the network is up (one request per tick until it completes).
     r.net.feedingResults.push_back(test::StubNetwork::ok("{\"accepted\":[\"00000000-0000-4000-8000-000000000001\"],\"clamped\":[],\"now\":1700003600000}"));
     r.pushHappyRound();
     r.pushAndTick(InputEvent::Press, 400);
+    r.settle(400);
     TEST_ASSERT_EQUAL(ScreenId::Fed, r.screen());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] feeding queued id=00000000-0000-4000-8000-000000000001"));
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] screen=fed"));
@@ -197,7 +204,8 @@ void test_app_knob_feed_flow_single_cat() {
     TEST_ASSERT_EQUAL_INT32(45000, r.app->feedings().recent()[0].amountMg);
     TEST_ASSERT_EQUAL_UINT32(1, r.app->historyEntries().size());
     TEST_ASSERT_EQUAL_STRING("Mochi", r.app->historyEntries()[0].catName.c_str());
-    // Fed stays for 2 s, then Idle re-renders on its own; the router stack is back to one entry.
+    // Fed stays for 2 s from its first rendered tick (400), then Idle re-renders on its own; the
+    // router stack is back to one entry.
     r.tick(2399);
     TEST_ASSERT_EQUAL(ScreenId::Fed, r.screen());
     const size_t idleLines = r.serialCount("[feedme2] idle cat=");
@@ -317,7 +325,7 @@ void test_app_double_tap_history_and_long_press_system_menu() {
 void test_app_unauthorized_during_sync_returns_to_pair() {
     Rig r;
     r.net.logResults.push_back(test::StubNetwork::status(202));
-    r.net.stateResults.push_back(test::StubNetwork::status(401));
+    r.net.stateResults.push_back(test::StubNetwork::status(401, "{\"error\":\"unauthorized\"}"));
     r.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"424242\",\"expiresAt\":600000,\"pollAfterSec\":3}"));
     r.app->begin();
     TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
@@ -327,7 +335,7 @@ void test_app_unauthorized_during_sync_returns_to_pair() {
     TEST_ASSERT_EQUAL(ScreenId::Amount, r.screen());
     const uint32_t gen = r.app->uiGeneration();
     r.net.online = true;
-    r.tick(10);   // boot round → 401
+    r.settle(10);   // boot round: logs, then the state 401
     TEST_ASSERT_TRUE(r.app->sync().last().unauthorized);
     TEST_ASSERT_FALSE(r.app->pair().isPaired());
     TEST_ASSERT_EQUAL(ScreenId::Pair, r.screen());
@@ -344,7 +352,7 @@ void test_app_unauthorized_during_sync_returns_to_pair() {
     // Re-pair (maybe to another house): Idle again, and a "paired" round fetches the new state.
     r.net.pairCheckResults.push_back(test::StubNetwork::ok("{\"status\":\"confirmed\",\"deviceToken\":\"tok2\",\"houseId\":\"h2\",\"deviceName\":\"Kitchen\"}"));
     r.pushHappyRound();
-    r.tick(3200);
+    r.settle(3200);
     TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
     TEST_ASSERT_EQUAL_STRING("paired", r.app->sync().last().reason.c_str());
     TEST_ASSERT_EQUAL_STRING("", r.net.ifNoneMatch.back().c_str());
@@ -377,7 +385,7 @@ void test_app_first_event_after_dim_is_swallowed_and_requests_wake_round() {
     r.net.online = true;
     r.pushHappyRound();
     r.app->begin();
-    r.tick(0);   // boot round
+    r.settle(0);   // boot round
     r.tick(16'000);
     TEST_ASSERT_EQUAL(PowerTier::Dim, r.app->power().tier());
     TEST_ASSERT_EQUAL_UINT32(0, r.app->roster().index());
@@ -391,6 +399,7 @@ void test_app_first_event_after_dim_is_swallowed_and_requests_wake_round() {
     r.input.held = false;
     r.pushHappyRound();
     r.pushAndTick(InputEvent::Press, 16'500);
+    r.settle(16'500);
     TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());   // swallowed: no Amount screen
     TEST_ASSERT_EQUAL_STRING("wake", r.app->sync().last().reason.c_str());
     // The second event is real.
@@ -402,37 +411,32 @@ void test_app_first_event_after_dim_is_swallowed_and_requests_wake_round() {
     const size_t rounds = r.net.postedHeartbeats.size();
     r.pushHappyRound();
     r.pushAndTick(InputEvent::RotateCW, 47'100);
+    r.settle(47'100);
     TEST_ASSERT_EQUAL(PowerTier::Awake, r.app->power().tier());
     TEST_ASSERT_EQUAL_UINT32(1, r.app->roster().index());
     TEST_ASSERT_EQUAL_UINT32(rounds + 1, r.net.postedHeartbeats.size());
     TEST_ASSERT_EQUAL_STRING("wake", r.app->sync().last().reason.c_str());
 }
 
-void test_app_timer_wake_requests_timer_round_and_queue_holds_device_awake() {
+void test_app_timer_wake_requests_a_timer_round_then_naps() {
     Rig r;
     r.net.online = true;
     r.pushHappyRound();
     r.app->begin();
-    r.tick(0);   // boot round; the sample's sync interval (6 h) reaches the power manager
+    r.settle(0);   // boot round; the sample's sync interval (6 h) reaches the power manager
     r.tick(31'000);
     TEST_ASSERT_EQUAL(PowerTier::LightSleep, r.app->power().tier());
     const int naps = r.power.lightSleeps;
     r.pushHappyRound();
-    r.tick(31'000 + 21'600'000);
+    r.settle(31'000 + 21'600'000);
     TEST_ASSERT_EQUAL_STRING("timer", r.app->sync().last().reason.c_str());
     // A timer wake leaves the screen off: the round ran and the device naps again on the next tick.
     TEST_ASSERT_EQUAL(PowerTier::LightSleep, r.app->power().tier());
     TEST_ASSERT_TRUE(r.power.displayAsleep);
     r.tick(31'000 + 21'600'000 + 10);
     TEST_ASSERT_EQUAL_INT(naps + 1, r.power.lightSleeps);   // exactly one new nap, on the tick after the round
-    // A queued feeding (offline) keeps the device from napping until it is sent.
-    Rig q;
-    q.app->begin();
-    q.pushAndTick(InputEvent::Press, 10);
-    q.pushAndTick(InputEvent::Press, 20);
-    q.tick(60'000);
-    TEST_ASSERT_EQUAL(PowerTier::Dim, q.app->power().tier());
-    TEST_ASSERT_EQUAL_INT(0, q.power.lightSleeps);
+    // An offline queued feeding no longer holds the device awake:
+    // test_app_offline_device_with_a_queued_feeding_still_sleeps.
 }
 
 void test_app_long_press_arc_follows_the_held_knob() {
@@ -475,6 +479,12 @@ void test_app_unpair_long_press_clears_token() {
     TEST_ASSERT_FALSE(r.app->pair().isPaired());
     TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("token"));
     TEST_ASSERT_EQUAL_STRING("", r.net.token.c_str());
+    // The old house goes with the token (the wipe a server 401 does): no roster, no cache, no
+    // ETag, so the next pairing's first GET is unconditional.
+    TEST_ASSERT_FALSE(r.app->hasState());
+    TEST_ASSERT_EQUAL_UINT32(0, r.app->roster().count());
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("state"));
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("etag"));
     TEST_ASSERT_EQUAL(ScreenId::Pair, r.screen());
     TEST_ASSERT_TRUE(r.app->router().atRoot());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] screen=pair from=unpair"));
@@ -490,7 +500,7 @@ void test_app_sleep_now_naps_on_the_next_tick() {
     r.net.online = true;
     r.pushHappyRound();
     r.app->begin();
-    r.tick(0);   // boot round done: nothing holds the device awake
+    r.settle(0);   // boot round done: nothing holds the device awake
     r.pushAndTick(InputEvent::LongPress, 10);
     r.pushAndTick(InputEvent::RotateCCW, 20);
     TEST_ASSERT_EQUAL_INT(3, r.app->menuIndex());
@@ -520,14 +530,15 @@ void test_app_hunger_uses_the_snapshot_clock_until_the_server_answers() {
     r.net.logResults.push_back(test::StubNetwork::status(202));
     r.net.stateResults.push_back(test::StubNetwork::status(304));
     r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1700020000000}"));
-    r.tick(40'000);
+    r.settle(40'000);
     TEST_ASSERT_TRUE(r.app->clockSynced());
     TEST_ASSERT_EQUAL_INT64(1700020000000LL, r.app->wallNowMs());
     TEST_ASSERT_EQUAL(domain::HungerLevel::VeryHungry, r.app->hungerOf(mochi).level);
     TEST_ASSERT_EQUAL(domain::HungerLevel::VeryHungry, r.app->selectedLevel());
-    // "All" reports the hungriest cat (Luna was never fed). The screen dimmed 15 s after boot, so
-    // the first turn only wakes it.
-    TEST_ASSERT_EQUAL(PowerTier::Dim, r.app->power().tier());
+    // "All" reports the hungriest cat (Luna was never fed). The screen went dark (dim at 15 s, light
+    // sleep at 30 s: the parked round no longer holds an offline device up), so the first turn
+    // only wakes it.
+    TEST_ASSERT_EQUAL(PowerTier::LightSleep, r.app->power().tier());
     r.pushAndTick(InputEvent::RotateCW, 40'100);
     TEST_ASSERT_EQUAL_UINT32(0, r.app->roster().index());
     r.pushAndTick(InputEvent::RotateCW, 40'200);
@@ -667,4 +678,100 @@ void test_app_wifi_press_requests_the_portal_once() {
     TEST_ASSERT_EQUAL(ScreenId::About, r.screen());
     TEST_ASSERT_FALSE(r.app->portalRequested());
     TEST_ASSERT_EQUAL_UINT32(1, r.serialCount("[feedme2] portal requested"));
+}
+
+// Review of the Phase 2b branch: a sync round is several ticks now (one request each), and the
+// knob is read between them. A turn and a Press that arrive mid-round act at once.
+void test_app_input_between_round_steps_is_dispatched() {
+    Rig r;
+    r.net.online = true;
+    r.pushHappyRound();
+    r.app->begin();
+    r.tick(0);   // boot round: logs
+    TEST_ASSERT_TRUE(r.app->sync().roundInProgress());
+    r.pushAndTick(InputEvent::RotateCW, 10);   // state
+    TEST_ASSERT_TRUE(r.app->sync().roundInProgress());
+    TEST_ASSERT_EQUAL_STRING("Luna", r.app->roster().selected()->name.c_str());
+    r.pushAndTick(InputEvent::RotateCCW, 20);   // heartbeat: the round completes
+    r.pushAndTick(InputEvent::Press, 20);
+    TEST_ASSERT_EQUAL(ScreenId::Amount, r.screen());
+    TEST_ASSERT_FALSE(r.app->sync().roundInProgress());
+    TEST_ASSERT_TRUE(r.serialIndex("idle cat=Luna") < r.serialIndex("sync ok accepted=0"));
+    // A Press on Amount while the feeding's own round runs: the Fed screen is dismissed mid-round.
+    r.net.feedingResults.push_back(test::StubNetwork::ok("{\"accepted\":[\"00000000-0000-4000-8000-000000000001\"],\"clamped\":[],\"now\":1700003600000}"));
+    r.pushHappyRound();
+    r.pushAndTick(InputEvent::Press, 30);   // feedings
+    TEST_ASSERT_EQUAL(ScreenId::Fed, r.screen());
+    TEST_ASSERT_TRUE(r.app->sync().roundInProgress());
+    r.pushAndTick(InputEvent::Press, 40);   // logs
+    TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
+    TEST_ASSERT_TRUE(r.app->sync().roundInProgress());
+    r.settle(50);
+    TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync ok accepted=1 state=changed"));
+}
+
+// Review of the Phase 2b branch: the auto-pop was stamped at commit, before a round that froze the
+// loop for seconds, so the first tick after it popped Fed after a single frame. The 2 s now start
+// on the first tick after Fed was entered, i.e. after main.cpp rendered it once.
+void test_app_fed_stays_two_seconds_after_its_first_rendered_tick() {
+    Rig r;
+    r.app->begin();
+    r.pushAndTick(InputEvent::Press, 100);
+    r.net.online = true;
+    r.net.feedingResults.push_back(test::StubNetwork::ok("{\"accepted\":[\"00000000-0000-4000-8000-000000000001\"],\"clamped\":[],\"now\":1700003600000}"));
+    r.pushHappyRound();
+    r.pushAndTick(InputEvent::Press, 400);   // commit; the feeding round starts
+    TEST_ASSERT_EQUAL(ScreenId::Fed, r.screen());
+    // The round's first request took 5 s: the next tick is the first after a render.
+    r.tick(5400);
+    TEST_ASSERT_EQUAL(ScreenId::Fed, r.screen());
+    r.tick(7399);
+    TEST_ASSERT_EQUAL(ScreenId::Fed, r.screen());
+    r.tick(7400);
+    TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
+}
+
+// Review of the Phase 2b branch: a paired device with no reachable AP sat at Dim forever, held
+// awake by a round it could never run and a queue it could never send. Only a running round (or
+// one that can start: online, or Wi-Fi still inside its join window) holds it; the timer wake
+// drains the queue later.
+void test_app_offline_device_with_a_queued_feeding_still_sleeps() {
+    Rig r;
+    r.app->begin();
+    r.pushAndTick(InputEvent::Press, 10);
+    r.pushAndTick(InputEvent::Press, 20);
+    TEST_ASSERT_EQUAL_UINT32(1, r.app->feedings().queue().size());
+    TEST_ASSERT_TRUE(r.app->sync().roundRequested());
+    r.tick(60'000);
+    TEST_ASSERT_EQUAL(PowerTier::LightSleep, r.app->power().tier());
+    TEST_ASSERT_TRUE(r.power.lightSleeps > 0);
+    TEST_ASSERT_EQUAL_UINT32(1, r.app->feedings().queue().size());
+}
+
+// A timer wake drops the Wi-Fi association (manual light sleep): the device stays up, screen off,
+// for the join window so the round can run, and naps again if Wi-Fi never comes back.
+void test_app_timer_wake_waits_for_wifi_only_within_the_join_window() {
+    Rig r;
+    r.app->begin();
+    r.tick(31'000);
+    TEST_ASSERT_EQUAL(PowerTier::LightSleep, r.app->power().tier());
+    const uint32_t wake = 31'000 + 21'600'000;
+    r.tick(wake);   // timer due: the round is requested, Wi-Fi is not back yet
+    const int naps = r.power.lightSleeps;
+    r.tick(wake + 1000);
+    TEST_ASSERT_EQUAL_INT(naps, r.power.lightSleeps);   // held for the join
+    r.tick(wake + application::App::kJoinGraceMs);
+    TEST_ASSERT_EQUAL_INT(naps + 1, r.power.lightSleeps);   // no Wi-Fi: back to sleep
+    // The next timer wake gives Wi-Fi another window, and the round runs once it joins.
+    const uint32_t wake2 = wake + 21'600'000;
+    r.tick(wake2);
+    const int naps2 = r.power.lightSleeps;
+    r.net.online = true;
+    r.pushHappyRound();
+    r.settle(wake2 + 2000);
+    TEST_ASSERT_EQUAL_INT(naps2, r.power.lightSleeps);
+    TEST_ASSERT_EQUAL_STRING("boot", r.app->sync().last().reason.c_str());   // the parked boot round
+    TEST_ASSERT_TRUE(r.app->sync().lastRoundOk());
+    r.tick(wake2 + 2001);
+    TEST_ASSERT_EQUAL_INT(naps2 + 1, r.power.lightSleeps);
 }

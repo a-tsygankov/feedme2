@@ -56,6 +56,11 @@ void test_sync_unauthorized_on_feedings_clears_token_and_keeps_queue();
 void test_sync_first_requested_reason_wins_until_the_round_runs();
 void test_sync_heartbeat_carries_the_info_app_sets();
 void test_sync_unauthorized_on_heartbeat_unpairs_and_drops_the_fresh_state();
+void test_sync_one_tick_performs_at_most_one_network_call();
+void test_sync_request_during_a_round_runs_the_next_round();
+void test_sync_401_without_the_api_body_is_transient();
+void test_sync_forget_state_erases_the_cache_and_the_etag();
+void test_sync_round_in_progress_is_abandoned_when_the_device_unpairs();
 void test_power_awake_dims_then_sleeps_and_input_wakes();
 void test_power_input_while_dim_is_swallowed_once();
 void test_power_timer_wake_due_once_per_interval();
@@ -75,7 +80,7 @@ void test_app_double_tap_history_and_long_press_system_menu();
 void test_app_unauthorized_during_sync_returns_to_pair();
 void test_app_idle_press_with_no_cats_stays_on_idle();
 void test_app_first_event_after_dim_is_swallowed_and_requests_wake_round();
-void test_app_timer_wake_requests_timer_round_and_queue_holds_device_awake();
+void test_app_timer_wake_requests_a_timer_round_then_naps();
 void test_app_long_press_arc_follows_the_held_knob();
 void test_app_unpair_long_press_clears_token();
 void test_app_sleep_now_naps_on_the_next_tick();
@@ -83,6 +88,10 @@ void test_app_hunger_uses_the_snapshot_clock_until_the_server_answers();
 void test_app_history_scrolls_within_the_rows_logged();
 void test_app_swipes_act_as_rotations();
 void test_app_wifi_press_requests_the_portal_once();
+void test_app_input_between_round_steps_is_dispatched();
+void test_app_fed_stays_two_seconds_after_its_first_rendered_tick();
+void test_app_offline_device_with_a_queued_feeding_still_sleeps();
+void test_app_timer_wake_waits_for_wifi_only_within_the_join_window();
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -144,6 +153,11 @@ int main() {
     RUN_TEST(test_sync_first_requested_reason_wins_until_the_round_runs);
     RUN_TEST(test_sync_heartbeat_carries_the_info_app_sets);
     RUN_TEST(test_sync_unauthorized_on_heartbeat_unpairs_and_drops_the_fresh_state);
+    RUN_TEST(test_sync_one_tick_performs_at_most_one_network_call);
+    RUN_TEST(test_sync_request_during_a_round_runs_the_next_round);
+    RUN_TEST(test_sync_401_without_the_api_body_is_transient);
+    RUN_TEST(test_sync_forget_state_erases_the_cache_and_the_etag);
+    RUN_TEST(test_sync_round_in_progress_is_abandoned_when_the_device_unpairs);
     RUN_TEST(test_power_awake_dims_then_sleeps_and_input_wakes);
     RUN_TEST(test_power_input_while_dim_is_swallowed_once);
     RUN_TEST(test_power_timer_wake_due_once_per_interval);
@@ -163,7 +177,7 @@ int main() {
     RUN_TEST(test_app_unauthorized_during_sync_returns_to_pair);
     RUN_TEST(test_app_idle_press_with_no_cats_stays_on_idle);
     RUN_TEST(test_app_first_event_after_dim_is_swallowed_and_requests_wake_round);
-    RUN_TEST(test_app_timer_wake_requests_timer_round_and_queue_holds_device_awake);
+    RUN_TEST(test_app_timer_wake_requests_a_timer_round_then_naps);
     RUN_TEST(test_app_long_press_arc_follows_the_held_knob);
     RUN_TEST(test_app_unpair_long_press_clears_token);
     RUN_TEST(test_app_sleep_now_naps_on_the_next_tick);
@@ -171,5 +185,9 @@ int main() {
     RUN_TEST(test_app_history_scrolls_within_the_rows_logged);
     RUN_TEST(test_app_swipes_act_as_rotations);
     RUN_TEST(test_app_wifi_press_requests_the_portal_once);
+    RUN_TEST(test_app_input_between_round_steps_is_dispatched);
+    RUN_TEST(test_app_fed_stays_two_seconds_after_its_first_rendered_tick);
+    RUN_TEST(test_app_offline_device_with_a_queued_feeding_still_sleeps);
+    RUN_TEST(test_app_timer_wake_waits_for_wifi_only_within_the_join_window);
     return UNITY_END();
 }

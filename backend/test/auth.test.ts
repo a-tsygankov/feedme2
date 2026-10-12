@@ -169,6 +169,20 @@ describe("auth", () => {
     expect((await post("/api/auth/refresh", { refreshToken: other.refreshToken })).status).toBe(200);
   });
 
+  it("logout with the pre-rotation token also removes the child a refresh minted behind the client's back", async () => {
+    // Incident: the client signed out holding the token it had read before apiFetch refreshed it, so the server
+    // rotated it, logout revoked only the tombstone, and the child stayed live (an orphaned session).
+    const s = await signup();
+    const child = await tokensOf(await postApp("/api/auth/refresh", { refreshToken: s.refresh }));
+    const out = await s.fetchAuthed("/api/auth/logout", { method: "POST", body: JSON.stringify({ refreshToken: s.refresh }) });
+    expect(out.status).toBe(204);
+    const rows = await db(env.DB).select().from(refreshTokens).where(eq(refreshTokens.houseId, s.houseId));
+    const hashes = rows.map((r) => r.tokenHash);
+    expect(hashes).not.toContain(await hashToken(s.refresh));
+    expect(hashes).not.toContain(await hashToken(child.refreshToken));
+    expect((await postApp("/api/auth/refresh", { refreshToken: child.refreshToken })).status).toBe(401);
+  });
+
   it("logout cannot revoke another house's refresh token", async () => {
     const a = await signup();
     const b = await signup();

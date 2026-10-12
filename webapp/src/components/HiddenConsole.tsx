@@ -51,13 +51,10 @@ export function makeConsoleDataSource(clientId: string = getClientId(), deps: So
       if (!deps.isSignedIn()) return { status: "signedOut" };
       const device = f.device.trim();
       const base: Partial<DebugLogsQuery> = { limit: REMOTE_LIMIT, ...(f.source !== "all" ? { source: f.source } : {}), ...(device ? { device } : {}) };
-      // The server's `level` is an exact match, not a minimum, so "warn+" is one request per level at or above it. With
-      // the level left to the client, 300 debug lines would push every error out of the window.
-      const levels: Array<LogLevel | undefined> = f.minLevel === "debug" ? [undefined] : LEVELS.slice(LEVELS.indexOf(f.minLevel));
+      // One request: the server ranks levels (minLevel), so 300 debug lines cannot push an error out of the window.
+      const query: Partial<DebugLogsQuery> = { ...base, ...(f.minLevel !== "debug" ? { minLevel: f.minLevel } : {}) };
       try {
-        const lists = await Promise.all(levels.map((level) => deps.debugLogs({ ...base, ...(level ? { level } : {}) })));
-        const entries = lists.length === 1 ? lists[0]! : lists.flat().sort((a, b) => b.ts - a.ts).slice(0, REMOTE_LIMIT);
-        return { status: "ok", entries };
+        return { status: "ok", entries: await deps.debugLogs(query) };
       } catch {
         return { status: "unreachable" };
       }

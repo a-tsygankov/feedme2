@@ -48,6 +48,19 @@ export async function assertCatsInHouse(catsRepo: CatsRepo, houseId: string, cat
   return distinct.filter((id) => !present.has(id));
 }
 
+export const FED_AT_MAX_FUTURE_MS = 5 * 60 * 1000;
+/** Before this the device clock was never set (an RTC that came up at 1970): no real feeding is that old. */
+export const FED_AT_UNSET_BEFORE_MS = Date.UTC(2020, 0, 1);
+/**
+ * Devices have no UI to fix a timestamp, so a wrong clock is corrected, not refused (web: fedat_in_future 400).
+ * Only the clearly wrong is moved, to now: a future time, or one from before the clock was ever set. A device that
+ * was offline for weeks syncs a real backlog, and rewriting those times to "now" would corrupt the feeding history.
+ */
+export function clampFedAt(fedAt: number, nowMs: number): { fedAt: number; clamped: boolean } {
+  if (fedAt > nowMs + FED_AT_MAX_FUTURE_MS || fedAt < FED_AT_UNSET_BEFORE_MS) return { fedAt: nowMs, clamped: true };
+  return { fedAt, clamped: false };
+}
+
 function chunks<T>(xs: T[], n: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));

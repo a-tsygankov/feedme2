@@ -159,4 +159,9 @@ describe("api contracts: hardening", () => {
     expect(FeedingsPageSchema.safeParse({ items: [], nextCursor: `1700000000000:${uuid}` }).success).toBe(true);
     expect(FeedingsPageSchema.safeParse({ items: [], nextCursor: 1700000000000 }).success).toBe(false);
   });
+
+  it("DebugLogsQuerySchema accepts minLevel and keeps level", () => {
+    expect(DebugLogsQuerySchema.parse({ minLevel: "warn" })).toMatchObject({ minLevel: "warn", limit: 200 });
+    expect(DebugLogsQuerySchema.safeParse({ minLevel: "loud" }).success).toBe(false);
+  });
 });

@@ -30,6 +30,7 @@ jobs:
       webapp:   ${{ steps.filter.outputs.webapp }}
       firmware: ${{ steps.filter.outputs.firmware }}
       shared:   ${{ steps.filter.outputs.shared }}
+      tools:    ${{ steps.filter.outputs.tools }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -47,11 +48,15 @@ jobs:
               - 'fixtures/**'
             shared:
               - 'shared/**'
+              - 'fixtures/**'
+            tools:
+              - 'tools/**'
+              - 'fixtures/**'
 
   shared-test:
-    name: Shared test + typecheck
+    name: Shared + device-sim test + typecheck
     needs: changes
-    if: needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.shared == 'true' || needs.changes.outputs.tools == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: shared } }
     steps:
@@ -65,6 +70,12 @@ jobs:
         working-directory: .
       - run: pnpm typecheck
       - run: pnpm test
+      # The simulator speaks the device API through the shared contracts;
+      # it is the TypeScript stand-in for the firmware in the system e2e.
+      - run: pnpm --filter @feedme2/device-sim typecheck
+        working-directory: .
+      - run: pnpm --filter @feedme2/device-sim test
+        working-directory: .
 
   backend-test:
     name: Backend test + typecheck
@@ -117,7 +128,7 @@ jobs:
   webapp-build:
     name: Webapp test + typecheck + build
     needs: changes
-    if: needs.changes.outputs.webapp == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.webapp == 'true' || needs.changes.outputs.tools == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: webapp } }
     steps:
@@ -198,7 +209,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       needs.webapp-build.result != 'failure' &&
-      (needs.changes.outputs.webapp == 'true' || needs.changes.outputs.backend == 'true')
+      (needs.changes.outputs.webapp == 'true' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.tools == 'true')
     runs-on: ubuntu-latest
     env:
       WRANGLER_SEND_METRICS: 'false'

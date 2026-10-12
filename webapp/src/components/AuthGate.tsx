@@ -7,11 +7,22 @@ export function useAuth() {
   return useSyncExternalStore(authStore.subscribe, authStore.getSnapshot, authStore.getSnapshot);
 }
 
+/** The full in-app target, not just the pathname: the device's QR link is /settings?pair=123456#devices and the
+ * code must still be there after the login detour. */
+export function fromLocation(loc: { pathname: string; search: string; hash: string }): string {
+  return `${loc.pathname}${loc.search}${loc.hash}`;
+}
+
+/** Only app-internal paths; "//host" would be protocol-relative. */
+export function safeReturnPath(from: unknown): string {
+  return typeof from === "string" && from.startsWith("/") && !from.startsWith("//") ? from : "/";
+}
+
 /** Signed-out visitors land on /login; the intended path rides along. */
 export function AuthGate() {
   const auth = useAuth();
   const location = useLocation();
-  if (auth.status !== "signedIn") return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (auth.status !== "signedIn") return <Navigate to="/login" replace state={{ from: fromLocation(location) }} />;
   return <Outlet />;
 }
 
@@ -21,9 +32,7 @@ export function PublicOnly({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const from = (useLocation().state as { from?: unknown } | null)?.from;
   if (auth.status === "signedIn") {
-    // Only app-internal paths; "//host" would be protocol-relative.
-    const to = typeof from === "string" && from.startsWith("/") && !from.startsWith("//") ? from : "/";
-    return <Navigate to={to} replace />;
+    return <Navigate to={safeReturnPath(from)} replace />;
   }
   return <>{children}</>;
 }

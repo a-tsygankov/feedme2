@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { DebugLogsQuery, LogEntry } from "@feedme2/shared";
 import type { Db } from "../db/client.ts";
 import { logEntries } from "../db/schema.ts";
@@ -35,6 +35,8 @@ function serialiseData(data: Record<string, unknown> | undefined): string | null
   const bytes = new TextEncoder().encode(json).length;
   return bytes > MAX_DATA_BYTES ? JSON.stringify({ truncated: true, bytes }) : json;
 }
+
+const LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 } as const;
 
 export class LogsRepo {
   constructor(private readonly db: Db) {}
@@ -81,6 +83,11 @@ export class LogsRepo {
     const conds = [eq(logEntries.houseId, houseId)];
     if (q.source) conds.push(eq(logEntries.source, q.source));
     if (q.level) conds.push(eq(logEntries.level, q.level));
+    if (q.minLevel) {
+      const min = LEVEL_RANK[q.minLevel];
+      const allowed = (Object.keys(LEVEL_RANK) as Array<keyof typeof LEVEL_RANK>).filter((l) => LEVEL_RANK[l] >= min);
+      conds.push(inArray(logEntries.level, allowed));
+    }
     if (q.device) conds.push(eq(logEntries.deviceId, q.device));
     if (q.since !== undefined) conds.push(gte(logEntries.ts, q.since));
     const rows = await this.db.query.logEntries.findMany({

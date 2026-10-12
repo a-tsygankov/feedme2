@@ -6,13 +6,16 @@ import { db } from "./db/client.ts";
 import { log } from "./logger.ts";
 import { verifyAccessToken } from "./auth/tokens.ts";
 import type { AuthVars } from "./middleware/auth.ts";
-import { beginFinalLine, flushRequestLogs, parseClientId, runWithRequestContext } from "./request-context.ts";
+import { beginFinalLine, currentRequest, flushRequestLogs, parseClientId, runWithRequestContext } from "./request-context.ts";
 import { authRouter } from "./routes/auth.ts";
 import { catsRouter } from "./routes/cats.ts";
 import { debugRouter } from "./routes/debug.ts";
 import { feedingsRouter } from "./routes/feedings.ts";
 import { houseRouter } from "./routes/house.ts";
 import { logsRouter } from "./routes/logs.ts";
+import { pairRouter } from "./routes/pair.ts";
+import { devicesRouter } from "./routes/devices.ts";
+import { deviceRouter } from "./routes/device.ts";
 import { versionRouter } from "./routes/version.ts";
 
 /** Keeps a worker row's data under the repo's 1 KB cap with room for the other fields. */
@@ -37,9 +40,12 @@ app.use("*", async (c, next) => {
   const skip = path === "/api/health" || path.startsWith("/api/debug");
   // Same scheme parsing as requireHouse: the scheme is case-insensitive.
   const token = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("Authorization") ?? "")?.[1] ?? "";
-  const auth = token ? await verifyAccessToken(token, c.env.AUTH_SECRET) : null;
+  // Only a house access token attributes here. A device token's signature proves nothing about whether the
+  // device is still welcome (forgotten, re-paired), so requireDevice attributes its requests itself via
+  // setRequestOrigin, after it has checked the devices row.
+  const houseAuth = token ? await verifyAccessToken(token, c.env.AUTH_SECRET) : null;
   const clientId = parseClientId(c.req.header("x-client-id"));
-  await runWithRequestContext({ houseId: auth?.houseId ?? null, clientId }, async () => {
+  await runWithRequestContext({ houseId: houseAuth?.houseId ?? null, clientId }, async () => {
     // Hono's compose() hands a thrown handler error to app.onError and
     // records it on c.error rather than rejecting next(), so a
     // try/catch here would never see it.
@@ -58,7 +64,7 @@ app.use("*", async (c, next) => {
         else log.error("request failed", failed);
       } else if (fields.status >= 500) {
         log.error("request", fields);
-      } else if (fields.status >= 400 && auth) {
+      } else if (fields.status >= 400 && currentRequest()?.houseId != null) {
         // Anonymous 4xx (scanners, 404s, 401s) stays info: a warn would be
         // persisted, and unauthenticated callers must not buy D1 writes.
         log.warn("request", fields);
@@ -108,6 +114,9 @@ app.route("/api/house", houseRouter);
 app.route("/api/cats", catsRouter);
 app.route("/api/feedings", feedingsRouter);
 app.route("/api/logs", logsRouter);
+app.route("/api/pair", pairRouter);
+app.route("/api/devices", devicesRouter);
+app.route("/api/device", deviceRouter);
 
 export { app };
 

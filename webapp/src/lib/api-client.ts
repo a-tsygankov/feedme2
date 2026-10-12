@@ -4,9 +4,10 @@
  * after a 401, and turns every other non-2xx into ApiError.
  */
 import {
-  CatSchema, FeedingSchema, FeedingsPageSchema, HouseSchema, DebugLogsResponseSchema, TokensResponseSchema,
+  CatSchema, DeviceResponseSchema, DevicesResponseSchema, FeedingSchema, FeedingsPageSchema, HouseSchema, DebugLogsResponseSchema,
+  PairConfirmResponseSchema, TokensResponseSchema,
   type Cat, type CatCreate, type CatPatch, type DebugLogsQuery, type Feeding, type FeedingCreate, type FeedingPatch,
-  type FeedingsPage, type House, type HousePatch, type LogEntry, type LogUploadEntry, type TokensResponse,
+  type DevicePatch, type FeedingsPage, type House, type HousePatch, type LogEntry, type LogUploadEntry, type PairConfirmBody, type TokensResponse,
 } from "@feedme2/shared";
 import { z } from "zod";
 import { authStore, type RefreshOutcome } from "./auth-store.ts";
@@ -27,6 +28,9 @@ export class NetworkError extends Error {
   }
 }
 
+/** `body` may be a thunk, evaluated per send AFTER any stale-token refresh (sign-out reads the rotated refresh token). */
+export type ApiInit = Omit<RequestInit, "body"> & { body?: RequestInit["body"] | (() => string) };
+
 interface Deps {
   fetchFn: typeof fetch;
   auth: { getAccessToken(): string | null; refresh(): Promise<RefreshOutcome>; signOut(): void };
@@ -42,7 +46,8 @@ export function createApiFetch(deps: Deps) {
     throw r.reason === "unreachable" ? new NetworkError() : unauthorized();
   }
 
-  async function send(path: string, init: RequestInit, token: string | null): Promise<Response> {
+  async function send(path: string, rawInit: ApiInit, token: string | null): Promise<Response> {
+    const init: RequestInit = { ...rawInit, ...(typeof rawInit.body === "function" ? { body: rawInit.body() } : {}) } as RequestInit;
     const headers = new Headers(init.headers);
     // Only a string body is JSON here: forcing the type on FormData/Blob would strip the multipart boundary.
     if (typeof init.body === "string" && !headers.has("content-type")) headers.set("content-type", "application/json");
@@ -58,7 +63,7 @@ export function createApiFetch(deps: Deps) {
     }
   }
 
-  return async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return async function apiFetch(path: string, init: ApiInit = {}): Promise<Response> {
     let token = deps.auth.getAccessToken();
     if (token === null) {
       await refreshOrThrow();
@@ -127,7 +132,9 @@ export const api = {
   setup: (houseName: string, pin: string): Promise<TokensResponse> => publicPost("/api/auth/setup", { houseName, pin }, TokensResponseSchema),
   login: (houseName: string, pin: string): Promise<TokensResponse> => publicPost("/api/auth/login", { houseName, pin }, TokensResponseSchema),
   testLogin: (houseName: string): Promise<TokensResponse> => publicPost("/api/auth/test-login", { houseName }, TokensResponseSchema),
-  logout: (refreshToken: string) => apiFetch("/api/auth/logout", { method: "POST", body: JSON.stringify({ refreshToken }) }),
+  // The token is read when the request is built, after apiFetch has refreshed a stale access token: reading it before
+  // would send the pre-rotation token and leave the rotated child live (an orphaned session).
+  logout: () => apiFetch("/api/auth/logout", { method: "POST", body: () => JSON.stringify({ refreshToken: authStore.getRefreshToken() ?? "" }) }),
   me: () => apiFetch("/api/auth/me").then((r) => json(r, z.object({ house: HouseSchema }))).then((b) => b.house),
   changePin: (currentPin: string, newPin: string) => apiFetch("/api/auth/pin", { method: "PATCH", body: JSON.stringify({ currentPin, newPin }) }),
   getHouse: (): Promise<House> => apiFetch("/api/house").then((r) => json(r, z.object({ house: HouseSchema }))).then((b) => b.house),
@@ -157,4 +164,10 @@ export const api = {
     for (const [k, v] of Object.entries(q)) if (v !== undefined) params.set(k, String(v));
     return apiFetch(`/api/debug/logs?${params}`).then((r) => json(r, DebugLogsResponseSchema)).then((b) => b.entries);
   },
+  listDevices: () => apiFetch("/api/devices").then((r) => json(r, DevicesResponseSchema)),
+  patchDevice: (id: string, patch: DevicePatch) =>
+    apiFetch(`/api/devices/${id}`, { method: "PATCH", body: JSON.stringify(patch) }).then((r) => json(r, DeviceResponseSchema)),
+  deleteDevice: (id: string): Promise<void> => apiFetch(`/api/devices/${id}`, { method: "DELETE" }).then(() => undefined),
+  confirmPair: (body: PairConfirmBody) =>
+    apiFetch("/api/pair/confirm", { method: "POST", body: JSON.stringify(body) }).then((r) => json(r, PairConfirmResponseSchema)),
 };

@@ -14,6 +14,8 @@ export interface RequestStore {
   houseId: string | null;
   /** The caller's x-client-id when it is well-formed, so worker rows can be correlated with its web uploads. */
   clientId: string | undefined;
+  /** Set by setRequestOrigin for a verified device request, so the console's device filter shows the worker lines a device caused. */
+  deviceId: string | undefined;
   pending: LogEntry[];
   /** Handler lines refused by the cap; reported as one warn line at flush so a flood is visible, not silent. */
   dropped: number;
@@ -34,15 +36,29 @@ export function parseClientId(raw: string | undefined | null): string | undefine
 
 const storage = new AsyncLocalStorage<RequestStore>();
 
-export function runWithRequestContext<T>(origin: { houseId: string | null; clientId?: string | undefined }, fn: () => Promise<T>): Promise<T> {
+export function runWithRequestContext<T>(origin: { houseId: string | null; clientId?: string | undefined; deviceId?: string | undefined }, fn: () => Promise<T>): Promise<T> {
   return storage.run(
-    { houseId: origin.houseId, clientId: origin.clientId, pending: [], dropped: 0, finalising: false, flushed: false },
+    { houseId: origin.houseId, clientId: origin.clientId, deviceId: origin.deviceId, pending: [], dropped: 0, finalising: false, flushed: false },
     fn,
   );
 }
 
 export function currentRequest(): RequestStore | undefined {
   return storage.getStore();
+}
+
+/**
+ * Attributes the current request to a house (and device) after the caller has
+ * verified more than a signature. requireDevice calls this once the devices row
+ * says the token is still welcome: a revoked or replaced device's token still
+ * carries a valid signature, and attributing on that alone would let it keep
+ * writing rows into the house's log feed. A no-op outside a request.
+ */
+export function setRequestOrigin(origin: { houseId: string; deviceId?: string | undefined }): void {
+  const store = storage.getStore();
+  if (!store) return;
+  store.houseId = origin.houseId;
+  store.deviceId = origin.deviceId;
 }
 
 /**
@@ -90,7 +106,7 @@ export async function flushRequestLogs(d: Db, ctx: Pick<ExecutionContext, "waitU
   if (store.houseId === null) entries = entries.filter((e) => e.level === "warn" || e.level === "error");
   if (entries.length === 0) return;
   const write = new LogsRepo(d)
-    .insertMany(store.houseId, entries, { ...(store.clientId ? { clientId: store.clientId } : {}) }, Date.now())
+    .insertMany(store.houseId, entries, { ...(store.clientId ? { clientId: store.clientId } : {}), ...(store.deviceId ? { deviceId: store.deviceId } : {}) }, Date.now())
     .catch((err: unknown) => console.error("log flush failed", err instanceof Error ? err.message : String(err)));
   if (ctx) ctx.waitUntil(write);
   else await write;

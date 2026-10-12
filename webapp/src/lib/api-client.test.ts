@@ -2,7 +2,8 @@
 // The modules under test build their singletons from localStorage at import time.
 import { describe, expect, it, vi } from "vitest";
 import type { RefreshOutcome } from "./auth-store.ts";
-import { ApiError, NetworkError, createApiFetch, logUploadInit } from "./api-client.ts";
+import { ApiError, NetworkError, api, createApiFetch, logUploadInit } from "./api-client.ts";
+import { authStore } from "./auth-store.ts";
 
 /** access: successive getAccessToken() results (the last one repeats). */
 function fakeAuth(access: Array<string | null>, refreshOutcome: RefreshOutcome) {
@@ -34,6 +35,17 @@ describe("apiFetch", () => {
     await apiFetch("/api/cats", { method: "POST", body: "{}" });
     expect(new Headers(sentInit(fetchFn, 0).headers).has("content-type")).toBe(false);
     expect(new Headers(sentInit(fetchFn, 1).headers).get("content-type")).toBe("application/json");
+  });
+
+  it("builds a thunk body after the stale-token refresh, so it can read the rotated refresh token (sign-out)", async () => {
+    const fetchFn = vi.fn(async () => new Response(null, { status: 204 }));
+    let stored = "old-refresh";
+    const auth = fakeAuth([null, "fresh"], { ok: true });
+    auth.refresh.mockImplementation(async () => { stored = "rotated-refresh"; return { ok: true } as RefreshOutcome; });
+    const apiFetch = make(fetchFn, auth);
+    await apiFetch("/api/auth/logout", { method: "POST", body: () => JSON.stringify({ refreshToken: stored }) });
+    expect(sentInit(fetchFn).body).toBe(JSON.stringify({ refreshToken: "rotated-refresh" }));
+    expect(new Headers(sentInit(fetchFn).headers).get("content-type")).toBe("application/json");
   });
 
   it("leaves content-type to the runtime for a non-string body (FormData needs its multipart boundary)", async () => {
@@ -144,5 +156,26 @@ describe("logUploadInit", () => {
     expect(init.signal).toBe(own);
     expect(init.keepalive).toBe(true);
     expect(init.method).toBe("POST");
+  });
+});
+
+describe("device endpoints", () => {
+  it("confirmPair POSTs the code with the bearer and parses {device}", async () => {
+    const device = { id: "a".repeat(32), houseId: "h", name: "Kitchen", hwModel: "device-sim", fwVersion: "0.1.0", lastSeenAt: null, batteryPct: null, resetReason: null, autoInstall: false, createdAt: 1, revokedAt: null };
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ device }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchFn);
+    vi.spyOn(authStore, "getAccessToken").mockReturnValue("tok");
+    try {
+      const res = await api.confirmPair({ pairCode: "123456" });
+      expect(res.device.name).toBe("Kitchen");
+      const [path, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+      expect(path).toBe("/api/pair/confirm");
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe(JSON.stringify({ pairCode: "123456" }));
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer tok");
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
   });
 });

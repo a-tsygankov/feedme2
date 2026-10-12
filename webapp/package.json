@@ -1,6 +1,6 @@
 {
   "name": "feedme2-webapp",
-  "version": "0.1.30",
+  "version": "0.1.39",
   "private": true,
   "type": "module",
   "scripts": {
@@ -30,6 +30,7 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@feedme2/device-sim": "workspace:*",
     "@playwright/test": "^1.49.0",
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.0",

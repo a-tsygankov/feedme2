@@ -11,7 +11,7 @@ import { validationHook } from "../validation.ts";
  * GET /api/debug/logs — the hidden console's merged feed: every
  * persisted entry for this house (worker lines made while serving it,
  * web uploads, device uploads from Phase 2), newest first, filterable by
- * source, level, device and since. House-scoped since Phase 1; the
+ * source, level (exact), minLevel (rank), device and since. House-scoped since Phase 1; the
  * Phase 0 per-isolate ring buffer is gone.
  */
 export const debugRouter = new Hono<{ Bindings: Bindings } & AuthVars>()

@@ -4,7 +4,7 @@
  * `drizzle-kit push`. Column names stay snake_case in the database and
  * camelCase in TypeScript.
  */
-import { foreignKey, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import { foreignKey, index, integer, sqliteTable, text, unique, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /*
  * Not expressible here, enforced by the SQL only: every CHECK constraint
@@ -122,3 +122,48 @@ export const logEntries = sqliteTable(
     createdAtIdx: index("log_entries_created_at").on(t.createdAt),
   }),
 );
+
+export const devices = sqliteTable(
+  "devices",
+  {
+    id: text("id").primaryKey(),
+    houseId: text("house_id").notNull().references(() => houses.id),
+    name: text("name").notNull(),
+    hwModel: text("hw_model").notNull(),
+    fwVersion: text("fw_version").notNull(),
+    /** jti of the only token valid for this row; re-rolled at every pairing (see 0002). */
+    tokenId: text("token_id").notNull(),
+    lastSeenAt: integer("last_seen_at"),
+    batteryPct: integer("battery_pct"),
+    resetReason: text("reset_reason"),
+    autoInstall: integer("auto_install").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    modifiedAt: integer("modified_at").notNull(),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => ({ houseIdx: index("devices_house").on(t.houseId) }),
+);
+
+export const pendingPairings = sqliteTable(
+  "pending_pairings",
+  {
+    deviceId: text("device_id").primaryKey(),
+    pairCode: text("pair_code").notNull(),
+    hwModel: text("hw_model").notNull(),
+    fwVersion: text("fw_version").notNull(),
+    requestedAt: integer("requested_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    pollSecretHash: text("poll_secret_hash").notNull(),
+    houseId: text("house_id").references(() => houses.id),
+    confirmedAt: integer("confirmed_at"),
+    deviceToken: text("device_token"),
+    deliveredAt: integer("delivered_at"),
+  },
+  (t) => ({ codeIdx: uniqueIndex("pending_pairings_code").on(t.pairCode), expiresIdx: index("pending_pairings_expires").on(t.expiresAt) }),
+);
+
+export const pairAttempts = sqliteTable("pair_attempts", {
+  houseId: text("house_id").primaryKey(),
+  windowStart: integer("window_start").notNull(),
+  failures: integer("failures").notNull(),
+});

@@ -18,11 +18,15 @@ bool LittleFsQueue::appendLine(const char* file, const std::string& line) {
     if (!mount()) return false;
     File f = LittleFS.open(file, FILE_APPEND);
     if (!f) return false;
-    const size_t want = line.size() + 1;
-    size_t wrote = f.write(reinterpret_cast<const uint8_t*>(line.data()), line.size());
-    wrote += f.write('\n');
+    // One write for line + '\n'. Two writes (line, then newline) leave a
+    // window where a power cut strands a line without its terminator; the
+    // next append then glues its JSON onto that line and readLines drops
+    // both feedings as one unparseable record. A single write either lands
+    // whole or is the trailing partial that readLines already discards.
+    const std::string record = line + '\n';
+    const size_t wrote = f.write(reinterpret_cast<const uint8_t*>(record.data()), record.size());
     f.close();
-    return wrote == want;
+    return wrote == record.size();
 }
 
 bool LittleFsQueue::readLines(const char* file, std::vector<std::string>& out) {

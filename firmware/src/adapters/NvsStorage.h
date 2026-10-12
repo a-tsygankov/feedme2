@@ -16,10 +16,16 @@ namespace feedme2::adapters {
 // empty values (e.g. an etag cleared after a 401). Each blob therefore carries
 // the string's terminating NUL, so the stored length is always size()+1 and
 // an empty value round-trips as a 1-byte blob.
+//
+// Every open is read-write, reads included: a read-only nvs_open on a
+// namespace that has never been written fails with NOT_FOUND, and Preferences
+// logs "nvs_open failed" for each one, so a fresh device would spam the
+// console on every boot-time read until the first write. Read-write creates
+// the namespace entry on the first open and is otherwise identical.
 class NvsStorage final : public ports::IStorage {
 public:
     bool read(const char* key, std::string& out) override {
-        if (!prefs_.begin(kNamespace, /*readOnly=*/true)) return false;
+        if (!prefs_.begin(kNamespace, /*readOnly=*/false)) return false;
         const size_t len = prefs_.isKey(key) ? prefs_.getBytesLength(key) : 0;
         if (len == 0) {
             prefs_.end();

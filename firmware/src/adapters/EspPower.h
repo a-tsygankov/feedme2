@@ -27,8 +27,10 @@ public:
     // GC9A01 sleep-in (0x10) / sleep-out (0x11). Sleep-out needs 120 ms before
     // the panel accepts the next command (datasheet), hence the delay.
     void displaySleep(bool on) override;
-    // Light sleep until a wake pin goes active or maxMs elapses. RAM and the
-    // Wi-Fi association survive; resume is < 100 ms.
+    // Light sleep until a wake pin (RotaryInput button/A, Cst816Touch INT)
+    // goes active or maxMs elapses. RAM survives and resume is < 100 ms, but
+    // the Wi-Fi association and the USB-CDC console do not: the next sync
+    // reconnects first (see the .cpp).
     void lightSleep(uint32_t maxMs) override;
     void ledRing(uint32_t rgb, uint8_t brightness) override { ring_.set(rgb, brightness); }
 

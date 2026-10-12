@@ -251,7 +251,7 @@ describe("logs", () => {
     ]);
     await env.DB.prepare("UPDATE refresh_tokens SET expires_at = 1 WHERE house_id = ?").bind(s.houseId).run();
     // One pairing past its 10 minutes (it still holds a plaintext token), one fresh.
-    const pair = env.DB.prepare("INSERT INTO pending_pairings (device_id, pair_code, hw_model, fw_version, requested_at, expires_at) VALUES (?, ?, 'device-sim', '0.2.0', ?, ?)");
+    const pair = env.DB.prepare("INSERT INTO pending_pairings (device_id, pair_code, hw_model, fw_version, requested_at, expires_at, poll_secret_hash) VALUES (?, ?, 'device-sim', '0.2.0', ?, ?, 'h')");
     const stale = "a".repeat(32);
     const fresh = "b".repeat(32);
     await env.DB.batch([pair.bind(stale, "100001", now - 20 * 60_000, now - 10 * 60_000), pair.bind(fresh, "100002", now, now + 10 * 60_000)]);

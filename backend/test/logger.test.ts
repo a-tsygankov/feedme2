@@ -7,7 +7,8 @@ import type { LogEntry } from "@feedme2/shared";
 import { db } from "../src/db/client.ts";
 import { ConsoleSink, D1Sink, Logger, type LogSink } from "../src/logger.ts";
 import { LogsRepo } from "../src/repos/logs.ts";
-import { currentRequest, flushRequestLogs, runWithRequestContext } from "../src/request-context.ts";
+import { currentRequest, flushRequestLogs, runWithRequestContext, setRequestOrigin } from "../src/request-context.ts";
+import { signDeviceToken } from "../src/auth/device-tokens.ts";
 import { applyAllMigrations } from "./helpers/migrate.ts";
 import { signup } from "./helpers/api.ts";
 
@@ -210,6 +211,31 @@ describe("request logging middleware", () => {
     const unhandled = rows.filter((r) => r.msg === "unhandled");
     expect(unhandled).toHaveLength(1);
     expect(JSON.parse(unhandled[0]!.data!).stack).toContain("kaboom after flood");
+  });
+
+  // Attack: attributing by signature alone let a forgotten (or re-paired) device's token keep writing rows into the house's feed.
+  // Only requireDevice, after it has checked the devices row, may attribute a device request.
+  it("does not attribute a request by a device token alone; setRequestOrigin does it after the checks", async () => {
+    const s = await signup();
+    const app = await freshApp();
+    // The fresh app has its own copy of request-context (resetModules), and with it its own request store.
+    const { setRequestOrigin: freshSetOrigin } = await import("../src/request-context.ts");
+    const token = await signDeviceToken(s.houseId, "e".repeat(32), crypto.randomUUID(), env.AUTH_SECRET);
+    app.get("/api/__dev-plain", (c) => c.json({}, 200));
+    app.get("/api/__dev-checked", (c) => {
+      freshSetOrigin({ houseId: s.houseId, deviceId: "e".repeat(32) });
+      return c.json({}, 200);
+    });
+    await app.request("http://feedme2/api/__dev-plain", authed(token), env);
+    await app.request("http://feedme2/api/__dev-checked", authed(token), env);
+    const lines = (await houseRows(s.houseId)).filter((r) => r.msg === "request").map((r) => JSON.parse(r.data!).path);
+    expect(lines).toEqual(["/api/__dev-checked"]);
+    const row = await env.DB.prepare("SELECT device_id FROM log_entries WHERE house_id = ? AND msg = 'request'").bind(s.houseId).first<{ device_id: string }>();
+    expect(row!.device_id).toBe("e".repeat(32));
+  });
+
+  it("setRequestOrigin is a no-op outside a request", () => {
+    expect(() => setRequestOrigin({ houseId: "h", deviceId: "d" })).not.toThrow();
   });
 
   it("sends lines logged after the flush to the console only", async () => {

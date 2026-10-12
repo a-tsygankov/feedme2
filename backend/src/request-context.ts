@@ -14,7 +14,7 @@ export interface RequestStore {
   houseId: string | null;
   /** The caller's x-client-id when it is well-formed, so worker rows can be correlated with its web uploads. */
   clientId: string | undefined;
-  /** Set when the token was a device token, so the console's device filter shows the worker lines a device caused. */
+  /** Set by setRequestOrigin for a verified device request, so the console's device filter shows the worker lines a device caused. */
   deviceId: string | undefined;
   pending: LogEntry[];
   /** Handler lines refused by the cap; reported as one warn line at flush so a flood is visible, not silent. */
@@ -45,6 +45,20 @@ export function runWithRequestContext<T>(origin: { houseId: string | null; clien
 
 export function currentRequest(): RequestStore | undefined {
   return storage.getStore();
+}
+
+/**
+ * Attributes the current request to a house (and device) after the caller has
+ * verified more than a signature. requireDevice calls this once the devices row
+ * says the token is still welcome: a revoked or replaced device's token still
+ * carries a valid signature, and attributing on that alone would let it keep
+ * writing rows into the house's log feed. A no-op outside a request.
+ */
+export function setRequestOrigin(origin: { houseId: string; deviceId?: string | undefined }): void {
+  const store = storage.getStore();
+  if (!store) return;
+  store.houseId = origin.houseId;
+  store.deviceId = origin.deviceId;
 }
 
 /**

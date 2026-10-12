@@ -7,7 +7,7 @@ import { log } from "./logger.ts";
 
 /**
  * Hourly retention. The prunes are independent: a failing log prune must
- * not leave expired refresh tokens (or expired pairing rows, which hold a
+ * not leave expired refresh tokens (or expired pairing rows, which can hold a
  * plaintext device token) lying around, so all run and the first failure
  * is rethrown afterwards (the cron shows as failed).
  */

@@ -131,6 +131,8 @@ export const devices = sqliteTable(
     name: text("name").notNull(),
     hwModel: text("hw_model").notNull(),
     fwVersion: text("fw_version").notNull(),
+    /** jti of the only token valid for this row; re-rolled at every pairing (see 0002). */
+    tokenId: text("token_id").notNull(),
     lastSeenAt: integer("last_seen_at"),
     batteryPct: integer("battery_pct"),
     resetReason: text("reset_reason"),
@@ -151,11 +153,17 @@ export const pendingPairings = sqliteTable(
     fwVersion: text("fw_version").notNull(),
     requestedAt: integer("requested_at").notNull(),
     expiresAt: integer("expires_at").notNull(),
+    pollSecretHash: text("poll_secret_hash").notNull(),
     houseId: text("house_id").references(() => houses.id),
     confirmedAt: integer("confirmed_at"),
     deviceToken: text("device_token"),
     deliveredAt: integer("delivered_at"),
-    cancelledAt: integer("cancelled_at"),
   },
   (t) => ({ codeIdx: uniqueIndex("pending_pairings_code").on(t.pairCode), expiresIdx: index("pending_pairings_expires").on(t.expiresAt) }),
 );
+
+export const pairAttempts = sqliteTable("pair_attempts", {
+  houseId: text("house_id").primaryKey(),
+  windowStart: integer("window_start").notNull(),
+  failures: integer("failures").notNull(),
+});

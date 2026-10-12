@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import sample from "../../fixtures/device-state.sample.json";
 import {
   DeviceFeedingCreateSchema, DeviceIdSchema, DeviceResponseSchema, DeviceStateSchema, HeartbeatBodySchema, PairCheckResponseSchema,
-  PairCodeSchema, PairConfirmBodySchema, PairStartBodySchema,
+  PairCheckBodySchema, PairCodeSchema, PairConfirmBodySchema, PairStartBodySchema,
 } from "./device.ts";
 
 const DEV = "0123456789abcdef0123456789abcdef";
+const SECRET = "0123456789abcdef".repeat(2);
 
 describe("device contracts", () => {
   it("a single-device response wraps the device", () => {
@@ -24,9 +25,23 @@ describe("device contracts", () => {
     expect(PairCodeSchema.safeParse("1234567").success).toBe(false);
   });
   it("pair/start requires a known hardware model and a semver fw", () => {
-    expect(PairStartBodySchema.safeParse({ deviceId: DEV, hwModel: "crowpanel-1.28", fwVersion: "0.2.0" }).success).toBe(true);
-    expect(PairStartBodySchema.safeParse({ deviceId: DEV, hwModel: "toaster", fwVersion: "0.2.0" }).success).toBe(false);
-    expect(PairStartBodySchema.safeParse({ deviceId: DEV, hwModel: "simulator", fwVersion: "v1" }).success).toBe(false);
+    expect(PairStartBodySchema.safeParse({ deviceId: DEV, hwModel: "crowpanel-1.28", fwVersion: "0.2.0", pollSecret: SECRET }).success).toBe(true);
+    expect(PairStartBodySchema.safeParse({ deviceId: DEV, hwModel: "toaster", fwVersion: "0.2.0", pollSecret: SECRET }).success).toBe(false);
+    expect(PairStartBodySchema.safeParse({ deviceId: DEV, hwModel: "simulator", fwVersion: "v1", pollSecret: SECRET }).success).toBe(false);
+  });
+  // Attack: /check is public and the device id is not secret (it is printed in logs), so without a
+  // per-handshake secret anyone could poll /check and collect the freshly minted device token.
+  it("pair/start and pair/check require a 32-64 char lowercase hex poll secret", () => {
+    const start = { deviceId: DEV, hwModel: "simulator", fwVersion: "0.2.0" };
+    expect(PairStartBodySchema.safeParse(start).success).toBe(false);
+    expect(PairStartBodySchema.safeParse({ ...start, pollSecret: "a".repeat(31) }).success).toBe(false);
+    expect(PairStartBodySchema.safeParse({ ...start, pollSecret: "a".repeat(65) }).success).toBe(false);
+    expect(PairStartBodySchema.safeParse({ ...start, pollSecret: "A".repeat(32) }).success).toBe(false);
+    expect(PairStartBodySchema.safeParse({ ...start, pollSecret: "g".repeat(32) }).success).toBe(false);
+    expect(PairStartBodySchema.safeParse({ ...start, pollSecret: "a".repeat(64) }).success).toBe(true);
+    expect(PairCheckBodySchema.safeParse({ deviceId: DEV }).success).toBe(false);
+    expect(PairCheckBodySchema.safeParse({ deviceId: DEV, pollSecret: SECRET }).success).toBe(true);
+    expect(PairCheckBodySchema.safeParse({ deviceId: DEV, pollSecret: "xyz" }).success).toBe(false);
   });
   it("pair/check is a discriminated union", () => {
     expect(PairCheckResponseSchema.parse({ status: "pending" })).toEqual({ status: "pending" });

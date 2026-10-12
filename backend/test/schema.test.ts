@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { beforeAll, describe, expect, it } from "vitest";
-import { cats, devices, feedings, houses, logEntries, pendingPairings, refreshTokens } from "../src/db/schema.ts";
+import { cats, devices, feedings, houses, logEntries, pairAttempts, pendingPairings, refreshTokens } from "../src/db/schema.ts";
 import { applyAllMigrations, MIGRATIONS } from "./helpers/migrate.ts";
 
 const now = 1_700_000_000_000;
@@ -79,12 +79,22 @@ describe("migration 0001", () => {
 
   it("0002 adds devices and pending_pairings with their constraints", async () => {
     const cols = async (t: string) => (await env.DB.prepare(`PRAGMA table_info(${t})`).all<{ name: string }>()).results.map((r) => r.name);
-    expect(await cols("devices")).toEqual(expect.arrayContaining(["id", "house_id", "name", "hw_model", "fw_version", "last_seen_at", "battery_pct", "reset_reason", "auto_install", "created_at", "modified_at", "revoked_at"]));
-    expect(await cols("pending_pairings")).toEqual(expect.arrayContaining(["device_id", "pair_code", "requested_at", "expires_at", "house_id", "confirmed_at", "device_token", "delivered_at", "cancelled_at"]));
+    expect(await cols("devices")).toEqual(expect.arrayContaining(["id", "house_id", "name", "hw_model", "fw_version", "last_seen_at", "battery_pct", "reset_reason", "auto_install", "created_at", "modified_at", "revoked_at", "token_id"]));
+    expect(await cols("pending_pairings")).toEqual(expect.arrayContaining(["device_id", "pair_code", "requested_at", "expires_at", "house_id", "confirmed_at", "device_token", "delivered_at", "poll_secret_hash"]));
+    expect(await cols("pending_pairings")).not.toContain("cancelled_at");
+    expect(await cols("pair_attempts")).toEqual(["house_id", "window_start", "failures"]);
     // id must be 32 lowercase hex
-    await expect(env.DB.prepare("INSERT INTO devices (id, house_id, name, hw_model, fw_version, auto_install, created_at, modified_at) VALUES ('XYZ', 'h', 'n', 'crowpanel', '0.1.0', 0, 1, 1)").run()).rejects.toThrow(/CHECK/);
+    await expect(env.DB.prepare("INSERT INTO devices (id, house_id, name, hw_model, fw_version, auto_install, created_at, modified_at, token_id) VALUES ('XYZ', 'h', 'n', 'crowpanel', '0.1.0', 0, 1, 1, 't')").run()).rejects.toThrow(/CHECK/);
     // battery_pct within 0..100 or NULL
-    await expect(env.DB.prepare("INSERT INTO devices (id, house_id, name, hw_model, fw_version, battery_pct, auto_install, created_at, modified_at) VALUES (?, 'h', 'n', 'crowpanel', '0.1.0', 101, 0, 1, 1)").bind("a".repeat(32)).run()).rejects.toThrow(/CHECK/);
+    await expect(env.DB.prepare("INSERT INTO devices (id, house_id, name, hw_model, fw_version, battery_pct, auto_install, created_at, modified_at, token_id) VALUES (?, 'h', 'n', 'crowpanel', '0.1.0', 101, 0, 1, 1, 't')").bind("a".repeat(32)).run()).rejects.toThrow(/CHECK/);
+    // every device row carries the id of the pairing its token belongs to
+    await expect(env.DB.prepare("INSERT INTO devices (id, house_id, name, hw_model, fw_version, auto_install, created_at, modified_at) VALUES (?, 'h', 'n', 'crowpanel', '0.1.0', 0, 1, 1)").bind("b".repeat(32)).run()).rejects.toThrow(/NOT NULL/);
+    // pending_pairings: hex device id, 6-digit code, and a poll secret hash
+    const pend = (id: string, code: string) => env.DB.prepare("INSERT INTO pending_pairings (device_id, pair_code, hw_model, fw_version, requested_at, expires_at, poll_secret_hash) VALUES (?, ?, 'simulator', '0.1.0', 1, 2, 'h')").bind(id, code).run();
+    await expect(pend("Z".repeat(32), "123456")).rejects.toThrow(/CHECK/);
+    await expect(pend("c".repeat(32), "12a456")).rejects.toThrow(/CHECK/);
+    await expect(pend("c".repeat(32), "12345")).rejects.toThrow(/CHECK/);
+    await expect(env.DB.prepare("INSERT INTO pending_pairings (device_id, pair_code, hw_model, fw_version, requested_at, expires_at) VALUES (?, '123456', 'simulator', '0.1.0', 1, 2)").bind("c".repeat(32)).run()).rejects.toThrow(/NOT NULL/);
     // one pairing row per device (PK) and a unique code among rows
     const idx = (await env.DB.prepare("PRAGMA index_list(pending_pairings)").all<{ name: string; unique: number }>()).results;
     expect(idx.some((i) => i.name === "pending_pairings_code" && i.unique === 1)).toBe(true);
@@ -192,6 +202,7 @@ describe("migration 0001", () => {
       ["log_entries", logEntries],
       ["devices", devices],
       ["pending_pairings", pendingPairings],
+      ["pair_attempts", pairAttempts],
     ] as const)("%s matches PRAGMA table_info", async (table, drizzleTable) => {
       const info = (
         await env.DB.prepare(`PRAGMA table_info(${table})`).all<{ name: string; notnull: number; pk: number }>()

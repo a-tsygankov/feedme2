@@ -1,5 +1,6 @@
 import { DeviceStateSchema } from "@feedme2/shared";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { clock } from "../src/auth/tokens.ts";
 import { applyAllMigrations } from "./helpers/migrate.ts";
 import { pairDevice } from "./helpers/device.ts";
 
@@ -24,6 +25,31 @@ describe("GET /api/device/state", () => {
     expect(s.cats[0]!.lastFedAt).toBeGreaterThan(0);
     expect(Math.abs(s.now - Date.now())).toBeLessThan(5000);
     expect(s.syncIntervalSec).toBe(s.house.settings.syncIntervalSec);
+  });
+
+  // Attack surface: the device pins its clock offset from this response and 304s keep it; a tag that ignored
+  // the offset left a New York device an hour off after the clocks changed, until something else changed.
+  it("the tag changes when the house timezone offset does (DST), and the body carries the new offset", async () => {
+    const d = await pairDevice();
+    await d.house.fetchAuthed("/api/house", { method: "PATCH", body: JSON.stringify({ timezone: "America/New_York" }) });
+    const spy = vi.spyOn(clock, "now");
+    try {
+      spy.mockReturnValue(Date.parse("2026-11-01T05:30:00Z")); // 01:30 EDT, still summer time
+      const before = await d.fetchDevice("/api/device/state");
+      const beforeBody = DeviceStateSchema.parse(await before.json());
+      spy.mockReturnValue(Date.parse("2026-11-01T06:30:00Z")); // 01:30 EST, the clocks went back at 06:00Z
+      const after = await d.fetchDevice("/api/device/state", { headers: { "if-none-match": before.headers.get("etag")! } });
+      expect(after.status).toBe(200);
+      const afterBody = DeviceStateSchema.parse(await after.json());
+      expect(beforeBody.house.tzOffsetMin).toBe(-240);
+      expect(afterBody.house.tzOffsetMin).toBe(-300);
+      expect(after.headers.get("etag")).not.toBe(before.headers.get("etag"));
+      // ...but plain time passing with the same offset still 304s.
+      spy.mockReturnValue(Date.parse("2026-11-01T07:30:00Z"));
+      expect((await d.fetchDevice("/api/device/state", { headers: { "if-none-match": after.headers.get("etag")! } })).status).toBe(304);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("304s on a matching If-None-Match; the tag survives time passing but not a rename, a feeding or a setting", async () => {

@@ -25,6 +25,11 @@ export interface SimSnapshot {
   state: DeviceState | null;
   queue: DeviceFeedingCreate[];
   logs: LogUploadEntry[];
+  /**
+   * Per-handshake secret from the last pairStart(). Persisted so a CLI run that restarts between start and
+   * confirm can still collect its token; absent in snapshots saved before the server required it.
+   */
+  pollSecret?: string;
   /** Where this device last talked to; the CLI reuses it so a later `--api` is only needed to move the device. */
   apiBase?: string;
 }
@@ -51,6 +56,8 @@ export interface SyncSummary {
 }
 
 const hex32 = () => crypto.randomUUID().replace(/-/g, "");
+/** 32 hex chars from the CSPRNG (the server requires 32-64). */
+const pollSecret32 = () => [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
 // The server's own limits (shared/src/api.ts amountMg, log msg): checked here so a typo fails at the keyboard
 // instead of as a poisoned queue entry that the server rejects on every sync.
@@ -61,7 +68,11 @@ const MAX_LOGS = 500;
 /** Whole grams when within 0.05 of one, otherwise one decimal (so 800 mg is "0.8", not "1"). */
 function gramsText(mg: number): string {
   const g = mg / 1000;
-  return Math.abs(g - Math.round(g)) <= 0.05 ? String(Math.round(g)) : g.toFixed(1);
+  // Snapping needs a whole gram >= 1: 1-50 mg would otherwise become "0", which the server refuses as "not a positive amount".
+  if (Math.round(g) >= 1 && Math.abs(g - Math.round(g)) <= 0.05) return String(Math.round(g));
+  const oneDecimal = g.toFixed(1);
+  // Still "0.0" below 0.05 g: keep one significant digit (24 mg -> "0.02", 1 mg -> "0.001").
+  return oneDecimal === "0.0" ? g.toPrecision(1) : oneDecimal;
 }
 
 export class DeviceSim {
@@ -116,12 +127,14 @@ export class DeviceSim {
   }
 
   async pairStart(): Promise<PairStartResponse> {
-    const r = await this.call("/api/pair/start", { method: "POST", auth: false, body: JSON.stringify({ deviceId: this.deviceId, hwModel: this.hwModel, fwVersion: this.fwVersion }) });
+    // A fresh secret per handshake: only the device that started it can collect the token from the public /check.
+    this.snap.pollSecret = pollSecret32();
+    const r = await this.call("/api/pair/start", { method: "POST", auth: false, body: JSON.stringify({ deviceId: this.deviceId, hwModel: this.hwModel, fwVersion: this.fwVersion, pollSecret: this.snap.pollSecret }) });
     return PairStartResponseSchema.parse(await r.json());
   }
 
   async pairCheck(): Promise<PairCheckResponse> {
-    const r = await this.call("/api/pair/check", { method: "POST", auth: false, body: JSON.stringify({ deviceId: this.deviceId }) });
+    const r = await this.call("/api/pair/check", { method: "POST", auth: false, body: JSON.stringify({ deviceId: this.deviceId, ...(this.snap.pollSecret ? { pollSecret: this.snap.pollSecret } : {}) }) });
     const body = PairCheckResponseSchema.parse(await r.json());
     if (body.status === "confirmed") {
       this.snap.token = body.deviceToken;

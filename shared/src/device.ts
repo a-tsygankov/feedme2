@@ -41,12 +41,17 @@ export const DevicePatchSchema = z
   .refine((o) => Object.keys(o).length > 0, "empty patch");
 export type DevicePatch = z.infer<typeof DevicePatchSchema>;
 
-export const PairStartBodySchema = z.object({ deviceId: DeviceIdSchema, hwModel: HwModelSchema, fwVersion: FwVersionSchema });
+/**
+ * Random per-handshake secret the device generates at /start and repeats on every /check. The server stores
+ * only its hash. Without it, /check (public) would hand the device token to anyone who knows the device id.
+ */
+export const PollSecretSchema = z.string().regex(/^[0-9a-f]{32,64}$/, "32-64 lowercase hex chars");
+export const PairStartBodySchema = z.object({ deviceId: DeviceIdSchema, hwModel: HwModelSchema, fwVersion: FwVersionSchema, pollSecret: PollSecretSchema });
 export type PairStartBody = z.infer<typeof PairStartBodySchema>;
 export const PairStartResponseSchema = z.object({ pairCode: PairCodeSchema, expiresAt: epochMs, pollAfterSec: z.number().int().positive() });
 export type PairStartResponse = z.infer<typeof PairStartResponseSchema>;
 
-export const PairCheckBodySchema = z.object({ deviceId: DeviceIdSchema });
+export const PairCheckBodySchema = z.object({ deviceId: DeviceIdSchema, pollSecret: PollSecretSchema });
 export const PairCheckResponseSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("pending") }),
   z.object({ status: z.literal("confirmed"), deviceToken: z.string().min(1), houseId: z.string(), houseName: z.string(), deviceName: z.string() }),
@@ -88,7 +93,7 @@ export type DeviceFeedingCreate = z.infer<typeof DeviceFeedingCreateSchema>;
 export const DeviceFeedingsBodySchema = z.array(DeviceFeedingCreateSchema).min(1).max(100);
 export const DeviceFeedingsResponseSchema = z.object({
   accepted: z.array(z.string()),
-  /** Ids whose fedAt the server moved into [now − 7 d, now + 5 min] (bad device clock). */
+  /** Ids whose fedAt the server moved to now (a clock more than 5 min ahead, or before 2020: an unset RTC). */
   clamped: z.array(z.string()),
   now: epochMs,
 });

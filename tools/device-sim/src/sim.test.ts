@@ -11,6 +11,7 @@ function fakeApi() {
   let failNext: number | null = null;
   const failOn = new Map<string, number>();
   let checkStatus: "pending" | "expired" | "unknown" = "pending";
+  let pollSecret: string | null = null;
   const fetchFn: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
@@ -18,8 +19,9 @@ function fakeApi() {
     calls.push({ method: init?.method ?? "GET", path: url.pathname, body, headers });
     if (failNext !== null) { const s = failNext; failNext = null; return new Response(JSON.stringify({ error: "internal" }), { status: s }); }
     const json = (b: unknown, status = 200, h: Record<string, string> = {}) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json", ...h } });
-    if (url.pathname === "/api/pair/start") { pairings++; return json({ pairCode: "123456", expiresAt: Date.now() + 600_000, pollAfterSec: 3 }); }
-    if (url.pathname === "/api/pair/check") return confirmed ? json({ status: "confirmed", deviceToken: "tok", houseId: "h", houseName: "H", deviceName: "Kitchen" }) : json({ status: checkStatus });
+    if (url.pathname === "/api/pair/start") { pairings++; pollSecret = (body as { pollSecret?: string }).pollSecret ?? null; return json({ pairCode: "123456", expiresAt: Date.now() + 600_000, pollAfterSec: 3 }); }
+    // Like the real server: a wrong or missing poll secret is told "pending", never the token.
+    if (url.pathname === "/api/pair/check") return confirmed && (body as { pollSecret?: string }).pollSecret === pollSecret ? json({ status: "confirmed", deviceToken: "tok", houseId: "h", houseName: "H", deviceName: "Kitchen" }) : json({ status: checkStatus });
     if (failOn.has(url.pathname)) return json({ error: "boom" }, failOn.get(url.pathname)!);
     if (headers.authorization !== "Bearer tok") return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/api/device/state") {
@@ -32,7 +34,7 @@ function fakeApi() {
     return json({ error: "not_found" }, 404);
   };
   return { fetchFn, calls, confirm: () => { confirmed = true; }, bumpEtag: () => { etag = 'W/"0000000000000002"'; }, failNext: (s: number) => { failNext = s; }, failOn: (path: string, s: number) => { failOn.set(path, s); },
-    setCheckStatus: (s: "pending" | "expired" | "unknown") => { checkStatus = s; }, pairings: () => pairings };
+    setCheckStatus: (s: "pending" | "expired" | "unknown") => { checkStatus = s; }, pairings: () => pairings, pollSecret: () => pollSecret };
 }
 
 describe("DeviceSim", () => {
@@ -47,6 +49,23 @@ describe("DeviceSim", () => {
     expect(sim.snapshot().houseId).toBe("h");
     const again = DeviceSim.fromSnapshot({ apiBase: "http://x", fetchFn: api.fetchFn }, sim.snapshot());
     expect(again.deviceId).toBe(sim.deviceId);
+  });
+
+  it("sends a fresh random poll secret on start and repeats it on every check", async () => {
+    const api = fakeApi();
+    const sim = new DeviceSim({ apiBase: "http://x", fetchFn: api.fetchFn });
+    await sim.pairStart();
+    await sim.pairCheck();
+    const start = api.calls.find((c) => c.path === "/api/pair/start")!.body as { pollSecret: string };
+    const check = api.calls.find((c) => c.path === "/api/pair/check")!.body as { pollSecret: string };
+    expect(start.pollSecret).toMatch(/^[0-9a-f]{32}$/);
+    expect(check.pollSecret).toBe(start.pollSecret);
+    // survives a restart through the snapshot, and a new start rolls it
+    const again = DeviceSim.fromSnapshot({ apiBase: "http://x", fetchFn: api.fetchFn }, sim.snapshot());
+    await again.pairCheck();
+    expect((api.calls.at(-1)!.body as { pollSecret: string }).pollSecret).toBe(start.pollSecret);
+    await again.pairStart();
+    expect((api.calls.at(-1)!.body as { pollSecret: string }).pollSecret).not.toBe(start.pollSecret);
   });
 
   it("fetches state with If-None-Match and reports changes", async () => {
@@ -151,6 +170,17 @@ describe("DeviceSim", () => {
     expect(sim.feed("Mochi", 51_974).enteredValue).toBe("52");
     expect(sim.feed("Mochi", 51_500).enteredValue).toBe("51.5");
     expect(sim.feed("Mochi", 800).enteredValue).toBe("0.8");
+  });
+
+  // Regression: 1-50 mg used to snap to the whole gram "0", which the server's EnteredValueSchema refuses,
+  // so feed(cat, 24) threw even though 24 mg is a valid amount.
+  it("derives a positive entered value for tiny amounts instead of snapping to 0", async () => {
+    const api = fakeApi();
+    const sim = await paired(api);
+    expect(sim.feed("Mochi", 24).enteredValue).toBe("0.02");
+    expect(sim.feed("Mochi", 1).enteredValue).toBe("0.001");
+    expect(sim.feed("Mochi", 49).enteredValue).toBe("0.05");
+    expect(sim.feed("Mochi", 960).enteredValue).toBe("1");
   });
 
   it("heartbeat reports the configured battery level", async () => {

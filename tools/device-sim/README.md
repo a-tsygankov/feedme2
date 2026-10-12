@@ -14,6 +14,11 @@ defaults to `http://127.0.0.1:8787`; once saved in the snapshot it is reused, an
 pnpm --filter @feedme2/device-sim start pair --api http://127.0.0.1:8787
 ```
 
+`pair` generates a random poll secret (32 hex chars), sends it with the start and every
+check, and keeps it in the snapshot: the server only hands the token to the holder of
+that secret, and only for about a minute after the first delivery. A `pair` that is
+interrupted and restarted must start over.
+
 Type the printed 6-digit code into Settings > Devices in the web app, then:
 
 ```

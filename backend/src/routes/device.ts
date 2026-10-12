@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { zValidator } from "@hono/zod-validator";
 import { DeviceFeedingsBodySchema, DeviceLogsBodySchema, HeartbeatBodySchema, type DeviceState } from "@feedme2/shared";
@@ -17,6 +17,9 @@ import { validationHook } from "../validation.ts";
 
 type Env = { Bindings: Bindings } & DeviceVars;
 
+/** A hostile or broken device must not make the worker buffer and parse megabytes before validation says no. */
+const tooLarge = (c: Context) => c.json({ error: "payload_too_large" }, 413);
+
 async function weakEtag(stable: unknown): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(stable)));
   return `W/"${[...new Uint8Array(digest)].slice(0, 8).map((b) => b.toString(16).padStart(2, "0")).join("")}"`;
@@ -26,21 +29,26 @@ async function weakEtag(stable: unknown): Promise<string> {
  * The one device read (spec §3.3, §5.3): everything the Idle/Amount
  * screens need in one round trip. The ETag covers the parts that change
  * when a person does something (settings, cats, defaults, device name)
- * and deliberately excludes `now` and the tz offset, so a device that
- * polls on its timer gets 304s until something it displays changed.
+ * and the house's UTC offset (it changes twice a year at DST, and a 304
+ * would leave the device's clock an hour off until something else changed),
+ * but deliberately excludes `now`, so a device that polls on its timer
+ * gets 304s until something it displays changed.
  */
-export async function buildDeviceState(d: Db, houseId: string, deviceId: string, nowMs: number): Promise<{ body: DeviceState; etag: string }> {
+export async function buildDeviceState(d: Db, houseId: string, device: { id: string; name: string }, nowMs: number): Promise<{ body: DeviceState; etag: string }> {
   const houseRow = (await new HousesRepo(d).findById(houseId))!;
   const house = toApiHouse(houseRow);
-  const device = (await new DevicesRepo(d).getAny(deviceId))!;
   const cats = (await new CatsRepo(d).list(houseId)).map(toApiCat).map((c) => ({
     id: c.id, name: c.name, color: c.color, avatarPose: c.avatarPose, hungryAfterSec: c.hungryAfterSec, sortOrder: c.sortOrder,
     defaultAmountMg: c.defaultAmountMg, defaultEnteredUnit: c.defaultEnteredUnit, defaultEnteredValue: c.defaultEnteredValue, lastFedAt: c.lastFedAt,
   }));
-  const stable = { house: { id: house.id, name: house.name, settings: house.settings }, device: { id: device.id, name: device.name }, cats };
+  const stable = {
+    house: { id: house.id, name: house.name, tzOffsetMin: tzOffsetMin(house.settings.timezone, nowMs), settings: house.settings },
+    device: { id: device.id, name: device.name },
+    cats,
+  };
   const etag = await weakEtag(stable);
   const body: DeviceState = {
-    house: { ...stable.house, tzOffsetMin: tzOffsetMin(house.settings.timezone, nowMs) },
+    house: stable.house,
     device: stable.device,
     cats,
     now: nowMs,
@@ -53,13 +61,13 @@ export async function buildDeviceState(d: Db, houseId: string, deviceId: string,
 export const deviceRouter = new Hono<Env>()
   .use("*", requireDevice())
   .get("/state", async (c) => {
-    const { body, etag } = await buildDeviceState(db(c.env.DB), c.var.houseId, c.var.deviceId, clock.now());
+    const { body, etag } = await buildDeviceState(db(c.env.DB), c.var.houseId, c.var.device, clock.now());
     c.header("ETag", etag);
     c.header("Cache-Control", "no-store");
     if (c.req.header("if-none-match") === etag) return c.body(null, 304);
     return c.json(body);
   })
-  .post("/feedings", zValidator("json", DeviceFeedingsBodySchema, validationHook), async (c) => {
+  .post("/feedings", bodyLimit({ maxSize: 64 * 1024, onError: tooLarge }), zValidator("json", DeviceFeedingsBodySchema, validationHook), async (c) => {
     const d = db(c.env.DB);
     const now = clock.now();
     const items = c.req.valid("json");
@@ -73,16 +81,21 @@ export const deviceRouter = new Hono<Env>()
     const foreign = await repo.idsOwnedByOtherHouses(c.var.houseId, [...new Set(items.map((i) => i.id))]);
     if (foreign.length > 0) return c.json({ error: "id_conflict", ids: foreign }, 409);
     const clamped: string[] = [];
+    // The device's original times, for the log: the stored row only keeps the corrected one.
+    const clampedFrom: Array<{ id: string; fedAt: number }> = [];
     const fixed = items.map((i) => {
       const r = clampFedAt(i.fedAt, now);
-      if (r.clamped) clamped.push(i.id);
+      if (r.clamped) {
+        clamped.push(i.id);
+        clampedFrom.push({ id: i.id, fedAt: i.fedAt });
+      }
       return { ...i, fedAt: r.fedAt };
     });
     const accepted = await repo.createMany(c.var.houseId, fixed, { source: "device", deviceId: c.var.deviceId }, now);
-    if (clamped.length > 0) log.warn("device feeding clock clamped", { deviceId: c.var.deviceId, ids: clamped });
+    if (clamped.length > 0) log.warn("device feeding clock clamped", { deviceId: c.var.deviceId, now, clamped: clampedFrom.slice(0, 20) });
     return c.json({ accepted, clamped, now }, 201);
   })
-  .post("/heartbeat", zValidator("json", HeartbeatBodySchema, validationHook), async (c) => {
+  .post("/heartbeat", bodyLimit({ maxSize: 4 * 1024, onError: tooLarge }), zValidator("json", HeartbeatBodySchema, validationHook), async (c) => {
     const b = c.req.valid("json");
     const now = clock.now();
     await new DevicesRepo(db(c.env.DB)).touch(c.var.deviceId, now, {
@@ -95,12 +108,13 @@ export const deviceRouter = new Hono<Env>()
   })
   .post(
     "/logs",
-    bodyLimit({ maxSize: 128 * 1024, onError: (c) => c.json({ error: "payload_too_large" }, 413) }),
+    bodyLimit({ maxSize: 128 * 1024, onError: tooLarge }),
     zValidator("json", DeviceLogsBodySchema, validationHook),
     async (c) => {
       // The schema strips source/deviceId from the body: a device cannot forge
       // worker or web rows, and the device id comes from the verified token.
-      const entries = c.req.valid("json").map((e) => ({ ...e, source: "device" as const }));
+      // clientId too: it names a web client, and a device must not be able to appear as one.
+      const entries = c.req.valid("json").map((e) => ({ ...e, source: "device" as const, clientId: undefined }));
       await new LogsRepo(db(c.env.DB)).insertMany(c.var.houseId, entries, { deviceId: c.var.deviceId }, clock.now());
       return c.body(null, 202);
     },

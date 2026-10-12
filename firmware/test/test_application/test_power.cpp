@@ -112,7 +112,6 @@ void test_power_sleep_timeout_from_settings_bounds_light_sleep_call() {
     r.pm.tick(0);
     r.pm.tick(31'000);
     TEST_ASSERT_EQUAL_INT(1, r.power.lightSleeps);
-    TEST_ASSERT_TRUE(r.power.lastMaxMs > 0);
     TEST_ASSERT_EQUAL_UINT32(600'000, r.power.lastMaxMs);
     // A sync due sooner than the timeout bounds the nap so the timer wake lands on the round.
     Rig s;
@@ -254,4 +253,28 @@ void test_power_timers_survive_millis_wrap() {
     TEST_ASSERT_EQUAL(PowerTier::LightSleep, r.pm.tier());
     TEST_ASSERT_FALSE(r.pm.timerWakeDue(start + 30'001 + 59'999));
     TEST_ASSERT_TRUE(r.pm.timerWakeDue(start + 30'001 + 60'000));
+}
+
+// Task 16: a zero or negative sync interval (a corrupt setting) would make every sleeping tick a
+// timer wake; it clamps to one second, and that second bounds the nap.
+void test_power_sync_interval_below_one_second_clamps_to_one() {
+    Rig r;
+    r.pm.setSyncIntervalSec(0);
+    TEST_ASSERT_EQUAL_INT32(1, r.pm.syncIntervalSec());
+    r.pm.setSyncIntervalSec(-7);
+    TEST_ASSERT_EQUAL_INT32(1, r.pm.syncIntervalSec());
+    r.pm.setSyncIntervalSec(1);
+    TEST_ASSERT_EQUAL_INT32(1, r.pm.syncIntervalSec());
+    r.pm.setSleepTimeoutSec(600);
+    r.pm.tick(0);
+    r.pm.tick(31'000);
+    TEST_ASSERT_EQUAL(PowerTier::LightSleep, r.pm.tier());
+    TEST_ASSERT_EQUAL_UINT32(1'000, r.power.lastMaxMs);
+    TEST_ASSERT_FALSE(r.pm.timerWakeDue(31'999));
+    TEST_ASSERT_TRUE(r.pm.timerWakeDue(32'000));
+    TEST_ASSERT_FALSE(r.pm.timerWakeDue(32'001));
+    TEST_ASSERT_TRUE(r.pm.timerWakeDue(33'000));
+    // A sane value afterwards is kept as given.
+    r.pm.setSyncIntervalSec(21'600);
+    TEST_ASSERT_EQUAL_INT32(21'600, r.pm.syncIntervalSec());
 }

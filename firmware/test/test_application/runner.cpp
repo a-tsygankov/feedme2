@@ -2,6 +2,11 @@
 void test_events_have_stable_names();
 void test_state_codec_parses_the_sample_fixture();
 void test_state_codec_rejects_garbage_and_missing_cats();
+void test_state_codec_colour_accepts_lowercase_hex_and_falls_back_on_garbage();
+void test_state_codec_missing_optional_fields_take_defaults();
+void test_state_codec_tz_offset_extremes_pass_through_signed();
+void test_state_codec_rejects_non_positive_intervals_naming_the_field();
+void test_state_codec_top_level_intervals_override_settings_and_cats_sort();
 void test_heartbeat_encoding();
 void test_draft_round_trip_and_array();
 void test_accepted_ids_and_server_now();
@@ -48,6 +53,9 @@ void test_sync_unauthorized_erases_cached_state();
 void test_sync_stopped_round_retries_after_sixty_seconds();
 void test_sync_sends_the_queue_in_batches_of_twenty();
 void test_sync_unauthorized_on_feedings_clears_token_and_keeps_queue();
+void test_sync_first_requested_reason_wins_until_the_round_runs();
+void test_sync_heartbeat_carries_the_info_app_sets();
+void test_sync_unauthorized_on_heartbeat_unpairs_and_drops_the_fresh_state();
 void test_power_awake_dims_then_sleeps_and_input_wakes();
 void test_power_input_while_dim_is_swallowed_once();
 void test_power_timer_wake_due_once_per_interval();
@@ -58,6 +66,7 @@ void test_power_stuck_hold_stops_resetting_idle_after_ten_seconds();
 void test_power_wake_from_sleep_sleeps_out_before_backlight();
 void test_power_hold_awake_postpones_light_sleep_but_not_dim();
 void test_power_timers_survive_millis_wrap();
+void test_power_sync_interval_below_one_second_clamps_to_one();
 void test_app_boot_unpaired_shows_pair_and_starts_pairing();
 void test_app_boot_paired_with_cached_state_renders_idle_and_requests_sync();
 void test_app_knob_feed_flow_single_cat();
@@ -71,6 +80,8 @@ void test_app_long_press_arc_follows_the_held_knob();
 void test_app_unpair_long_press_clears_token();
 void test_app_sleep_now_naps_on_the_next_tick();
 void test_app_hunger_uses_the_snapshot_clock_until_the_server_answers();
+void test_app_history_scrolls_within_the_rows_logged();
+void test_app_swipes_act_as_rotations();
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -78,6 +89,11 @@ int main() {
     RUN_TEST(test_events_have_stable_names);
     RUN_TEST(test_state_codec_parses_the_sample_fixture);
     RUN_TEST(test_state_codec_rejects_garbage_and_missing_cats);
+    RUN_TEST(test_state_codec_colour_accepts_lowercase_hex_and_falls_back_on_garbage);
+    RUN_TEST(test_state_codec_missing_optional_fields_take_defaults);
+    RUN_TEST(test_state_codec_tz_offset_extremes_pass_through_signed);
+    RUN_TEST(test_state_codec_rejects_non_positive_intervals_naming_the_field);
+    RUN_TEST(test_state_codec_top_level_intervals_override_settings_and_cats_sort);
     RUN_TEST(test_heartbeat_encoding);
     RUN_TEST(test_draft_round_trip_and_array);
     RUN_TEST(test_accepted_ids_and_server_now);
@@ -124,6 +140,9 @@ int main() {
     RUN_TEST(test_sync_stopped_round_retries_after_sixty_seconds);
     RUN_TEST(test_sync_sends_the_queue_in_batches_of_twenty);
     RUN_TEST(test_sync_unauthorized_on_feedings_clears_token_and_keeps_queue);
+    RUN_TEST(test_sync_first_requested_reason_wins_until_the_round_runs);
+    RUN_TEST(test_sync_heartbeat_carries_the_info_app_sets);
+    RUN_TEST(test_sync_unauthorized_on_heartbeat_unpairs_and_drops_the_fresh_state);
     RUN_TEST(test_power_awake_dims_then_sleeps_and_input_wakes);
     RUN_TEST(test_power_input_while_dim_is_swallowed_once);
     RUN_TEST(test_power_timer_wake_due_once_per_interval);
@@ -134,6 +153,7 @@ int main() {
     RUN_TEST(test_power_wake_from_sleep_sleeps_out_before_backlight);
     RUN_TEST(test_power_hold_awake_postpones_light_sleep_but_not_dim);
     RUN_TEST(test_power_timers_survive_millis_wrap);
+    RUN_TEST(test_power_sync_interval_below_one_second_clamps_to_one);
     RUN_TEST(test_app_boot_unpaired_shows_pair_and_starts_pairing);
     RUN_TEST(test_app_boot_paired_with_cached_state_renders_idle_and_requests_sync);
     RUN_TEST(test_app_knob_feed_flow_single_cat);
@@ -147,5 +167,7 @@ int main() {
     RUN_TEST(test_app_unpair_long_press_clears_token);
     RUN_TEST(test_app_sleep_now_naps_on_the_next_tick);
     RUN_TEST(test_app_hunger_uses_the_snapshot_clock_until_the_server_answers);
+    RUN_TEST(test_app_history_scrolls_within_the_rows_logged);
+    RUN_TEST(test_app_swipes_act_as_rotations);
     return UNITY_END();
 }

@@ -424,7 +424,7 @@ void test_app_timer_wake_requests_timer_round_and_queue_holds_device_awake() {
     TEST_ASSERT_EQUAL(PowerTier::LightSleep, r.app->power().tier());
     TEST_ASSERT_TRUE(r.power.displayAsleep);
     r.tick(31'000 + 21'600'000 + 10);
-    TEST_ASSERT_TRUE(r.power.lightSleeps > naps);
+    TEST_ASSERT_EQUAL_INT(naps + 1, r.power.lightSleeps);   // exactly one new nap, on the tick after the round
     // A queued feeding (offline) keeps the device from napping until it is sent.
     Rig q;
     q.app->begin();
@@ -535,4 +535,102 @@ void test_app_hunger_uses_the_snapshot_clock_until_the_server_answers() {
     TEST_ASSERT_TRUE(r.app->roster().isAllSelected());
     TEST_ASSERT_EQUAL(domain::HungerLevel::Starving, r.app->selectedLevel());
     TEST_ASSERT_TRUE(r.serialHas("[feedme2] idle cat=all level=starving"));
+}
+
+// Task 16: History scrolls over the rows logged on this device, newest first, and stops at both
+// ends; the earlier History test only had one row, which cannot tell a clamp from a no-op.
+void test_app_history_scrolls_within_the_rows_logged() {
+    Rig r;
+    r.app->begin();
+    // Three feedings for Mochi, the third at 45 g; each Press on Fed returns to Idle at once.
+    r.pushAndTick(InputEvent::Press, 10); r.pushAndTick(InputEvent::Press, 20); r.pushAndTick(InputEvent::Press, 30);
+    r.pushAndTick(InputEvent::Press, 40); r.pushAndTick(InputEvent::Press, 50); r.pushAndTick(InputEvent::Press, 60);
+    r.pushAndTick(InputEvent::Press, 70); r.pushAndTick(InputEvent::RotateCW, 80); r.pushAndTick(InputEvent::Press, 90);
+    r.pushAndTick(InputEvent::Press, 100);
+    TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
+    TEST_ASSERT_EQUAL_UINT32(3, r.app->feedings().queue().size());
+    const auto rows = r.app->historyEntries();
+    TEST_ASSERT_EQUAL_UINT32(3, rows.size());
+    TEST_ASSERT_EQUAL_INT32(45000, rows[0].amountMg);
+    TEST_ASSERT_TRUE(rows[0].amountKnown);
+    TEST_ASSERT_EQUAL_STRING("Mochi", rows[0].catName.c_str());
+    TEST_ASSERT_EQUAL_INT64(90, rows[0].fedAtMs);   // unsynced clock: the monotonic stamp of the Press
+    TEST_ASSERT_EQUAL_INT64(20, rows[2].fedAtMs);
+    // The state's lastFedAt rows are not mixed in once something was logged here.
+    TEST_ASSERT_EQUAL_INT32(40000, rows[2].amountMg);
+    r.pushAndTick(InputEvent::DoubleTap, 110);
+    TEST_ASSERT_EQUAL(ScreenId::History, r.screen());
+    TEST_ASSERT_EQUAL_INT(0, r.app->historyOffset());
+    const uint32_t gen = r.app->uiGeneration();
+    r.pushAndTick(InputEvent::RotateCW, 120);
+    TEST_ASSERT_EQUAL_INT(1, r.app->historyOffset());
+    TEST_ASSERT_TRUE(r.app->uiGeneration() > gen);   // a scroll is a redraw
+    r.pushAndTick(InputEvent::RotateCW, 130);
+    TEST_ASSERT_EQUAL_INT(2, r.app->historyOffset());
+    r.pushAndTick(InputEvent::RotateCW, 140);
+    TEST_ASSERT_EQUAL_INT(2, r.app->historyOffset());   // last row: no further
+    r.pushAndTick(InputEvent::SwipeRight, 150);
+    TEST_ASSERT_EQUAL_INT(2, r.app->historyOffset());
+    r.pushAndTick(InputEvent::RotateCCW, 160);
+    TEST_ASSERT_EQUAL_INT(1, r.app->historyOffset());
+    r.pushAndTick(InputEvent::SwipeLeft, 170);
+    TEST_ASSERT_EQUAL_INT(0, r.app->historyOffset());
+    r.pushAndTick(InputEvent::RotateCCW, 180);
+    TEST_ASSERT_EQUAL_INT(0, r.app->historyOffset());   // first row: no further
+    TEST_ASSERT_EQUAL(ScreenId::History, r.screen());   // scrolling never leaves the overlay
+    r.pushAndTick(InputEvent::LongPress, 190);
+    TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
+    // Reopening starts at the top again.
+    r.pushAndTick(InputEvent::DoubleTap, 200);
+    r.pushAndTick(InputEvent::RotateCW, 210);
+    TEST_ASSERT_EQUAL_INT(1, r.app->historyOffset());
+    r.pushAndTick(InputEvent::Press, 220);
+    TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
+    r.pushAndTick(InputEvent::DoubleTap, 230);
+    TEST_ASSERT_EQUAL_INT(0, r.app->historyOffset());
+    // Nothing above logged a feeding or touched the queue.
+    TEST_ASSERT_EQUAL_UINT32(3, r.app->feedings().queue().size());
+}
+
+// Touch swipes are the knob's rotations on every screen that rotates (spec §5.2).
+void test_app_swipes_act_as_rotations() {
+    Rig r;
+    r.app->begin();
+    r.pushAndTick(InputEvent::SwipeRight, 10);
+    TEST_ASSERT_EQUAL_STRING("Luna", r.app->roster().selected()->name.c_str());
+    r.pushAndTick(InputEvent::SwipeRight, 20);
+    TEST_ASSERT_TRUE(r.app->roster().isAllSelected());
+    r.pushAndTick(InputEvent::SwipeLeft, 30);
+    TEST_ASSERT_EQUAL_STRING("Luna", r.app->roster().selected()->name.c_str());
+    r.pushAndTick(InputEvent::SwipeLeft, 40);
+    TEST_ASSERT_EQUAL_STRING("Mochi", r.app->roster().selected()->name.c_str());
+    r.pushAndTick(InputEvent::Press, 50);
+    TEST_ASSERT_EQUAL(ScreenId::Amount, r.screen());
+    r.pushAndTick(InputEvent::SwipeRight, 60);
+    TEST_ASSERT_EQUAL_INT32(45000, r.app->flow().amountMg());
+    TEST_ASSERT_TRUE(r.serialHas("[feedme2] amount cat=Mochi mg=45000 text=45 g"));
+    r.pushAndTick(InputEvent::SwipeLeft, 70);
+    r.pushAndTick(InputEvent::SwipeLeft, 80);
+    TEST_ASSERT_EQUAL_INT32(35000, r.app->flow().amountMg());
+    r.pushAndTick(InputEvent::LongPress, 90);   // cancel
+    TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
+    TEST_ASSERT_TRUE(r.app->feedings().queue().empty());
+    // The system menu wraps the same way under a swipe.
+    r.pushAndTick(InputEvent::LongPress, 100);
+    TEST_ASSERT_EQUAL(ScreenId::System, r.screen());
+    r.pushAndTick(InputEvent::SwipeLeft, 110);
+    TEST_ASSERT_EQUAL_INT(3, r.app->menuIndex());
+    r.pushAndTick(InputEvent::SwipeRight, 120);
+    TEST_ASSERT_EQUAL_INT(0, r.app->menuIndex());
+    r.pushAndTick(InputEvent::DoubleTap, 130);
+    TEST_ASSERT_EQUAL(ScreenId::Idle, r.screen());
+    // A swipe on Pair does nothing, like a turn.
+    Rig p(false, false);
+    p.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"424242\",\"expiresAt\":600000,\"pollAfterSec\":3}"));
+    p.app->begin();
+    p.pushAndTick(InputEvent::SwipeRight, 10);
+    p.pushAndTick(InputEvent::SwipeLeft, 20);
+    TEST_ASSERT_EQUAL(ScreenId::Pair, p.screen());
+    TEST_ASSERT_EQUAL_UINT32(1, p.net.pairStarts.size());
+    TEST_ASSERT_EQUAL_STRING("424242", p.app->pair().view().pairCode.c_str());
 }

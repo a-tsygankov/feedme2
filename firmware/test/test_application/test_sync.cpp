@@ -480,3 +480,83 @@ void test_sync_unauthorized_on_feedings_clears_token_and_keeps_queue() {
     TEST_ASSERT_TRUE(r.net.ifNoneMatch.empty());
     TEST_ASSERT_TRUE(r.serialHas("warn device unpaired by server"));
 }
+
+// Task 16: a feeding's request must not be renamed by a wake that arrives before the round runs,
+// since the scenarios wait for "sync start reason=feeding"; once it ran, the next request names itself.
+void test_sync_first_requested_reason_wins_until_the_round_runs() {
+    Rig r;
+    r.sync.requestRound("feeding");
+    r.sync.requestRound("wake");
+    TEST_ASSERT_TRUE(r.sync.roundRequested());
+    r.pushHappyRound(sample());
+    r.sync.tick(10);
+    TEST_ASSERT_FALSE(r.sync.roundRequested());
+    TEST_ASSERT_EQUAL_STRING("feeding", r.sync.last().reason.c_str());
+    TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync start reason=feeding"));
+    TEST_ASSERT_FALSE(r.serialHas("reason=wake"));
+    r.net.logResults.push_back(test::StubNetwork::status(202));
+    r.net.stateResults.push_back(test::StubNetwork::status(304));
+    r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1700000001000}"));
+    r.sync.requestRound("wake");
+    r.sync.tick(20);
+    TEST_ASSERT_EQUAL_STRING("wake", r.sync.last().reason.c_str());
+    // A null reason is tolerated as an empty one, not a crash.
+    r.net.logResults.push_back(test::StubNetwork::status(202));
+    r.net.stateResults.push_back(test::StubNetwork::status(304));
+    r.net.heartbeatResults.push_back(test::StubNetwork::ok("{\"now\":1700000002000}"));
+    r.sync.requestRound(nullptr);
+    r.sync.tick(30);
+    TEST_ASSERT_EQUAL_STRING("", r.sync.last().reason.c_str());
+    TEST_ASSERT_TRUE(r.sync.lastRoundOk());
+}
+
+void test_sync_heartbeat_carries_the_info_app_sets() {
+    Rig r;
+    application::HeartbeatInfo info;
+    info.fw = "1.2.3"; info.resetReason = "DEEPSLEEP"; info.freeHeap = 123456; info.batteryPct = 42;
+    r.sync.setHeartbeatInfo(info);
+    r.pushHappyRound(sample());
+    r.sync.requestRound("timer");
+    r.sync.tick(65'400);
+    TEST_ASSERT_EQUAL_UINT32(1, r.net.postedHeartbeats.size());
+    JsonDocument d;
+    TEST_ASSERT_FALSE(deserializeJson(d, r.net.postedHeartbeats[0]));
+    TEST_ASSERT_EQUAL_STRING("1.2.3", d["fwVersion"]);
+    TEST_ASSERT_EQUAL_STRING("DEEPSLEEP", d["resetReason"]);
+    TEST_ASSERT_EQUAL_UINT32(123456, d["freeHeap"].as<uint32_t>());
+    TEST_ASSERT_EQUAL_INT(42, d["batteryPct"].as<int>());
+    TEST_ASSERT_EQUAL_UINT32(65, d["uptimeSec"].as<uint32_t>());   // whole seconds of the tick time
+    // The defaults of a bare service: placeholder fw and reason, no battery key at all.
+    Rig bare;
+    bare.pushHappyRound(sample());
+    bare.sync.requestRound("boot");
+    bare.sync.tick(999);
+    TEST_ASSERT_FALSE(deserializeJson(d, bare.net.postedHeartbeats[0]));
+    TEST_ASSERT_EQUAL_STRING("0.0.0", d["fwVersion"]);
+    TEST_ASSERT_EQUAL_STRING("unknown", d["resetReason"]);
+    TEST_ASSERT_FALSE(d["batteryPct"].is<int>());
+    TEST_ASSERT_EQUAL_UINT32(0, d["uptimeSec"].as<uint32_t>());
+}
+
+// The heartbeat is the last step: a 401 there still unpairs the device and discards the state the
+// same round just applied, so Idle cannot keep rendering a house the server has disowned.
+void test_sync_unauthorized_on_heartbeat_unpairs_and_drops_the_fresh_state() {
+    Rig r;
+    r.net.logResults.push_back(test::StubNetwork::status(202));
+    r.net.stateResults.push_back(test::StubNetwork::ok(sample(), "W/\"abc\""));
+    r.net.heartbeatResults.push_back(test::StubNetwork::status(401));
+    r.sync.requestRound("boot");
+    r.sync.tick(10);
+    TEST_ASSERT_TRUE(r.sync.last().stateChanged);   // the state step did succeed first
+    TEST_ASSERT_TRUE(r.sync.last().unauthorized);
+    TEST_ASSERT_FALSE(r.sync.last().heartbeatOk);
+    TEST_ASSERT_EQUAL_STRING("heartbeat", r.sync.last().stoppedBy.c_str());
+    TEST_ASSERT_FALSE(r.sync.lastRoundOk());
+    TEST_ASSERT_FALSE(r.pair.isPaired());
+    TEST_ASSERT_FALSE(r.sync.hasState());
+    TEST_ASSERT_EQUAL_UINT32(2, r.sync.generation());   // applied (1), then erased (2)
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("state"));
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("etag"));
+    TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync stopped at=heartbeat status=401"));
+    TEST_ASSERT_FALSE(r.serialHas("[feedme2] sync ok"));
+}

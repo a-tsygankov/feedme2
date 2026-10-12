@@ -1,6 +1,6 @@
 # Phase 2a: Device API + Simulator Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Everything a paired device needs from the backend — pairing, device tokens, the one-read state payload with ETag, device feedings/heartbeat/logs — plus the web app's Devices section and a TypeScript device simulator that drives a full-system e2e, so the firmware plan (Phase 2b) can be built against a live, tested API.
 
@@ -78,7 +78,7 @@ Mount order in `backend/src/index.ts` after Task 8: version, debug, auth, house,
 **Interfaces:**
 - Produces: `DebugLogsQuery.minLevel?: LogLevel` (server-side rank filter: debug < info < warn < error); `api.debugLogs({ minLevel })`.
 
-- [ ] **Step 1: Failing shared test** — append to `shared/src/api.test.ts`:
+- [x] **Step 1: Failing shared test** — append to `shared/src/api.test.ts`:
 
 ```ts
 it("DebugLogsQuerySchema accepts minLevel and keeps level", () => {
@@ -87,16 +87,16 @@ it("DebugLogsQuerySchema accepts minLevel and keeps level", () => {
 });
 ```
 
-- [ ] **Step 2: Run** `cd shared && pnpm test -- api` → FAIL (unknown key is stripped, `minLevel` undefined).
+- [x] **Step 2: Run** `cd shared && pnpm test -- api` → FAIL (unknown key is stripped, `minLevel` undefined).
 
-- [ ] **Step 3: Implement** in `shared/src/api.ts`, inside `DebugLogsQuerySchema`:
+- [x] **Step 3: Implement** in `shared/src/api.ts`, inside `DebugLogsQuerySchema`:
 
 ```ts
   /** Inclusive lower bound by rank (debug < info < warn < error); `level` stays an exact match. */
   minLevel: z.enum(["debug", "info", "warn", "error"]).optional(),
 ```
 
-- [ ] **Step 4: Failing backend test** — append to `backend/test/debug.test.ts`:
+- [x] **Step 4: Failing backend test** — append to `backend/test/debug.test.ts`:
 
 ```ts
 it("minLevel=warn returns warn and error rows only", async () => {
@@ -112,7 +112,7 @@ it("minLevel=warn returns warn and error rows only", async () => {
 });
 ```
 
-- [ ] **Step 5: Implement** in `backend/src/repos/logs.ts` `query()`:
+- [x] **Step 5: Implement** in `backend/src/repos/logs.ts` `query()`:
 
 ```ts
 const LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 } as const;
@@ -123,13 +123,13 @@ if (q.minLevel) {
 }
 ```
 
-- [ ] **Step 6: Console** — in `webapp/src/components/HiddenConsole.tsx` replace the per-level fan-out with a single `api.debugLogs({ ...filters, minLevel })` call (keep `limit: 300`); update the test that asserted N calls to assert one call with `minLevel`.
+- [x] **Step 6: Console** — in `webapp/src/components/HiddenConsole.tsx` replace the per-level fan-out with a single `api.debugLogs({ ...filters, minLevel })` call (keep `limit: 300`); update the test that asserted N calls to assert one call with `minLevel`.
 
-- [ ] **Step 7: Sign-out orphan** — in `webapp/src/screens/Settings.tsx` the sign-out handler must call `api.logout(() => authStore.getRefreshToken())`-style: change `api.logout` in `webapp/src/lib/api-client.ts` to read the refresh token from the auth store *after* `apiFetch` has refreshed (build the body inside the `fetchFn` call, not before). In `backend/src/repos/refresh-tokens.ts` `revokeOne(houseId, token)`: after finding the row by hash, also `delete where rotated_from = row.id` (the child minted by a refresh the client never saw). Test in `backend/test/auth.test.ts`: refresh (rotates), then logout with the OLD token → both old and child rows gone.
+- [x] **Step 7: Sign-out orphan** — in `webapp/src/screens/Settings.tsx` the sign-out handler must call `api.logout(() => authStore.getRefreshToken())`-style: change `api.logout` in `webapp/src/lib/api-client.ts` to read the refresh token from the auth store *after* `apiFetch` has refreshed (build the body inside the `fetchFn` call, not before). In `backend/src/repos/refresh-tokens.ts` `revokeOne(houseId, token)`: after finding the row by hash, also `delete where rotated_from = row.id` (the child minted by a refresh the client never saw). Test in `backend/test/auth.test.ts`: refresh (rotates), then logout with the OLD token → both old and child rows gone.
 
-- [ ] **Step 8: Run everything** — `cd shared && pnpm test && pnpm typecheck && cd ../backend && pnpm test && pnpm typecheck && cd ../webapp && pnpm test && pnpm typecheck` → green.
+- [x] **Step 8: Run everything** — `cd shared && pnpm test && pnpm typecheck && cd ../backend && pnpm test && pnpm typecheck && cd ../webapp && pnpm test && pnpm typecheck` → green.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add shared/src/api.ts shared/src/api.test.ts backend/src/repos/logs.ts backend/src/routes/debug.ts backend/test/debug.test.ts backend/src/repos/refresh-tokens.ts backend/test/auth.test.ts webapp/src/components/HiddenConsole.tsx webapp/src/components/HiddenConsole.test.ts webapp/src/screens/Settings.tsx webapp/src/lib/api-client.ts backend/package.json webapp/package.json
@@ -150,7 +150,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: Drizzle tables `devices` (id, houseId, name, hwModel, fwVersion, lastSeenAt, batteryPct, resetReason, autoInstall, createdAt, modifiedAt, revokedAt) and `pendingPairings` (deviceId, pairCode, requestedAt, expiresAt, houseId, confirmedAt, deviceToken, deliveredAt, cancelledAt).
 
-- [ ] **Step 1: Write the failing test** — append to `backend/test/schema.test.ts` inside the existing describe:
+- [x] **Step 1: Write the failing test** — append to `backend/test/schema.test.ts` inside the existing describe:
 
 ```ts
 it("0002 adds devices and pending_pairings with their constraints", async () => {
@@ -169,9 +169,9 @@ it("0002 adds devices and pending_pairings with their constraints", async () => 
 
 Also extend the drift-guard `it.each` table list with `["devices", devices]` and `["pending_pairings", pendingPairings]` (import both from `../src/db/schema.ts`).
 
-- [ ] **Step 2: Run** `cd backend && pnpm test -- schema` → FAIL ("no such table: devices").
+- [x] **Step 2: Run** `cd backend && pnpm test -- schema` → FAIL ("no such table: devices").
 
-- [ ] **Step 3: Write `backend/migrations/0002_devices_pairings.sql`**
+- [x] **Step 3: Write `backend/migrations/0002_devices_pairings.sql`**
 
 ```sql
 -- Phase 2 (spec §3.1): paired devices and the pairing handshake.
@@ -215,7 +215,7 @@ CREATE UNIQUE INDEX pending_pairings_code ON pending_pairings (pair_code);
 CREATE INDEX pending_pairings_expires ON pending_pairings (expires_at);
 ```
 
-- [ ] **Step 4: Drizzle** — append to `backend/src/db/schema.ts`:
+- [x] **Step 4: Drizzle** — append to `backend/src/db/schema.ts`:
 
 ```ts
 export const devices = sqliteTable(
@@ -258,9 +258,9 @@ export const pendingPairings = sqliteTable(
 
 (`uniqueIndex` comes from `drizzle-orm/sqlite-core`; add it to the existing import.)
 
-- [ ] **Step 5: Run** `cd backend && pnpm test && pnpm typecheck` → green; `version.test.ts` now expects `0002_devices_pairings.sql` automatically (it reads `MIGRATIONS.at(-1)`).
+- [x] **Step 5: Run** `cd backend && pnpm test && pnpm typecheck` → green; `version.test.ts` now expects `0002_devices_pairings.sql` automatically (it reads `MIGRATIONS.at(-1)`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/migrations/0002_devices_pairings.sql backend/src/db/schema.ts backend/test/schema.test.ts backend/package.json
@@ -280,7 +280,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces (all exported from `@feedme2/shared`): `DEVICE_ID_RE`, `DeviceIdSchema`, `PAIR_CODE_RE`, `PairCodeSchema`, `HwModelSchema` (`"crowpanel-1.28" | "simulator" | "device-sim"`), `FwVersionSchema` (semver `^\d+\.\d+\.\d+$`), `DeviceSchema`/`Device`, `DevicePatchSchema`/`DevicePatch` (`name?`, `autoInstall?`, non-empty, strict), `DevicesResponseSchema` (`{devices}`), `PairStartBodySchema`/`PairStartBody` (`{deviceId, hwModel, fwVersion}`), `PairStartResponseSchema` (`{pairCode, expiresAt, pollAfterSec}`), `PairCheckBodySchema` (`{deviceId}`), `PairCheckResponseSchema` (`{status:"pending"} | {status:"confirmed", deviceToken, houseId, houseName, deviceName} | {status:"expired"} | {status:"unknown"}`), `PairConfirmBodySchema` (`{pairCode, name?}`), `PairConfirmResponseSchema` (`{device}`), `DeviceStateCatSchema`, `DeviceStateSchema`/`DeviceState`, `DeviceFeedingCreateSchema` (= FeedingCreate without `note`), `DeviceFeedingsBodySchema` (1–100), `DeviceFeedingsResponseSchema` (`{accepted, clamped, now}`), `HeartbeatBodySchema`/`HeartbeatBody` (`{fwVersion, batteryPct?, uptimeSec, resetReason, freeHeap}`), `HeartbeatResponseSchema` (`{now}`), `DeviceLogsBodySchema` (= `LogsUploadBodySchema`).
 
-- [ ] **Step 1: Write the failing test `shared/src/device.test.ts`**
+- [x] **Step 1: Write the failing test `shared/src/device.test.ts`**
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -331,9 +331,9 @@ describe("device contracts", () => {
 });
 ```
 
-- [ ] **Step 2: Run** `cd shared && pnpm test -- device` → FAIL (module not found).
+- [x] **Step 2: Run** `cd shared && pnpm test -- device` → FAIL (module not found).
 
-- [ ] **Step 3: Write `fixtures/device-state.sample.json`** (Phase 2b's firmware parser asserts the same file):
+- [x] **Step 3: Write `fixtures/device-state.sample.json`** (Phase 2b's firmware parser asserts the same file):
 
 ```json
 {
@@ -361,7 +361,7 @@ describe("device contracts", () => {
 
 (`#2196F3` must be one of `CAT_COLORS`; check `shared/src/api.ts` and use the second swatch's actual value.)
 
-- [ ] **Step 4: Write `shared/src/device.ts`**
+- [x] **Step 4: Write `shared/src/device.ts`**
 
 ```ts
 /**
@@ -471,11 +471,11 @@ export const HeartbeatResponseSchema = z.object({ now: epochMs });
 export const DeviceLogsBodySchema = LogsUploadBodySchema;
 ```
 
-- [ ] **Step 5: Export** — append `export * from "./device.ts";` to `shared/src/index.ts`.
+- [x] **Step 5: Export** — append `export * from "./device.ts";` to `shared/src/index.ts`.
 
-- [ ] **Step 6: Run** `cd shared && pnpm test && pnpm typecheck` → green (9 files).
+- [x] **Step 6: Run** `cd shared && pnpm test && pnpm typecheck` → green (9 files).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add shared/src/device.ts shared/src/device.test.ts shared/src/index.ts fixtures/device-state.sample.json backend/package.json webapp/package.json firmware/src/application/Version.h
@@ -496,7 +496,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `DEVICE_TTL_SEC = 365 * 24 * 3600`; `signDeviceToken(houseId, deviceId, secret, nowMs?)`; `verifyDeviceToken(token, secret): Promise<{houseId, deviceId} | null>` (rejects `typ !== "device"`, `alg` not HS256, expired); `DevicesRepo` with `get(houseId, id)`, `getAny(id)`, `list(houseId)`, `upsertPaired(row)`, `touch(id, nowMs, patch?)` (last_seen + optional fw/battery/reset), `update(houseId, id, patch, nowMs)`, `revoke(houseId, id, nowMs)`, `toApiDevice(row): Device`; `DeviceVars = { Variables: { houseId: string; deviceId: string } }`; `requireDevice()` middleware → 401 `{error:"unauthorized"}` for missing/invalid/revoked/unknown device, else sets both vars and, at most once per 60 s per device, bumps `last_seen_at`.
 
-- [ ] **Step 1: Failing tests `backend/test/device-tokens.test.ts`**
+- [x] **Step 1: Failing tests `backend/test/device-tokens.test.ts`**
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -529,9 +529,9 @@ describe("device tokens", () => {
 });
 ```
 
-- [ ] **Step 2: Run** `cd backend && pnpm test -- device-tokens` → FAIL (module not found).
+- [x] **Step 2: Run** `cd backend && pnpm test -- device-tokens` → FAIL (module not found).
 
-- [ ] **Step 3: Write `backend/src/auth/device-tokens.ts`**
+- [x] **Step 3: Write `backend/src/auth/device-tokens.ts`**
 
 ```ts
 /**
@@ -562,7 +562,7 @@ export async function verifyDeviceToken(token: string, secret: string): Promise<
 }
 ```
 
-- [ ] **Step 4: Write `backend/src/repos/devices.ts`**
+- [x] **Step 4: Write `backend/src/repos/devices.ts`**
 
 ```ts
 import { and, asc, eq, isNull } from "drizzle-orm";
@@ -629,7 +629,7 @@ export class DevicesRepo {
 
 (`HwModel` is `z.infer<typeof HwModelSchema>`; export it from `shared/src/device.ts` if Task 2 did not.)
 
-- [ ] **Step 5: Write `backend/src/middleware/device.ts`**
+- [x] **Step 5: Write `backend/src/middleware/device.ts`**
 
 ```ts
 import type { MiddlewareHandler } from "hono";
@@ -664,9 +664,9 @@ export function requireDevice(): MiddlewareHandler<{ Bindings: Bindings } & Devi
 }
 ```
 
-- [ ] **Step 6: Attribution** — in `backend/src/request-context.ts` add `deviceId: string | null` to the store type and to `runWithRequestContext({ houseId, clientId, deviceId })`; in `flushRequestLogs`/`insertMany` worker rows get `deviceId` from the store (the `log_entries.device_id` column exists since 0000). In `backend/src/index.ts` the request middleware tries `verifyAccessToken` first, then `verifyDeviceToken`; an authenticated device request is attributed to its house with `deviceId` set (so the console's device filter shows the worker lines a device caused).
+- [x] **Step 6: Attribution** — in `backend/src/request-context.ts` add `deviceId: string | null` to the store type and to `runWithRequestContext({ houseId, clientId, deviceId })`; in `flushRequestLogs`/`insertMany` worker rows get `deviceId` from the store (the `log_entries.device_id` column exists since 0000). In `backend/src/index.ts` the request middleware tries `verifyAccessToken` first, then `verifyDeviceToken`; an authenticated device request is attributed to its house with `deviceId` set (so the console's device filter shows the worker lines a device caused).
 
-- [ ] **Step 7: Failing middleware test** — create `backend/test/helpers/device.ts` (used by every later task):
+- [x] **Step 7: Failing middleware test** — create `backend/test/helpers/device.ts` (used by every later task):
 
 ```ts
 import { SELF, env } from "cloudflare:test";
@@ -732,9 +732,9 @@ describe("requireDevice", () => {
 
 This test needs Tasks 4–6 to pass fully; write it now, let it fail on 404 for the missing routes, and re-run it after Task 6.
 
-- [ ] **Step 8: Run** `cd backend && pnpm test && pnpm typecheck` → device-tokens green; device-auth red on missing routes (expected until Task 6).
+- [x] **Step 8: Run** `cd backend && pnpm test && pnpm typecheck` → device-tokens green; device-auth red on missing routes (expected until Task 6).
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/src/auth/device-tokens.ts backend/test/device-tokens.test.ts backend/src/middleware/device.ts backend/src/repos/devices.ts backend/src/request-context.ts backend/src/repos/logs.ts backend/src/index.ts backend/test/helpers/device.ts backend/test/device-auth.test.ts backend/package.json
@@ -754,7 +754,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `PAIR_TTL_MS = 10 * 60_000`, `PAIR_POLL_SEC = 3`; `PairingsRepo` with `start(deviceId, hwModel, fwVersion, nowMs)` → `{pairCode, expiresAt}` (replaces any existing row for the device, retries on code collision), `findByCode(code)`, `findByDevice(deviceId)`, `confirm(deviceId, houseId, token, nowMs)`, `markDelivered(deviceId, nowMs)`, `pruneExpired(nowMs)`; routes `POST /api/pair/start` (public) → 200 `PairStartResponse`; `POST /api/pair/check` (public) → `PairCheckResponse`; `POST /api/pair/confirm` (house) → 201 `{device}`, 404 `pair_code_unknown` (no row or expired), 409 `pair_code_used` (already confirmed), 409 `device_in_use` (device live in another house).
 
-- [ ] **Step 1: Failing tests `backend/test/pair.test.ts`**
+- [x] **Step 1: Failing tests `backend/test/pair.test.ts`**
 
 ```ts
 import { SELF, env } from "cloudflare:test";
@@ -847,9 +847,9 @@ describe("/api/pair", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL (404 on `/api/pair/*`).
+- [x] **Step 2: Run** → FAIL (404 on `/api/pair/*`).
 
-- [ ] **Step 3: Write `backend/src/repos/pairings.ts`**
+- [x] **Step 3: Write `backend/src/repos/pairings.ts`**
 
 ```ts
 import { eq, lt } from "drizzle-orm";
@@ -911,7 +911,7 @@ export class PairingsRepo {
 }
 ```
 
-- [ ] **Step 4: Write `backend/src/routes/pair.ts`**
+- [x] **Step 4: Write `backend/src/routes/pair.ts`**
 
 ```ts
 import { Hono } from "hono";
@@ -983,11 +983,11 @@ export const pairRouter = new Hono<Env>()
   });
 ```
 
-- [ ] **Step 5: Mount and cron** — `backend/src/index.ts`: `import { pairRouter } from "./routes/pair.ts";` and `app.route("/api/pair", pairRouter);` after `/api/logs`. `backend/src/cron.ts`: add `new PairingsRepo(d).pruneExpired(nowMs)` to the `Promise.allSettled` list and the summary log. Extend the cron test in `backend/test/logs.test.ts`: insert an expired pairing row directly, run `runHousekeeping`, assert it is gone and a fresh one survives.
+- [x] **Step 5: Mount and cron** — `backend/src/index.ts`: `import { pairRouter } from "./routes/pair.ts";` and `app.route("/api/pair", pairRouter);` after `/api/logs`. `backend/src/cron.ts`: add `new PairingsRepo(d).pruneExpired(nowMs)` to the `Promise.allSettled` list and the summary log. Extend the cron test in `backend/test/logs.test.ts`: insert an expired pairing row directly, run `runHousekeeping`, assert it is gone and a fresh one survives.
 
-- [ ] **Step 6: Run** `cd backend && pnpm test && pnpm typecheck` → pair tests pass except the final `/api/device/state` 200 check and the DELETE in test 4 (Tasks 5–6); typecheck clean.
+- [x] **Step 6: Run** `cd backend && pnpm test && pnpm typecheck` → pair tests pass except the final `/api/device/state` 200 check and the DELETE in test 4 (Tasks 5–6); typecheck clean.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/src/repos/pairings.ts backend/src/routes/pair.ts backend/test/pair.test.ts backend/src/index.ts backend/src/cron.ts backend/test/logs.test.ts backend/package.json
@@ -1007,7 +1007,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `GET /api/devices` → `{devices: Device[]}` (live only, oldest first); `PATCH /api/devices/:id` `DevicePatch` → `{device}` / 404; `DELETE /api/devices/:id` → 204 (idempotent for this house's device, revoked or not) / 404 foreign or unknown.
 
-- [ ] **Step 1: Failing tests `backend/test/devices.test.ts`**
+- [x] **Step 1: Failing tests `backend/test/devices.test.ts`**
 
 ```ts
 import { DevicesResponseSchema } from "@feedme2/shared";
@@ -1040,9 +1040,9 @@ describe("/api/devices", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL (404).
+- [x] **Step 2: Run** → FAIL (404).
 
-- [ ] **Step 3: Write `backend/src/routes/devices.ts`**
+- [x] **Step 3: Write `backend/src/routes/devices.ts`**
 
 ```ts
 import { Hono } from "hono";
@@ -1077,9 +1077,9 @@ export const devicesRouter = new Hono<{ Bindings: Bindings } & AuthVars>()
   });
 ```
 
-- [ ] **Step 4: Mount** `app.route("/api/devices", devicesRouter);` after `/api/pair`. Run `cd backend && pnpm test && pnpm typecheck` → devices and pair tests green (state 200 still pending Task 6).
+- [x] **Step 4: Mount** `app.route("/api/devices", devicesRouter);` after `/api/pair`. Run `cd backend && pnpm test && pnpm typecheck` → devices and pair tests green (state 200 still pending Task 6).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/routes/devices.ts backend/test/devices.test.ts backend/src/index.ts backend/package.json
@@ -1100,7 +1100,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `tzOffsetMin(timeZone: string, nowMs: number): number` (minutes east of UTC; 0 for an unknown zone); `buildDeviceState(d: Db, houseId, deviceId, nowMs): Promise<{ body: DeviceState; etag: string }>` where `etag = 'W/"' + sha256(JSON.stringify(body without now and tzOffsetMin)).slice(0, 16) + '"'`; route `GET /api/device/state` → 200 + `ETag`, or 304 when `If-None-Match` matches. `deviceRouter` is extended by Tasks 7–8.
 
-- [ ] **Step 1: Failing `backend/test/time.test.ts`**
+- [x] **Step 1: Failing `backend/test/time.test.ts`**
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -1119,7 +1119,7 @@ describe("tzOffsetMin", () => {
 });
 ```
 
-- [ ] **Step 2: Write `backend/src/time.ts`**
+- [x] **Step 2: Write `backend/src/time.ts`**
 
 ```ts
 /**
@@ -1141,7 +1141,7 @@ export function tzOffsetMin(timeZone: string, nowMs: number): number {
 }
 ```
 
-- [ ] **Step 3: Failing `backend/test/device-state.test.ts`**
+- [x] **Step 3: Failing `backend/test/device-state.test.ts`**
 
 ```ts
 import { DeviceStateSchema } from "@feedme2/shared";
@@ -1203,7 +1203,7 @@ describe("GET /api/device/state", () => {
 });
 ```
 
-- [ ] **Step 4: Write `backend/src/routes/device.ts`** (Tasks 7–8 append handlers to this router)
+- [x] **Step 4: Write `backend/src/routes/device.ts`** (Tasks 7–8 append handlers to this router)
 
 ```ts
 import { Hono } from "hono";
@@ -1263,9 +1263,9 @@ export const deviceRouter = new Hono<Env>()
   });
 ```
 
-- [ ] **Step 5: Mount** `app.route("/api/device", deviceRouter);` last. Run `cd backend && pnpm test && pnpm typecheck` → `device-auth`, `pair`, `devices`, `device-state`, `time` all green.
+- [x] **Step 5: Mount** `app.route("/api/device", deviceRouter);` last. Run `cd backend && pnpm test && pnpm typecheck` → `device-auth`, `pair`, `devices`, `device-state`, `time` all green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/time.ts backend/test/time.test.ts backend/src/routes/device.ts backend/test/device-state.test.ts backend/src/index.ts backend/package.json
@@ -1285,7 +1285,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `POST /api/device/feedings` body `DeviceFeedingsBody` → 201 `{accepted, clamped, now}`; 404 `{error:"cat_not_found", catIds}` for cats not in the house (deleted cats of this house are accepted, like the web route); `clampFedAt(fedAt, nowMs): { fedAt, clamped }` into `[now − 7 d, now + 5 min]`. Feedings are stored with `source:"device"`, `deviceId`, and refresh the cat defaults exactly like web feedings.
 
-- [ ] **Step 1: Failing `backend/test/device-feedings.test.ts`**
+- [x] **Step 1: Failing `backend/test/device-feedings.test.ts`**
 
 ```ts
 import { DeviceFeedingsResponseSchema, FeedingsPageSchema } from "@feedme2/shared";
@@ -1353,9 +1353,9 @@ describe("POST /api/device/feedings", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL (404 on `/api/device/feedings`).
+- [x] **Step 2: Run** → FAIL (404 on `/api/device/feedings`).
 
-- [ ] **Step 3: Implement** — in `backend/src/repos/feedings.ts` add:
+- [x] **Step 3: Implement** — in `backend/src/repos/feedings.ts` add:
 
 ```ts
 export const FED_AT_MAX_PAST_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1392,9 +1392,9 @@ and in `backend/src/routes/device.ts` append to `deviceRouter`:
 
 (imports: `zValidator`, `DeviceFeedingsBodySchema`, `validationHook`, `assertCatsInHouse`, `clampFedAt`, `FeedingsRepo`, `log`.) `createMany` already treats foreign duplicate ids as a 409 pre-check in the web route; for the device route call the same `idsOwnedByOtherHouses` helper and return 409 `{error:"id_conflict", ids}` if any — add a test line for it if the helper is exported, otherwise document.
 
-- [ ] **Step 4: Run** `cd backend && pnpm test && pnpm typecheck` → green.
+- [x] **Step 4: Run** `cd backend && pnpm test && pnpm typecheck` → green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/routes/device.ts backend/src/repos/feedings.ts backend/test/device-feedings.test.ts backend/package.json
@@ -1414,7 +1414,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `POST /api/device/heartbeat` `HeartbeatBody` → 200 `{now}`; updates `devices.fw_version`, `battery_pct` (when sent), `reset_reason`, `last_seen_at` (always); logs `info "heartbeat" {deviceId, fwVersion, uptimeSec, freeHeap, resetReason}` into the house feed. `POST /api/device/logs` (`DeviceLogsBodySchema`, 128 KB body cap) → 202; rows stored with `source:"device"`, `device_id`, `ts` clamped like web uploads; visible through `GET /api/debug/logs?device=<id>`.
 
-- [ ] **Step 1: Failing `backend/test/device-logs.test.ts`**
+- [x] **Step 1: Failing `backend/test/device-logs.test.ts`**
 
 ```ts
 import { DebugLogsResponseSchema, DevicesResponseSchema, HeartbeatResponseSchema } from "@feedme2/shared";
@@ -1452,9 +1452,9 @@ describe("device heartbeat and logs", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL (404).
+- [x] **Step 2: Run** → FAIL (404).
 
-- [ ] **Step 3: Implement** — append to `deviceRouter`:
+- [x] **Step 3: Implement** — append to `deviceRouter`:
 
 ```ts
   .post("/heartbeat", zValidator("json", HeartbeatBodySchema, validationHook), async (c) => {
@@ -1480,9 +1480,9 @@ describe("device heartbeat and logs", () => {
 
 Adjust the `insertMany` call to the repo's actual signature (it takes full entries carrying `source`; confirm it writes `device_id` from `e.deviceId`).
 
-- [ ] **Step 4: Run** `cd backend && pnpm test && pnpm typecheck` → green (expect ~16 files).
+- [x] **Step 4: Run** `cd backend && pnpm test && pnpm typecheck` → green (expect ~16 files).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/routes/device.ts backend/test/device-logs.test.ts backend/package.json
@@ -1502,7 +1502,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `api.listDevices(): Promise<DevicesResponse>`, `api.patchDevice(id, patch): Promise<{device}>`, `api.deleteDevice(id): Promise<void>`, `api.confirmPair(body: PairConfirmBody): Promise<{device}>`; hooks `useDevices()`, `useDeviceMutations()` (`rename`, `forget`, `confirmPair`); pure `pairErrorMessage(err: unknown): string`, `deviceStatusLine(d: Device, nowMs): string` ("Kitchen · fw 0.2.3 · seen 5 m ago · 87%"); test ids `devices`, `device-row`, `device-name`, `device-rename`, `device-forget`, `pair-code`, `pair-submit`, `pair-error`, `pair-success`.
 
-- [ ] **Step 1: Failing `webapp/src/lib/devices-ui.test.ts`**
+- [x] **Step 1: Failing `webapp/src/lib/devices-ui.test.ts`**
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -1527,9 +1527,9 @@ describe("devices ui helpers", () => {
 });
 ```
 
-- [ ] **Step 2: Run** `cd webapp && pnpm test -- devices-ui` → FAIL.
+- [x] **Step 2: Run** `cd webapp && pnpm test -- devices-ui` → FAIL.
 
-- [ ] **Step 3: Write `webapp/src/lib/devices-ui.ts`**
+- [x] **Step 3: Write `webapp/src/lib/devices-ui.ts`**
 
 ```ts
 import type { Device } from "@feedme2/shared";
@@ -1555,7 +1555,7 @@ export function deviceStatusLine(d: Device, nowMs: number): string {
 }
 ```
 
-- [ ] **Step 4: API client** — add to the `api` object in `webapp/src/lib/api-client.ts`:
+- [x] **Step 4: API client** — add to the `api` object in `webapp/src/lib/api-client.ts`:
 
 ```ts
   listDevices: () => apiFetch("/api/devices").then((r) => json(r, DevicesResponseSchema)),
@@ -1566,7 +1566,7 @@ export function deviceStatusLine(d: Device, nowMs: number): string {
 
 (follow the file's existing `json(r, schema)` helper and import names.) Add one test in `api-client.test.ts` asserting `confirmPair` POSTs `{pairCode}` with the bearer and parses `{device}`.
 
-- [ ] **Step 5: Hook `webapp/src/hooks/use-devices.ts`**
+- [x] **Step 5: Hook `webapp/src/hooks/use-devices.ts`**
 
 ```ts
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1590,13 +1590,13 @@ export function useDeviceMutations() {
 }
 ```
 
-- [ ] **Step 6: Component `webapp/src/components/DevicesSection.tsx`** — a `Section` titled "Devices" with: the device list (`data-testid="device-row"` per device: name `device-name`, status line from `deviceStatusLine`, a Rename button `device-rename` that swaps the name into a `Field` with Save/Cancel, a two-tap Forget `device-forget` like the cat delete pattern in Settings), an empty state "No devices paired yet.", and a "Pair a device" form: a `Field` `pair-code` (`inputMode="numeric"`, `pattern="\d{6}"`, `maxLength={6}`, `autoComplete="one-time-code"`, label "Code shown on the device"), an optional name `Field` `pair-name`, a `Button` `pair-submit` disabled until 6 digits; on success show `pair-success` ("Paired Kitchen") and clear the code; on failure `pair-error` (`role="alert"`) with `pairErrorMessage`. Use `useNow()` for the status line. No `dark:` utilities; 44 px targets.
+- [x] **Step 6: Component `webapp/src/components/DevicesSection.tsx`** — a `Section` titled "Devices" with: the device list (`data-testid="device-row"` per device: name `device-name`, status line from `deviceStatusLine`, a Rename button `device-rename` that swaps the name into a `Field` with Save/Cancel, a two-tap Forget `device-forget` like the cat delete pattern in Settings), an empty state "No devices paired yet.", and a "Pair a device" form: a `Field` `pair-code` (`inputMode="numeric"`, `pattern="\d{6}"`, `maxLength={6}`, `autoComplete="one-time-code"`, label "Code shown on the device"), an optional name `Field` `pair-name`, a `Button` `pair-submit` disabled until 6 digits; on success show `pair-success` ("Paired Kitchen") and clear the code; on failure `pair-error` (`role="alert"`) with `pairErrorMessage`. Use `useNow()` for the status line. No `dark:` utilities; 44 px targets.
 
-- [ ] **Step 7: Component test `webapp/src/components/DevicesSection.test.tsx`** (`// @vitest-environment jsdom`, `renderToStaticMarkup` with a `QueryClientProvider` and the api mocked via `vi.mock("../lib/api-client.ts")` returning two devices): asserts two `device-row`s with their status lines, the pair form present with a disabled submit, and the empty state when the list is empty.
+- [x] **Step 7: Component test `webapp/src/components/DevicesSection.test.tsx`** (`// @vitest-environment jsdom`, `renderToStaticMarkup` with a `QueryClientProvider` and the api mocked via `vi.mock("../lib/api-client.ts")` returning two devices): asserts two `device-row`s with their status lines, the pair form present with a disabled submit, and the empty state when the list is empty.
 
-- [ ] **Step 8: Mount** in `Settings.tsx` after the cats section: `<DevicesSection />`. Run `cd webapp && pnpm test && pnpm typecheck && pnpm build` → green.
+- [x] **Step 8: Mount** in `Settings.tsx` after the cats section: `<DevicesSection />`. Run `cd webapp && pnpm test && pnpm typecheck && pnpm build` → green.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add webapp/src/lib/api-client.ts webapp/src/lib/api-client.test.ts webapp/src/hooks/use-devices.ts webapp/src/lib/devices-ui.ts webapp/src/lib/devices-ui.test.ts webapp/src/components/DevicesSection.tsx webapp/src/components/DevicesSection.test.tsx webapp/src/screens/Settings.tsx webapp/package.json
@@ -1616,7 +1616,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `class DeviceSim` with `constructor(opts: { apiBase: string; deviceId?: string; hwModel?: HwModel; fwVersion?: string; fetchFn?: typeof fetch; now?: () => number; name?: string })`, `readonly deviceId`, `snapshot(): SimSnapshot` (`{deviceId, token, houseId, etag, state, queue, logs}`), `static fromSnapshot(opts, snap)`, `pairStart(): Promise<PairStartResponse>`, `pairCheck(): Promise<PairCheckResponse>`, `pairUntilConfirmed({ timeoutMs = 120_000, intervalMs = 500 }): Promise<void>`, `fetchState(): Promise<{ changed: boolean; state: DeviceState }>`, `feed(cat: string, amountMg?: number, entered?: { unit: FoodUnit; value: string }): DeviceFeedingCreate` (resolves the cat by name or id from the last state; default amount = cat's `defaultAmountMg` or 40 000 mg with `g`/"40"), `log(level, msg, data?)`, `syncRound(): Promise<SyncSummary>` (`{ feedingsSent, feedingsAccepted, clamped, logsSent, stateChanged, heartbeat: boolean }`; order: feedings → logs → state → heartbeat; a `NetworkError`/5xx stops the round and keeps queues), `heartbeat()`; `class SimError extends Error { status: number; body: unknown }`. CLI `device-sim <cmd>` reading/writing a JSON snapshot file.
 
-- [ ] **Step 1: Package files**
+- [x] **Step 1: Package files**
 
 `tools/device-sim/package.json`:
 ```json
@@ -1635,7 +1635,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 (Match the `zod`, `typescript` and `vitest` versions pinned in `shared/package.json`.) `tsconfig.json` copies `shared/tsconfig.json` (`moduleResolution: Bundler`, `allowImportingTsExtensions`, `strict`, `exactOptionalPropertyTypes`) with `include: ["src"]`. `vitest.config.ts`: `{ test: { environment: "node" } }`. Append `  - tools/device-sim` to `pnpm-workspace.yaml`; run `pnpm install` at the root (lockfile updates).
 
-- [ ] **Step 2: Failing `tools/device-sim/src/sim.test.ts`** — a fake API in memory:
+- [x] **Step 2: Failing `tools/device-sim/src/sim.test.ts`** — a fake API in memory:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -1730,9 +1730,9 @@ describe("DeviceSim", () => {
 });
 ```
 
-- [ ] **Step 3: Run** `cd tools/device-sim && pnpm test` → FAIL (module not found).
+- [x] **Step 3: Run** `cd tools/device-sim && pnpm test` → FAIL (module not found).
 
-- [ ] **Step 4: Write `tools/device-sim/src/sim.ts`**
+- [x] **Step 4: Write `tools/device-sim/src/sim.ts`**
 
 ```ts
 /**
@@ -1924,13 +1924,13 @@ export class DeviceSim {
 
 `src/index.ts`: `export { DeviceSim, SimError } from "./sim.ts"; export type { SimOptions, SimSnapshot, SyncSummary } from "./sim.ts";`
 
-- [ ] **Step 5: CLI `tools/device-sim/src/cli.ts`** — `#!/usr/bin/env tsx`; parses `--api <url>` (default `http://127.0.0.1:8787`) and `--state <file>` (default `./device-sim.json`); commands `pair` (prints the code, then polls until confirmed and saves the snapshot), `status` (prints the snapshot summary), `state` (fetch + print cats), `feed <cat> [mg]`, `log <level> <msg>`, `sync`, `heartbeat`, `forget-local` (deletes the snapshot file); every command loads/saves the snapshot JSON; errors print `SimError` status + body and exit 1. Keep it under 120 lines; no deps beyond node:fs.
+- [x] **Step 5: CLI `tools/device-sim/src/cli.ts`** — `#!/usr/bin/env tsx`; parses `--api <url>` (default `http://127.0.0.1:8787`) and `--state <file>` (default `./device-sim.json`); commands `pair` (prints the code, then polls until confirmed and saves the snapshot), `status` (prints the snapshot summary), `state` (fetch + print cats), `feed <cat> [mg]`, `log <level> <msg>`, `sync`, `heartbeat`, `forget-local` (deletes the snapshot file); every command loads/saves the snapshot JSON; errors print `SimError` status + body and exit 1. Keep it under 120 lines; no deps beyond node:fs.
 
-- [ ] **Step 6: README** — ten lines: what it is, `pnpm --filter @feedme2/device-sim start pair --api http://127.0.0.1:8787`, then type the code into Settings → Devices, then `feed Mochi`, `sync`.
+- [x] **Step 6: README** — ten lines: what it is, `pnpm --filter @feedme2/device-sim start pair --api http://127.0.0.1:8787`, then type the code into Settings → Devices, then `feed Mochi`, `sync`.
 
-- [ ] **Step 7: Run** `cd tools/device-sim && pnpm test && pnpm typecheck` → green; `pnpm -r typecheck` at the root includes the new package.
+- [x] **Step 7: Run** `cd tools/device-sim && pnpm test && pnpm typecheck` → green; `pnpm -r typecheck` at the root includes the new package.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add pnpm-workspace.yaml pnpm-lock.yaml tools/device-sim webapp/package.json
@@ -1950,7 +1950,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `DeviceSim` from `@feedme2/device-sim`; `signInAsTestHouse`, `requireTestAuth`; Settings test ids from Task 9; `cat-card`, `cat-today`, `feeding-row` + source badge, console ids (`console-filters`, `filter-device`, `log-entry[data-source="device"]`).
 
-- [ ] **Step 1: Write `webapp/e2e/device-flow.spec.ts`** (the Phase 2a exit test)
+- [x] **Step 1: Write `webapp/e2e/device-flow.spec.ts`** (the Phase 2a exit test)
 
 ```ts
 import { expect, test } from "@playwright/test";
@@ -2022,13 +2022,13 @@ test.describe("device flow (simulator)", () => {
 
 Adjust `getByLabel("Mochi details")` and the two-tap forget to the real ids/labels from Task 9 and the cat card. `signInAsTestHouse` must return the tokens (it already does per Task 17).
 
-- [ ] **Step 2: `webapp/e2e/helpers/ui.ts`** — export `addCat(page, name)` and `openSettings(page)` by lifting the code already in `house-flow.spec.ts`; update that spec to import them.
+- [x] **Step 2: `webapp/e2e/helpers/ui.ts`** — export `addCat(page, name)` and `openSettings(page)` by lifting the code already in `house-flow.spec.ts`; update that spec to import them.
 
-- [ ] **Step 3: CI** — in `.github/workflows/deploy.yml`: add `tools: - 'tools/**'` to the paths filter and an output; the `shared-test` job (or whichever job runs `pnpm --filter @feedme2/shared test`) also runs `pnpm --filter @feedme2/device-sim test` and `typecheck`; the webapp jobs' `if:` include `needs.changes.outputs.tools == 'true'` alongside webapp/shared/backend. No other change: `webapp-e2e-full` already starts wrangler + vite and runs the whole suite, which now includes `device-flow.spec.ts`.
+- [x] **Step 3: CI** — in `.github/workflows/deploy.yml`: add `tools: - 'tools/**'` to the paths filter and an output; the `shared-test` job (or whichever job runs `pnpm --filter @feedme2/shared test`) also runs `pnpm --filter @feedme2/device-sim test` and `typecheck`; the webapp jobs' `if:` include `needs.changes.outputs.tools == 'true'` alongside webapp/shared/backend. No other change: `webapp-e2e-full` already starts wrangler + vite and runs the whole suite, which now includes `device-flow.spec.ts`.
 
-- [ ] **Step 4: Run locally** (same stack as Phase 1 Task 17): wrangler dev on 8787 with `.dev.vars`, `wrangler d1 migrations apply feedme2-db --local` (applies 0002), vite on 5173, then `cd webapp && E2E_BASE_URL=http://127.0.0.1:5173 E2E_REQUIRE_AUTH=1 pnpm test:e2e` → 18/18. Stop the servers.
+- [x] **Step 4: Run locally** (same stack as Phase 1 Task 17): wrangler dev on 8787 with `.dev.vars`, `wrangler d1 migrations apply feedme2-db --local` (applies 0002), vite on 5173, then `cd webapp && E2E_BASE_URL=http://127.0.0.1:5173 E2E_REQUIRE_AUTH=1 pnpm test:e2e` → 18/18. Stop the servers.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add webapp/e2e/helpers/ui.ts webapp/e2e/device-flow.spec.ts webapp/e2e/house-flow.spec.ts .github/workflows/deploy.yml webapp/package.json
@@ -2045,15 +2045,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `handoff.md` (phase line, routes table + devices/pairing rows, versions, log line), `README.md` (`tools/device-sim` in the layout table and a "Simulate a device" paragraph), `CLAUDE.md` (Layout: `tools/device-sim/`; rule: device routes take `houseId`/`deviceId` only from `requireDevice()`), `docs/handoffs/2026-10-11-phase1-execution-handoff.md` (append "Phase 2a landed: minLevel and logout follow-ups done")
 - Create: `docs/handoffs/<date>-phase2a-execution-handoff.md`
 
-- [ ] **Step 1: Docs** as listed; the handoff records per-task SHAs, deviations, and the decisions still open (device clock clamping chosen for devices; web still rejects).
-- [ ] **Step 2: Full verification**
+- [x] **Step 1: Docs** as listed; the handoff records per-task SHAs, deviations, and the decisions still open (device clock clamping chosen for devices; web still rejects).
+- [x] **Step 2: Full verification**
 
 ```bash
 pnpm install --frozen-lockfile && pnpm -r typecheck && pnpm -r test && python -m unittest discover -s scripts && (cd firmware && pio test -e native) && BASE_REF=origin/main python scripts/check_version_bump.py
 ```
 Expected: all green; the local e2e from Task 11 Step 4 already ran.
 
-- [ ] **Step 3: Push and PR**
+- [x] **Step 3: Push and PR**
 
 ```bash
 git push -u origin feat/phase2a-device-api

@@ -121,3 +121,5 @@ Shared
 4. Verify production: `GET https://feedme2-api.atsyg-feedme.workers.dev/api/version` shows the new worker and schema; `pnpm test:e2e` against production (default `E2E_BASE_URL`): smoke and console pass, the flow specs skip because production has no test-login.
 5. Still open from Phase 0: the deep-sleep bench spike (spec Q2, `docs/spikes/2026-09-deep-sleep-touch-wake.md`) and setting `WOKWI_CLI_TOKEN` so the Wokwi step runs.
 6. Then Phase 2 per the spec's phase table (devices and pairing); the `minLevel` param and the pinless-PIN cleanup fit there.
+
+Phase 2a closed the minLevel and logout follow-ups

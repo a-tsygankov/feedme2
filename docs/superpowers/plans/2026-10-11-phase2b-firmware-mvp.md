@@ -20,6 +20,7 @@
 - Machine-readable serial lines (spec §5.7): every screen transition and sync outcome prints `[feedme2] <event> key=value …` on one line; Wokwi scenarios assert these.
 - Device id: 32 lowercase hex = 20 zeros + 12 hex MAC chars (howler's `deviceIdFromMac`), `hwModel` `"crowpanel-1.28"` (or `"simulator"` under `-DSIMULATOR=1`).
 - Versioning: any non-doc change under `firmware/` or `fixtures/` bumps `firmware/src/application/Version.h` (the pre-commit hook does it; stage the file). Commit style `type(scope): …`, trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`, explicit pathspecs only.
+- Pairing: `/pair/start` and `/pair/check` carry a device-generated `pollSecret` (16 random bytes as 32 lowercase hex, fresh per `start()`, RAM only); the server serves the token only to its holder, once, plus a 60 s redelivery. Device tokens are per pairing (`jti` = `devices.token_id`): a re-pair invalidates the old token, so a 401 always means "pair again".
 - Native test target: ≥ 100 Unity cases by the end of this plan (spec §7 exit); ≥ 150 is the §5.7 goal for Phase 3.
 
 ## Review Focus
@@ -27,7 +28,7 @@
 1. **The knob turns while the screen is dim or asleep**: a person expects the first turn to wake the screen and nothing else (no accidental cat change or amount change). Pinned in Task 12 (PowerManager swallows the waking event) and Task 11.
 2. **Wi-Fi is down when a feeding is logged**: the feeding must survive a reboot and be sent later, exactly once. Pinned in Task 6 (queue persisted per write; `accepted` removes only sent ids) and Task 8 (sync round keeps items on transient failure).
 3. **The server says the device is no longer paired (401 on any device call)**: the device must return to the Pair screen, not loop forever. Pinned in Task 8 (401 → `PairCoordinator::clearToken()`, router → Pair).
-4. **The device clock is wrong on boot** (RTC lost): a feeding logged before the first sync must carry a time the server will clamp sensibly, and the Idle screen must not show "fed 56 years ago". Pinned in Task 5 (`Clock` marks "unsynced" and uses monotonic time until the server `now` arrives; Hunger shows "—" when unsynced and never fed) and Task 8.
+4. **The device clock is wrong on boot** (RTC lost): a feeding logged before the first sync must carry a time the server will clamp sensibly, and the Idle screen must not show "fed 56 years ago". Pinned in Task 5 (`Clock` marks "unsynced" and uses monotonic time until the server `now` arrives, from the feedings response, the state or the heartbeat; Hunger shows "—" when unsynced and never fed) and Task 8.
 5. **"All cats" with a cat that has no default amount**: a person expects that cat to get the house's sensible default (40 g in the house unit), not to be skipped silently. Pinned in Task 4 (`FeedFlow` falls back to `kFallbackMg = 40000`) and Task 15 scenario.
 
 ---
@@ -981,6 +982,8 @@ private:
     }
     FeedingDraft draft(const std::string& catId, int32_t mg, std::string id, int64_t nowMs) const {
         FeedingDraft d;
+        // nowMs is the device's best guess (ClockModel). Before the first server sync it may be 0: the server
+        // accepts fedAt 0 on /device/feedings and clamps it (and anything before 2020 or > now + 5 min) to its own now.
         d.id = std::move(id); d.catId = catId; d.fedAtMs = nowMs; d.amountMg = mg; d.unit = settings_.foodUnit;
         // enteredValue is what the knob showed, without the unit word.
         std::string t = formatAmountAscii(mg, settings_.foodUnit, settings_.canSizeMg);
@@ -1117,9 +1120,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `firmware/test/test_application/runner.cpp`
 
 **Interfaces:**
-- `IClock`: `virtual uint32_t monotonicMs() = 0;` (ms since boot). `IRandom`: `virtual std::string uuid() = 0;` (36-char lowercase v4), `virtual uint32_t next() = 0;`.
+- `IClock`: `virtual uint32_t monotonicMs() = 0;` (ms since boot). `IRandom`: `virtual std::string uuid() = 0;` (36-char lowercase v4), `virtual uint32_t next() = 0;`, `virtual std::string hex(size_t bytes) = 0;` (CSPRNG, lowercase hex, `2 * bytes` chars; `esp_random` on the device; used for the pairing `pollSecret`).
 - `IInput`: `virtual application::InputEvent poll() = 0; virtual bool isHeld() const = 0;`.
-- `INetwork`: `struct NetResult { enum class Kind : uint8_t { Ok, NotModified, Transient, Unauthorized, Permanent }; Kind kind; int status; std::string body; std::string etag; bool ok() const; };` and `virtual bool isOnline() const; virtual NetResult pairStart(const std::string& deviceId, const std::string& hwModel, const std::string& fw); virtual NetResult pairCheck(const std::string& deviceId); virtual NetResult getState(const std::string& ifNoneMatch); virtual NetResult postFeedings(const std::string& jsonArray); virtual NetResult postLogs(const std::string& jsonArray); virtual NetResult postHeartbeat(const std::string& jsonBody); virtual void setToken(const std::string&);`. Mapping rule (documented in the header): 2xx → Ok, 304 → NotModified, 401 → Unauthorized, other 4xx → Permanent, 5xx/408/429/transport → Transient.
+- `INetwork`: `struct NetResult { enum class Kind : uint8_t { Ok, NotModified, Transient, Unauthorized, Permanent }; Kind kind; int status; std::string body; std::string etag; bool ok() const; };` and `virtual bool isOnline() const; virtual NetResult pairStart(const std::string& deviceId, const std::string& hwModel, const std::string& fw, const std::string& pollSecret); virtual NetResult pairCheck(const std::string& deviceId, const std::string& pollSecret); virtual NetResult getState(const std::string& ifNoneMatch); virtual NetResult postFeedings(const std::string& jsonArray); virtual NetResult postLogs(const std::string& jsonArray); virtual NetResult postHeartbeat(const std::string& jsonBody); virtual void setToken(const std::string&);`. Mapping rule (documented in the header): 2xx → Ok, 304 → NotModified, 401 → Unauthorized, other 4xx → Permanent, 5xx/408/429/transport → Transient.
 - `IStorage` (NVS blobs): `bool read(const char* key, std::string& out); bool write(const char* key, const std::string&); bool erase(const char* key);` keys: `token`, `wifi`, `state` (last state JSON), `etag`, `name`.
 - `IFileQueue` (LittleFS JSONL): `bool appendLine(const char* file, const std::string& line); bool readLines(const char* file, std::vector<std::string>& out); bool rewrite(const char* file, const std::vector<std::string>& lines);` files `/feedings.jsonl`, `/logs.jsonl`.
 - `IPower`: `virtual void setBacklight(uint8_t percent) = 0; virtual void displaySleep(bool) = 0; virtual void lightSleep(uint32_t maxMs) = 0; virtual void ledRing(uint32_t rgb, uint8_t brightness) = 0;`.
@@ -1218,7 +1221,21 @@ void test_log_entry_encoding_keeps_data_as_json() {
 
 (`decodeDraftFails` is a 3-line static helper in the test file calling `decodeDraft` and returning its bool.)
 
-- [ ] **Step 3: Run** → FAIL. Register the six tests.
+`DeviceFeedingCreateSchema` is strict (an unknown key is a 400 that would drop the whole batch as Permanent), so add a seventh test that pins the exact key set of a draft:
+
+```cpp
+void test_encoded_draft_has_exactly_the_six_contract_keys() {
+    domain::FeedingDraft d; d.id = "4b1a0e2d-7c7b-4b7e-9a3a-5c3e2e1f0a11"; d.catId = "cat"; d.fedAtMs = 0; d.amountMg = 40000; d.unit = domain::FoodUnit::Grams; d.enteredValue = "40";
+    JsonDocument doc; TEST_ASSERT_FALSE(deserializeJson(doc, application::encodeDraft(d)));
+    std::vector<std::string> keys; for (JsonPair kv : doc.as<JsonObject>()) keys.push_back(kv.key().c_str());
+    std::sort(keys.begin(), keys.end());
+    const std::vector<std::string> want = {"amountMg", "catId", "enteredUnit", "enteredValue", "fedAt", "id"};
+    TEST_ASSERT_TRUE(keys == want);
+    TEST_ASSERT_EQUAL_INT64(0, doc["fedAt"].as<int64_t>());   // 0 before the first clock sync is legal: the server clamps it to now
+}
+```
+
+- [ ] **Step 3: Run** → FAIL. Register the seven tests.
 
 - [ ] **Step 4: Write the ports** (one header each, all `#pragma once`, `namespace feedme2::ports`, pure virtual with virtual destructors) exactly as listed in Interfaces. `INetwork.h` also defines:
 
@@ -1265,7 +1282,7 @@ namespace feedme2::test {
 using namespace feedme2::ports;
 
 struct StubClock : IClock { uint32_t ms = 0; uint32_t monotonicMs() override { return ms; } void advance(uint32_t d) { ms += d; } };
-struct StubRandom : IRandom { int n = 0; std::string uuid() override { char b[40]; std::snprintf(b, sizeof b, "00000000-0000-4000-8000-%012d", ++n); return b; } uint32_t next() override { return static_cast<uint32_t>(++n); } };
+struct StubRandom : IRandom { int n = 0; std::string uuid() override { char b[40]; std::snprintf(b, sizeof b, "00000000-0000-4000-8000-%012d", ++n); return b; } uint32_t next() override { return static_cast<uint32_t>(++n); } std::string hex(size_t bytes) override { char b[8]; std::snprintf(b, sizeof b, "%02x", ++n & 0xff); std::string out; for (size_t i = 0; i < bytes; ++i) out += b; return out; } };
 struct StubInput : IInput { std::deque<application::InputEvent> q; bool held = false; application::InputEvent poll() override { if (q.empty()) return application::InputEvent::None; auto e = q.front(); q.pop_front(); return e; } bool isHeld() const override { return held; } };
 struct StubStorage : IStorage {
     std::map<std::string, std::string> kv; int writes = 0;
@@ -1291,13 +1308,16 @@ struct StubNetwork : INetwork {
     bool online = true; std::string token;
     std::deque<NetResult> stateResults, feedingResults, logResults, heartbeatResults, pairStartResults, pairCheckResults;
     std::vector<std::string> postedFeedings, postedLogs, postedHeartbeats, ifNoneMatch;
+    // The pairing bodies the device would POST, recorded so tests can pin the poll secret (Task 7).
+    struct PairCall { std::string deviceId, hwModel, fw, pollSecret; };
+    std::vector<PairCall> pairStarts, pairChecks;
     static NetResult ok(std::string body, std::string etag = "") { return NetResult::fromStatus(200, std::move(body), std::move(etag)); }
     static NetResult status(int s, std::string body = "") { return NetResult::fromStatus(s, std::move(body)); }
     NetResult take(std::deque<NetResult>& q) { if (q.empty()) return status(0); auto r = q.front(); q.pop_front(); return r; }
     bool isOnline() const override { return online; }
     void setToken(const std::string& t) override { token = t; }
-    NetResult pairStart(const std::string&, const std::string&, const std::string&) override { return take(pairStartResults); }
-    NetResult pairCheck(const std::string&) override { return take(pairCheckResults); }
+    NetResult pairStart(const std::string& id, const std::string& hw, const std::string& fw, const std::string& secret) override { pairStarts.push_back({id, hw, fw, secret}); return take(pairStartResults); }
+    NetResult pairCheck(const std::string& id, const std::string& secret) override { pairChecks.push_back({id, "", "", secret}); return take(pairCheckResults); }
     NetResult getState(const std::string& inm) override { ifNoneMatch.push_back(inm); return take(stateResults); }
     NetResult postFeedings(const std::string& j) override { postedFeedings.push_back(j); return take(feedingResults); }
     NetResult postLogs(const std::string& j) override { postedLogs.push_back(j); return take(logResults); }
@@ -1306,7 +1326,7 @@ struct StubNetwork : INetwork {
 }  // namespace feedme2::test
 ```
 
-- [ ] **Step 7: Run** `pio test -e native` → green (35 cases); `pio run -e crowpanel` still builds (ports/application compile in the Arduino env too). Commit:
+- [ ] **Step 7: Run** `pio test -e native` → green (36 cases); `pio run -e crowpanel` still builds (ports/application compile in the Arduino env too). Commit:
 
 ```bash
 git add firmware/src/ports firmware/src/application/StateCodec.h firmware/src/application/StateCodec.cpp firmware/src/application/QueueCodec.h firmware/src/application/QueueCodec.cpp firmware/test/test_application/stubs.h firmware/test/test_application/test_state_codec.cpp firmware/test/test_application/test_queue_codec.cpp firmware/test/test_application/runner.cpp firmware/src/application/Version.h
@@ -1413,7 +1433,7 @@ void test_feeding_service_keeps_last_five_for_history() {
 
 - [ ] **Step 4: Implement** `LogService` (ring of pending JSON lines mirrored to `/logs.jsonl`; `event()` formats `[feedme2] name kv` and writes it to the sink at info; `takeBatch` rewrites the file with the remainder; `loadFromDisk` reads the file and keeps the last 300) and `FeedingService` (wraps `FeedingQueue`; `commit` calls `flow.confirm([&]{ return rnd.uuid(); }, nowMs)`, pushes each draft, `appendLine("/feedings.jsonl", encodeDraft(d))`, logs the event, pushes into a 5-entry `recent_` deque newest-first; `markAccepted` removes and `rewrite`s the file; `loadFromDisk` decodes each line, skipping malformed ones with a warn).
 
-- [ ] **Step 5: Run** `pio test -e native` → green (39 cases). Commit:
+- [ ] **Step 5: Run** `pio test -e native` → green (40 cases). Commit:
 
 ```bash
 git add firmware/src/application/LogService.h firmware/src/application/LogService.cpp firmware/src/application/FeedingService.h firmware/src/application/FeedingService.cpp firmware/test/test_application/test_log_service.cpp firmware/test/test_application/test_feeding_service.cpp firmware/test/test_application/runner.cpp firmware/src/application/Version.h
@@ -1431,7 +1451,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `firmware/test/test_application/runner.cpp`
 
 **Interfaces:**
-- `enum class PairPhase { Idle, Starting, Pending, Confirmed, Expired, Failed }`; `struct PairView { PairPhase phase; std::string pairCode; int64_t expiresAt; std::string error; }`; `PairCoordinator(ports::INetwork&, ports::IStorage&, ports::IClock&, LogService&, std::string deviceId, std::string hwModel, std::string fwVersion)`: `bool isPaired() const` (token in storage), `void start()`, `void tick(uint32_t nowMs)` (polls every `pollAfterSec` from the start response, default 3 s; `Expired` → restart automatically after 2 s; `Failed` → retry start after 5 s), `const PairView& view() const`, `void clearToken()` (storage erase + `network.setToken("")`), `std::string token() const`; on `Confirmed` writes `token` and `name` to storage and calls `network.setToken`.
+- `enum class PairPhase { Idle, Starting, Pending, Confirmed, Expired, Failed }`; `struct PairView { PairPhase phase; std::string pairCode; int64_t expiresAt; std::string error; }`; `PairCoordinator(ports::INetwork&, ports::IStorage&, ports::IClock&, ports::IRandom&, LogService&, std::string deviceId, std::string hwModel, std::string fwVersion)`: `bool isPaired() const` (token in storage), `void start()`, `void tick(uint32_t nowMs)` (polls every `pollAfterSec` from the start response, default 3 s; `Expired` → restart automatically after 2 s; `Failed` → retry start after 5 s). Poll secret: every `start()` generates a fresh `pollSecret = random.hex(16)` (32 lowercase hex chars), holds it in RAM only (a reboot mid-pairing starts over), and sends it in `pairStart` and in every `pairCheck`. A check answer `unknown` is treated like `expired` (the server lost the row: restart); a 400 on check (`Permanent`) is `Failed` (retry after 5 s with a new `start()`); and because the start response carries no server `now`, `Pending` that lasts 10 monotonic minutes restarts `start()` regardless of what the server says, `const PairView& view() const`, `void clearToken()` (storage erase + `network.setToken("")`), `std::string token() const`; on `Confirmed` writes `token` and `name` to storage and calls `network.setToken`.
 
 - [ ] **Step 1: Failing `test_pair.cpp`**
 
@@ -1444,8 +1464,9 @@ using namespace feedme2;
 
 struct Rig {
     test::StubNetwork net; test::StubStorage store; test::StubClock clk; test::StubLogSink serial; test::StubFileQueue files; domain::ClockModel model;
+    test::StubRandom rnd;
     application::LogService log{serial, files, clk, model};
-    application::PairCoordinator pc{net, store, clk, log, "0123456789abcdef0123456789abcdef", "device-sim", "0.2.0"};
+    application::PairCoordinator pc{net, store, clk, rnd, log, "0123456789abcdef0123456789abcdef", "device-sim", "0.2.0"};
 };
 
 void test_pair_start_pending_confirmed_persists_token() {
@@ -1486,6 +1507,55 @@ void test_pair_expired_restarts_and_transient_failure_retries() {
     TEST_ASSERT_EQUAL_STRING("111111", r.pc.view().pairCode.c_str());
 }
 
+void test_pair_poll_secret_is_identical_in_start_and_every_check_and_fresh_per_start() {
+    Rig r;
+    r.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"123456\",\"expiresAt\":600000,\"pollAfterSec\":3}"));
+    r.pc.start();
+    r.net.pairCheckResults.push_back(test::StubNetwork::ok("{\"status\":\"pending\"}"));
+    r.net.pairCheckResults.push_back(test::StubNetwork::ok("{\"status\":\"pending\"}"));
+    r.pc.tick(3100); r.pc.tick(6200);
+    TEST_ASSERT_EQUAL_UINT32(1, r.net.pairStarts.size());
+    TEST_ASSERT_EQUAL_UINT32(32, r.net.pairStarts[0].pollSecret.size());
+    TEST_ASSERT_EQUAL_UINT32(2, r.net.pairChecks.size());
+    TEST_ASSERT_EQUAL_STRING(r.net.pairStarts[0].pollSecret.c_str(), r.net.pairChecks[0].pollSecret.c_str());
+    TEST_ASSERT_EQUAL_STRING(r.net.pairStarts[0].pollSecret.c_str(), r.net.pairChecks[1].pollSecret.c_str());
+    r.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"654321\",\"expiresAt\":600000,\"pollAfterSec\":3}"));
+    r.pc.start();                          // a restart draws a new secret
+    TEST_ASSERT_TRUE(r.net.pairStarts[0].pollSecret != r.net.pairStarts[1].pollSecret);
+}
+
+void test_pair_unknown_restarts_like_expired() {
+    Rig r;
+    r.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"123456\",\"expiresAt\":600000,\"pollAfterSec\":3}"));
+    r.pc.start();
+    r.net.pairCheckResults.push_back(test::StubNetwork::ok("{\"status\":\"unknown\"}"));
+    r.pc.tick(3100);
+    TEST_ASSERT_EQUAL(application::PairPhase::Expired, r.pc.view().phase);
+    r.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"222222\",\"expiresAt\":600000,\"pollAfterSec\":3}"));
+    r.pc.tick(5200);                       // auto restart after 2 s
+    TEST_ASSERT_EQUAL_STRING("222222", r.pc.view().pairCode.c_str());
+}
+
+void test_pair_pending_for_ten_minutes_restarts_start() {
+    Rig r;
+    r.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"123456\",\"expiresAt\":600000,\"pollAfterSec\":3}"));
+    r.pc.start();
+    for (uint32_t t = 3100; t <= 600000; t += 3100) { r.net.pairCheckResults.push_back(test::StubNetwork::ok("{\"status\":\"pending\"}")); r.pc.tick(t); }
+    r.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"333333\",\"expiresAt\":1200000,\"pollAfterSec\":3}"));
+    r.pc.tick(601000);                     // 10 monotonic minutes of Pending: start over without trusting the server clock
+    TEST_ASSERT_EQUAL_UINT32(2, r.net.pairStarts.size());
+    TEST_ASSERT_EQUAL_STRING("333333", r.pc.view().pairCode.c_str());
+}
+
+void test_pair_permanent_400_on_check_is_failed() {
+    Rig r;
+    r.net.pairStartResults.push_back(test::StubNetwork::ok("{\"pairCode\":\"123456\",\"expiresAt\":600000,\"pollAfterSec\":3}"));
+    r.pc.start();
+    r.net.pairCheckResults.push_back(test::StubNetwork::status(400, "{\"error\":\"invalid_request\"}"));
+    r.pc.tick(3100);
+    TEST_ASSERT_EQUAL(application::PairPhase::Failed, r.pc.view().phase);
+}
+
 void test_pair_clear_token() {
     Rig r;
     r.store.kv["token"] = "tok";
@@ -1496,7 +1566,7 @@ void test_pair_clear_token() {
 }
 ```
 
-- [ ] **Step 2: Run** → FAIL. Register. **Step 3: Implement** per the interface (ArduinoJson to read `pairCode`, `pollAfterSec`, `status`, `deviceToken`, `houseId`, `deviceName`; `Unauthorized`/`Permanent` on start → `Failed` with `error = body.slice(0,60)`; log events `pair start code=…`, `paired house=…`). **Step 4:** `pio test -e native` → 42 green. Commit `feat(firmware): pairing coordinator with code polling, expiry restart and token persistence`.
+- [ ] **Step 2: Run** → FAIL. Register. **Step 3: Implement** per the interface (ArduinoJson to read `pairCode`, `pollAfterSec`, `status`, `deviceToken`, `houseId`, `deviceName`; `Unauthorized`/`Permanent` on start → `Failed` with `error = body.slice(0,60)`; log events `pair start code=…`, `paired house=…`). **Step 4:** `pio test -e native` → 46 green (the plan counts the four new pairing tests above). Commit `feat(firmware): pairing coordinator with code polling, expiry restart and token persistence`.
 
 ---
 
@@ -1508,7 +1578,7 @@ void test_pair_clear_token() {
 
 **Interfaces:**
 - `SyncService(ports::INetwork&, ports::IStorage&, ports::IClock&, domain::ClockModel&, FeedingService&, LogService&, PairCoordinator&)`: `void loadCachedState()` (storage `state` + `etag` → `state_`, so Idle renders before Wi-Fi), `bool hasState() const`, `const domain::DeviceState& state() const`, `void requestRound(const char* reason)` (flags a round; reasons: `wake`, `feeding`, `paired`, `timer`, `boot`), `void tick(uint32_t nowMs)` (runs at most one round per tick when requested and online; also requests a `timer` round every `state.settings.syncIntervalSec`), `struct RoundResult { bool ran; int feedingsSent, feedingsAccepted; int logsSent; bool stateChanged; bool heartbeatOk; bool unauthorized; std::string stoppedBy; }`, `const RoundResult& last() const`, `uint32_t generation() const` (increments when `state_` changes), `bool lastRoundOk() const`, `uint32_t lastOkAtMs() const`.
-- Round order (spec §5.3): feedings (batches of 20 via `postFeedings`; on Ok → `markAccepted(ids)` and `clock.syncFromServer(now)`; Transient → stop round; Permanent (400/404/409) → drop the batch with an `error` log; Unauthorized → `pair.clearToken()`, set `unauthorized`, stop) → logs (`takeBatch(50)` → `postLogs`; Transient → `requeue` + stop; Permanent → drop) → `getState(etag)` (Ok → decode; on decode failure log error and keep old state; store `state` JSON + `etag`; `clock.syncFromServer(state.now)`; NotModified → keep; Unauthorized → clearToken; Transient → stop) → heartbeat (`encodeHeartbeat`; failure is logged, not fatal). Every outcome logs `[feedme2] sync ok accepted=N state=changed|same` or `[feedme2] sync stopped at=<step> status=<n>`.
+- Round order (spec §5.3): feedings (batches of 20 via `postFeedings`; on Ok → `markAccepted(ids)` and `clock.syncFromServer(now)`; Transient → stop round; Permanent (400/404/409) → drop the batch with an `error` log; Unauthorized → `pair.clearToken()`, set `unauthorized`, stop) → logs (`takeBatch(50)` → `postLogs`; Transient → `requeue` + stop; Permanent → drop) → `getState(etag)` (Ok → decode; on decode failure log error and keep old state; store `state` JSON + `etag`; `clock.syncFromServer(state.now)`; NotModified → keep; Unauthorized → clearToken; Transient → stop) → heartbeat (`encodeHeartbeat`; failure is logged, not fatal; on Ok also `clock.syncFromServer(now)` from the response `{now}`: a 304 state carries no `now`, so after a reboot with cached state the heartbeat is the first sync of the clock). Every outcome logs `[feedme2] sync ok accepted=N state=changed|same` or `[feedme2] sync stopped at=<step> status=<n>`.
 
 - [ ] **Step 1: Failing `test_sync.cpp`** — a `Rig` like Task 7 plus `FeedingService` and `SyncService`; tests:
   1. `round_order_and_success`: queue one feeding and one log line; push `feedingResults: ok({"accepted":["<id>"],"clamped":[],"now":1700000000000})`, `logResults: status(202)`, `stateResults: ok(sampleFixtureJson, 'W/"abc"')`, `heartbeatResults: ok({"now":…})`; `requestRound("feeding")`, `tick` → `last()` has `feedingsAccepted 1, logsSent 1, stateChanged true, heartbeatOk true`; queue empty; `store.kv["etag"] == 'W/"abc"'`; `model.isSynced()`; `net.ifNoneMatch[0] == ""`; the next round with `stateResults: status(304)` sends `If-None-Match W/"abc"` and reports `stateChanged false`; serial contains `[feedme2] sync ok accepted=1 state=changed`.
@@ -1518,8 +1588,9 @@ void test_pair_clear_token() {
   5. `cached_state_loads_before_network`: `store.kv["state"] = sample; store.kv["etag"] = 'W/"x"'` → `loadCachedState()` → `hasState()` with 2 cats and `generation() == 1`.
   6. `timer_round_every_sync_interval`: state with `syncIntervalSec = 60`; after `tick(61'000)` a round ran with reason `timer` (assert via the serial line `sync start reason=timer`).
   7. `offline_skips_round_until_online`: `net.online = false; requestRound("wake"); tick` → `last().ran == false`; `net.online = true; tick` → ran.
+  8. `heartbeat_syncs_the_clock_when_state_is_304`: `loadCachedState()` with a cached etag, `stateResults: status(304)`, `heartbeatResults: ok({"now":1700000000000})` → `model.isSynced()` is true after the round and `stateChanged` is false.
 
-- [ ] **Step 2: Run** → FAIL. Register. **Step 3: Implement.** **Step 4:** `pio test -e native` → 49 green. Commit `feat(firmware): sync service — feedings, logs, etag state and heartbeat in one round`.
+- [ ] **Step 2: Run** → FAIL. Register. **Step 3: Implement.** **Step 4:** `pio test -e native` → 54 green. Commit `feat(firmware): sync service — feedings, logs, etag state and heartbeat in one round`.
 
 ---
 
@@ -1534,7 +1605,7 @@ void test_pair_clear_token() {
 
 - [ ] **Step 1: Failing `test_power.cpp`**: (1) `awake_dims_then_sleeps_and_input_wakes`: tick 0 → Awake, backlight 100; tick 15'001 → Dim, backlight 30; tick 30'001 → LightSleep, `displayAsleep`, backlight 0, `lightSleeps == 1`; `noteInput(31'000)` → Awake, backlight 100, `displayAsleep == false`, `consumeWakeEvent()` true then false. (2) `input_while_dim_is_swallowed_once`: tick 16'000 → Dim; `noteInput` → `consumeWakeEvent()` true; a second `noteInput` → false. (3) `timer_wake_due_once_per_interval`: `setSyncIntervalSec(60)`; sleeping; `timerWakeDue(90'000)` false, `(31'000 + 60'000)` true once, then false until the next interval. (4) `sleep_timeout_from_settings_bounds_light_sleep_call` (arg to `lightSleep` ≤ `sleepTimeoutSec*1000`, captured in the stub).
 
-- [ ] **Step 2–4:** implement, 53 green, commit `feat(firmware): power tiers — dim, light sleep, swallowed wake event, timer wake`.
+- [ ] **Step 2–4:** implement, 58 green, commit `feat(firmware): power tiers — dim, light sleep, swallowed wake event, timer wake`.
 
 ---
 
@@ -1613,7 +1684,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `WifiStation`: `bool loadCredentials(ports::IStorage&, std::string& ssid, std::string& pass)` (NVS key `wifi`, format `[u16 len][ssid][u16 len][pass]`), `bool connect(const std::string& ssid, const std::string& pass, uint32_t budgetMs = 15000)`, `bool isConnected() const`, `int8_t rssi() const`, `std::vector<std::pair<std::string,int8_t>> scan()`; after association calls `configTime(0, 0, "pool.ntp.org", "time.google.com")`.
 - `WifiCaptivePortal`: `[[noreturn]] void runAndReboot(ports::IStorage&)` — howler's flow: AP `feedme2-%02x%02x`, scan-before-AP, `DNSServer` on 53 → all hosts, `WebServer` on 80 with `GET /` form (`<select>` of SSIDs + free-text SSID + password) and `POST /save` writing the NVS blob, brownout muted (`WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0)`), `ESP.restart()` after save.
 - `WifiNetwork : ports::INetwork` (`HTTPClient` + `WiFiClientSecure::setInsecure()` — the worker is behind Cloudflare's certificate; pinning is a Phase 3 item; 8 s timeout; `Authorization: Bearer <token>`; `If-None-Match` on `getState`; `collectHeaders({"ETag"})`; maps status → `NetResult::fromStatus`; transport failure → status 0), base URL from `-DFEEDME2_BACKEND_URL`.
-- `FakeNetwork : ports::INetwork` (`-DSIMULATOR=1`): in-memory: `pairStart` → `{"pairCode":"424242","expiresAt":…,"pollAfterSec":1}`; `pairCheck` → pending twice then confirmed with token `sim-token`; `getState` → the embedded sample with `now` = clock + a fixed ETag, 304 when matched, and after any `postFeedings` it updates the matching cat's `lastFedAt`/defaults and changes the ETag; `postFeedings` → accepts all ids; `postLogs` 202; `postHeartbeat` ok. Deterministic, so Wokwi scenarios can assert `[feedme2] sync ok accepted=1 state=changed`.
+- `FakeNetwork : ports::INetwork` (`-DSIMULATOR=1`): in-memory: `pairStart` → `{"pairCode":"424242","expiresAt":…,"pollAfterSec":1}` and remembers the `pollSecret`; `pairCheck` enforces the secret like the real server (a different secret → `pending` forever, never the token) → pending twice then confirmed with token `sim-token`; `getState` → the embedded sample with `now` = clock + a fixed ETag, 304 when matched, and after any `postFeedings` it updates the matching cat's `lastFedAt`/defaults and changes the ETag; `postFeedings` → accepts all ids; `postLogs` 202; `postHeartbeat` ok. Deterministic, so Wokwi scenarios can assert `[feedme2] sync ok accepted=1 state=changed`.
 - `SimulatedClock : ports::IClock` — `millis()` × `kSimSpeed` (default 1; set `-DFEEDME2_SIM_SPEED=60` to run hunger arcs fast in a scenario).
 
 - [ ] **Step 1: `firmware/scripts/embed_fixture.py`**

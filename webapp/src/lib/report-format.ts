@@ -66,11 +66,13 @@ export function weekRowLabel(monday: DateKey, from: DateKey, to: DateKey): strin
   return `${head} – ${tail}${cut}`;
 }
 
-/** A drill-table row: a week as above, a day as "Mon 23 Mar", a month as "Mar 2026". */
+/**
+ * A drill-table row: a week as above, a day as "Mon 23 Mar", a month as "Mar 2026". No hour rows: the only range
+ * charted by hour is a single day, and that lists its feedings instead of a drill table.
+ */
 export function drillRowLabel(key: string, bucket: ReportBucket, from: DateKey, to: DateKey): string {
   if (bucket === "week") return weekRowLabel(key, from, to);
   if (bucket === "month") return parts(`${key}-01`, ["month", "year"]);
-  if (bucket === "hour") return `${key.slice(11, 13)}:00`;
   return parts(key, ["weekday", "day", "month"]);
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatAmount } from "@feedme2/shared";
-import { formatDuration, formatTotal, periodLabel, weekRowLabel } from "./report-format.ts";
+import { drillRowLabel, formatDuration, formatTotal, periodLabel, weekRowLabel } from "./report-format.ts";
 
 const house = { foodUnit: "g" as const, canSizeMg: 155_922 };
 
@@ -41,5 +41,13 @@ describe("weekRowLabel", () => {
     expect(weekRowLabel("2026-02-23", "2026-03-01", "2026-03-31")).toBe("23 Feb – 1 Mar (from 1 Mar)");
     expect(weekRowLabel("2026-03-30", "2026-03-01", "2026-03-31")).toBe("30 Mar – 5 Apr (until 31 Mar)");
     expect(weekRowLabel("2025-12-29", "2025-12-01", "2026-01-31")).toBe("29 Dec 2025 – 4 Jan 2026");
+  });
+});
+
+describe("drillRowLabel", () => {
+  it("labels a week, a day and a month row", () => {
+    expect(drillRowLabel("2026-02-23", "week", "2026-03-01", "2026-03-31")).toBe("23 Feb – 1 Mar (from 1 Mar)");
+    expect(drillRowLabel("2026-03-23", "day", "2026-03-23", "2026-03-29")).toBe("Mon 23 Mar");
+    expect(drillRowLabel("2026-03", "month", "2026-01-01", "2026-12-31")).toBe("Mar 2026");
   });
 });

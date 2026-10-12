@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { dateKeyOf, type House } from "@feedme2/shared";
 import { AppHeader } from "../components/AppHeader.tsx";
@@ -15,9 +15,6 @@ import { useReport } from "../hooks/use-report.ts";
 import { api, NetworkError } from "../lib/api-client.ts";
 import { downloadBlob } from "../lib/download.ts";
 import { drillLevel, drillTo, parseReportFilters, toSearchParams, type ReportFilters } from "../lib/report-filters.ts";
-
-/** Which range a chart bar opens: the bar's own bucket, said explicitly (a day bar in the month view is a day). */
-const BAR_LEVEL = { day: "day", week: "week", month: "month" } as const;
 
 export function Reports() {
   const house = useHouse();
@@ -41,8 +38,23 @@ function ReportBody({ house }: { house: House }) {
   // The house's today, not the phone's (Review Focus 2).
   const today = dateKeyOf(Date.now(), settings.timezone);
   const search = params.toString();
+  const showUnit = settings.foodUnit !== "can";
+  const liveCats = cats.data;
   // Keyed on the string: the params object is new on every render.
-  const f = useMemo(() => parseReportFilters(new URLSearchParams(search), today), [search, today]);
+  const parsed = useMemo(() => parseReportFilters(new URLSearchParams(search), today), [search, today]);
+  // A saved link can name a cat that has since been removed (or any id that is not a live cat): the select would
+  // read "All cats" while the data stayed filtered, and with one live cat there would be no control to clear it.
+  // Unknown until the cats load, so only a loaded list drops it.
+  const staleCat = parsed.cat !== null && liveCats !== undefined && !liveCats.some((c) => c.id === parsed.cat);
+  // "Cans" in a house that already counts in cans has no toggle to switch back from and reads "x.xx cans".
+  const f = useMemo<ReportFilters>(
+    () => ({ ...parsed, cat: staleCat ? null : parsed.cat, unit: showUnit ? parsed.unit : "house" }),
+    [parsed, staleCat, showUnit],
+  );
+  // Replace, not push: Back should not land on the stale link again.
+  useEffect(() => {
+    if (staleCat) setParams(toSearchParams(f), { replace: true });
+  }, [staleCat, f, setParams]);
   const report = useReport(f);
   const [csv, setCsv] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
 
@@ -62,12 +74,13 @@ function ReportBody({ house }: { house: House }) {
 
   const summary = report.data;
   const bucket = summary?.bucket;
-  const onSelect = bucket && bucket !== "hour" ? (key: string) => go(drillTo(f, key, BAR_LEVEL[bucket])) : undefined;
+  // A bar opens its own bucket, said explicitly (a day bar in the month view is a day); an hour bar opens nothing.
+  const onSelect = bucket && bucket !== "hour" ? (key: string) => go(drillTo(f, key, bucket)) : undefined;
 
   return (
     <>
       <ReportControls
-        f={f} today={today} cats={cats.data ?? []} showUnit={settings.foodUnit !== "can"} onChange={go}
+        f={f} today={today} cats={cats.data ?? []} showUnit={showUnit} onChange={go}
         onCsv={() => void downloadCsv()} csvBusy={csv.busy} csvError={csv.error}
       />
       {summary ? (

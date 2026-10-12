@@ -62,7 +62,7 @@ afterEach(() => {
   host.remove();
 });
 
-async function renderReports(url = "/reports?range=month&from=2026-03-01") {
+async function renderReports(url = "/reports?range=month&from=2026-03-01"): Promise<QueryClient> {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => {
     root.render(
@@ -73,6 +73,7 @@ async function renderReports(url = "/reports?range=month&from=2026-03-01") {
       </QueryClientProvider>,
     );
   });
+  return qc;
 }
 /** react-query delivers results on a timer tick, so one act() is not enough to see fetched data. */
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
@@ -159,6 +160,79 @@ describe("Reports", () => {
     await renderReports();
     await findByTestId("tile-feedings");
     expect(queryByTestId("report-unit")).toBeNull();
+  });
+
+  it("drops a cat in the URL that is not a live cat, replacing the entry, and never asks for it", async () => {
+    await renderReports("/reports?range=month&from=2026-03-01&cat=00000000-0000-4000-8000-0000000000ff");
+    await findByTestId("tile-feedings");
+    await waitFor(() => expect(location()).toBe("?range=month&from=2026-03-01"));
+    expect((getByTestId("report-cat") as HTMLSelectElement).value).toBe("");
+    expect(summaryMock.mock.calls.every(([q]) => !("cat" in q))).toBe(true);
+    // Replaced, not pushed: Back does not land on the stale link again.
+    await act(async () => { navigate(-1); });
+    expect(location()).toBe("?range=month&from=2026-03-01");
+  });
+
+  it("drops a stale cat even with one live cat, where there is no control to clear it", async () => {
+    catsMock.mockReturnValue({ data: [seed.cats[0]] } as never);
+    await renderReports("/reports?range=month&from=2026-03-01&cat=00000000-0000-4000-8000-0000000000ff");
+    await waitFor(() => expect(location()).toBe("?range=month&from=2026-03-01"));
+  });
+
+  it("keeps a live cat in the URL", async () => {
+    const id = seed.cats[1]!.id;
+    await renderReports(`/reports?range=month&from=2026-03-01&cat=${id}`);
+    await findByTestId("tile-feedings");
+    expect(location()).toBe(`?range=month&from=2026-03-01&cat=${id}`);
+    expect((getByTestId("report-cat") as HTMLSelectElement).value).toBe(id);
+  });
+
+  it("reads amounts in the house unit when the house counts in cans, even with unit=can in the URL", async () => {
+    houseMock.mockReturnValue(house("can"));
+    await renderReports("/reports?range=month&from=2026-03-01&unit=can");
+    expect((await findByTestId("tile-amount")).textContent).not.toMatch(/cans/);
+    expect(queryByTestId("report-unit")).toBeNull();
+  });
+
+  it("shows the last loaded report with a note when a refresh fails", async () => {
+    const qc = await renderReports();
+    await findByTestId("tile-feedings");
+    summaryMock.mockRejectedValueOnce(new ApiError(500, { error: "internal" }));
+    await act(async () => { await qc.refetchQueries(); });
+    const note = await waitFor(() => {
+      const el = host.querySelector('[role="status"]');
+      if (!el) throw new Error("no status note");
+      return el;
+    });
+    expect(note.textContent).toContain("couldn't refresh");
+    expect(getByTestId("tile-feedings").textContent).toContain("154");
+  });
+
+  it("says the CSV needs a connection when offline", async () => {
+    vi.mocked(api.exportCsv).mockRejectedValue(new NetworkError());
+    await renderReports();
+    await click(await findByTestId("report-csv"));
+    const alert = await waitFor(() => {
+      const el = host.querySelector('[role="alert"]');
+      if (!el) throw new Error("no alert");
+      return el;
+    });
+    expect(alert.textContent).toBe("The CSV needs a connection.");
+    expect(downloadBlob).not.toHaveBeenCalled();
+    expect((getByTestId("report-csv") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("says the CSV could not be downloaded on an API error", async () => {
+    vi.mocked(api.exportCsv).mockRejectedValue(new ApiError(500, { error: "internal" }));
+    await renderReports();
+    await click(await findByTestId("report-csv"));
+    const alert = await waitFor(() => {
+      const el = host.querySelector('[role="alert"]');
+      if (!el) throw new Error("no alert");
+      return el;
+    });
+    expect(alert.textContent).toBe("Couldn't download the CSV.");
+    expect(downloadBlob).not.toHaveBeenCalled();
   });
 
   it("asks for a connection when offline", async () => {

@@ -110,6 +110,25 @@ bool WifiStation::ensureConnected() {
     return false;
 }
 
+void WifiStation::noteWake(uint32_t nowMs) {
+    if (ssid_.empty()) return;  // connect() never ran: nothing to rejoin
+    // Why a forced rejoin rather than "distrust WL_CONNECTED until localIP() and a fresh status
+    // confirm it": neither signal is fresh after a manual light sleep. lwIP keeps the DHCP address
+    // on the netif until the lost-IP timer fires, so localIP() is as stale as the status bits, and
+    // WiFi.begin() with an unchanged config returns early while status() reads WL_CONNECTED, so a
+    // plain re-kick would be a no-op. disconnect() makes the status truthful at once (isOnline()
+    // reads false, so SyncService holds the wake round instead of sending it into a dead link)
+    // and the begin() below is booked as a join, so it gets kJoinBudgetMs like the boot join.
+    // The cost, one 3-8 s join per wake, is paid anyway: the association never survives the nap.
+    WiFi.disconnect(/*wifioff=*/false, /*eraseap=*/false);
+    // The STA_DISCONNECTED event updates the status from the event task; until it lands begin()
+    // would still see WL_CONNECTED and skip the connect. Bounded: if the driver never reports a
+    // disconnect the link was not dropped after all and the probe treats it as connected.
+    const uint32_t started = millis();
+    while (WiFi.status() == WL_CONNECTED && millis() - started < kWakeSettleMs) delay(5);
+    beginJoin(nowMs);
+}
+
 bool WifiStation::isConnected() const { return WiFi.status() == WL_CONNECTED; }
 
 int8_t WifiStation::rssi() const {

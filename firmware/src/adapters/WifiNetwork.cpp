@@ -39,6 +39,11 @@ ports::NetResult WifiNetwork::request(const char* method, const std::string& pat
     client.setInsecure();
     HTTPClient http;
     http.setTimeout(kTimeoutMs);
+    // Connection: close, so each call is one short-lived TLS connection (see the header). With the
+    // default keep-alive, a response without Content-Length (a 304 or a 202 from the edge) makes
+    // getString() read the identity body until the peer closes, which on a kept-alive connection
+    // is Cloudflare's idle timeout: loop() (render, knob, Wi-Fi probe) froze for that long.
+    http.setReuse(false);
     // No automatic redirect following: a 3xx from the edge would otherwise replay a POST elsewhere.
     if (!http.begin(client, String((baseUrl_ + path).c_str()))) return ports::NetResult::fromStatus(0, "bad url");
     http.addHeader("Content-Type", "application/json");

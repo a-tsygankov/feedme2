@@ -6,7 +6,7 @@
 // -DSIMULATOR=1 (Wokwi): FakeNetwork instead of Wi-Fi, SimulatedClock, input from the serial
 // command channel, and a power adapter whose light sleep returns at once so a serial command can
 // play the GPIO wake. Hardware: WifiNetwork over WifiStation, knob + touch through CompositeInput,
-// EspPower with the real light sleep.
+// EspPower with the real light sleep (wrapped so the station hears about every wake).
 
 #include <Arduino.h>
 #include <TFT_eSPI.h>
@@ -42,6 +42,7 @@
 #include "adapters/WifiCaptivePortal.h"
 #include "adapters/WifiNetwork.h"
 #include "adapters/WifiStation.h"
+#include "ports/IPower.h"
 #endif
 
 namespace {
@@ -49,7 +50,6 @@ namespace {
 using feedme2::application::App;
 using feedme2::application::AppDeps;
 using feedme2::application::InputEvent;
-using feedme2::application::PowerTier;
 
 // CrowPanel quirk: GPIO 1 must be driven HIGH to power the LCD's 3.3 V rail before TFT_eSPI is
 // initialised. GPIO 2 (the LED rail) is raised by LedRing on first use.
@@ -154,12 +154,32 @@ feedme2::adapters::WifiStation station;
 feedme2::adapters::RotaryInput knob;
 feedme2::adapters::Cst816Touch touch;
 feedme2::adapters::CompositeInput<feedme2::adapters::RotaryInput, feedme2::adapters::Cst816Touch> input(knob, touch);
-feedme2::adapters::EspPower& power = espPower;
+
+// EspPower whose light sleep tells the station about the wake the moment it returns. The nap runs
+// inside App::tick (PowerManager), and a timer wake's sync round goes out later in that same tick:
+// a wake noticed from loop() (the old tier-change check) came too late, the round read the stale
+// WL_CONNECTED, failed, and the device waited for the 60 s retry. See WifiStation::noteWake.
+class StationAwarePower final : public feedme2::ports::IPower {
+public:
+    StationAwarePower(feedme2::adapters::EspPower& real, feedme2::adapters::WifiStation& station)
+        : real_(real), station_(station) {}
+    void setBacklight(uint8_t percent) override { real_.setBacklight(percent); }
+    void displaySleep(bool on) override { real_.displaySleep(on); }
+    void lightSleep(uint32_t maxMs) override {
+        real_.lightSleep(maxMs);
+        station_.noteWake(millis());
+    }
+    void ledRing(uint32_t rgb, uint8_t brightness) override { real_.ledRing(rgb, brightness); }
+
+private:
+    feedme2::adapters::EspPower& real_;
+    feedme2::adapters::WifiStation& station_;
+};
+
+StationAwarePower power(espPower, station);
 constexpr const char* kHwModel = "crowpanel-1.28";
 std::string g_ssid;   // the saved network, for the Wi-Fi screen
 uint32_t g_lastWifiProbeMs = 0;
-uint32_t g_bootJoinStartedMs = 0;   // when connectWifi() kicked the association
-bool g_bootJoinDecided = false;     // the boot rule (join failed AND unpaired → portal) ran
 
 #endif
 
@@ -272,46 +292,35 @@ void publishWifiInfo() {
 
 // Idle is already on the glass from the cached state (spec §5.3); only now does Wi-Fi join, and
 // it joins in the background: WiFi.begin() is asynchronous and wifiHousekeeping() probes once a
-// second, so the loop (and the knob) keep running during the association. Without credentials an
-// unpaired device has nothing to show and goes straight to the setup portal; the "join failed AND
-// unpaired" case is decided from loop() once the budget has elapsed (bootJoinRule).
+// second, so the loop (and the knob) keep running during the association.
+//
+// The portal opens on its own only when there is nothing to join (spec §1.2: "only when it has no
+// credentials"), and then only on an unpaired device, which has nothing else to show. With saved
+// credentials the device keeps joining however long the network is away: the old rule (unpaired
+// and the join failed within 15 s → portal) sent a device whose router was still rebooting after
+// a power blip into a portal it never left. Otherwise the portal is a person's request: a Press on
+// the Wi-Fi screen (wifiHousekeeping), or, for an unpaired device whose saved network is wrong
+// (the Pair screen has no way to the Wi-Fi screen), the knob button held down through boot.
 void connectWifi() {
     std::string pass;
     const bool haveCredentials = station.loadCredentials(storage, g_ssid, pass);
-    if (!haveCredentials && !g_app->pair().isPaired()) runPortal();
+    // Active LOW; knob.begin() has already pulled the pin up.
+    const bool portalHeld = digitalRead(feedme2::adapters::RotaryInput::kPinButton) == LOW;
+    if ((!haveCredentials && !g_app->pair().isPaired()) || portalHeld) runPortal();
     if (haveCredentials) station.connect(g_ssid, pass, /*budgetMs=*/0);
-    g_bootJoinStartedMs = millis();
-    g_bootJoinDecided = !haveCredentials;
     publishWifiInfo();
 }
 
-// The boot rule, once: joined within the budget → settled; still offline after it → an unpaired
-// device goes to the portal, a paired one keeps serving the cache while ensureConnected() retries.
-void bootJoinRule(uint32_t now) {
-    if (g_bootJoinDecided) return;
-    if (station.isConnected()) {
-        g_bootJoinDecided = true;
-        return;
-    }
-    if (now - g_bootJoinStartedMs < feedme2::adapters::WifiStation::kDefaultBudgetMs) return;
-    g_bootJoinDecided = true;
-    if (!g_app->pair().isPaired()) runPortal();
-}
-
-void wifiHousekeeping(uint32_t now, PowerTier before) {
-    const PowerTier after = g_app->power().tier();
-    // No probe while asleep: the manual light sleep drops the association anyway, and skipping it
-    // relies on WiFi.setAutoReconnect(true) (WifiStation::connect) to let the stack re-associate on
-    // its own once the chip is back; the re-kick on the wake below covers the case it does not.
-    if (after == PowerTier::LightSleep) return;
-    // A manual light sleep drops the association (EspPower::lightSleep): re-kick it on the wake,
-    // then keep probing once a second so a failed boot join is retried too.
-    if (before == PowerTier::LightSleep || now - g_lastWifiProbeMs >= kWifiProbeMs) {
+void wifiHousekeeping(uint32_t now) {
+    // Probed once a second in every power tier: loop() only runs while the chip is awake, and a
+    // timer wake's sync round runs with the tier still LightSleep (screen off), so skipping the
+    // probe there left a join that failed during that round unretried. The rejoin after each nap
+    // is StationAwarePower's noteWake; ensureConnected() leaves that join alone for its budget.
+    if (now - g_lastWifiProbeMs >= kWifiProbeMs) {
         g_lastWifiProbeMs = now;
         station.ensureConnected();
         publishWifiInfo();
     }
-    bootJoinRule(now);
     // The portal only on request: a Press on the Wi-Fi screen (App::takePortalRequest), never from
     // merely opening it (review of 944eedc: an offline device rebooted into the portal on every tick).
     if (g_app->takePortalRequest()) runPortal();
@@ -352,14 +361,12 @@ void loop() {
 #if SIMULATOR
     input.pump();
 #endif
-    const PowerTier before = g_app->power().tier();
     // The App ticks on the IClock, the same source begin() read: under FEEDME2_SIM_SPEED the
     // SimulatedClock runs ahead of millis(), and a tick on millis() would make the two diverge.
     g_app->tick(g_clock.monotonicMs());
 #if !SIMULATOR
-    wifiHousekeeping(now, before);
+    wifiHousekeeping(now);
 #else
-    (void)before;
     // No portal on the simulator: the request is logged by the App and dropped here.
     (void)g_app->takePortalRequest();
 #endif

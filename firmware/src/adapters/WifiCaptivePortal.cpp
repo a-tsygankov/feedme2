@@ -133,8 +133,10 @@ void WifiCaptivePortal::runAndReboot(ports::IStorage& storage) {
     bool saved = false;
     String pendingSsid;
     String pendingPass;
+    uint32_t lastActivityMs = millis();
 
     const auto serveForm = [&]() {
+        lastActivityMs = millis();
         String body = kFormHtml;
         body.replace("{SSID_OPTIONS}", buildSsidOptions(ssids));
         http.send(200, "text/html", body);
@@ -146,6 +148,7 @@ void WifiCaptivePortal::runAndReboot(ports::IStorage& storage) {
     http.on("/save", HTTP_POST, [&]() {
         // Typed name wins so a hidden SSID works even when a stale pick is still selected. Trimmed
         // because phone keyboards append a space after an autocomplete.
+        lastActivityMs = millis();
         String text = http.arg("ssid_text");
         text.trim();
         String pick = http.arg("ssid_pick");
@@ -161,10 +164,27 @@ void WifiCaptivePortal::runAndReboot(ports::IStorage& storage) {
     });
     http.begin();
 
+    // The portal has no way back to station mode except a restart, and nothing else would end it:
+    // a power blip that comes back before the router does, or a portal someone opened and walked
+    // away from, would otherwise strand the device in AP mode with its saved network up again.
+    // After kIdleTimeoutMs with nobody on the AP and no request it restarts into a normal boot
+    // (which joins the saved network, or comes back here when there is none). A phone on the AP
+    // keeps it open while the person types.
     while (!saved) {
         dns.processNextRequest();
         http.handleClient();
+        if (WiFi.softAPgetStationNum() > 0) lastActivityMs = millis();
+        if (millis() - lastActivityMs >= kIdleTimeoutMs) break;
         delay(2);
+    }
+
+    if (!saved) {
+        Serial.println("[feedme2] portal idle timeout, restarting");
+        http.stop();
+        dns.stop();
+        WiFi.softAPdisconnect(true);
+        ESP.restart();
+        for (;;) delay(1000);  // ESP.restart() is not declared noreturn
     }
 
     const std::string blob = WifiStation::encodeCredentials(std::string(pendingSsid.c_str()), std::string(pendingPass.c_str()));

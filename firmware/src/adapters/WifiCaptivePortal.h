@@ -10,9 +10,12 @@ namespace feedme2::adapters {
 // page form on 80 (a <select> of the networks scanned before the AP came up,
 // a free-text SSID for hidden networks, a password). POST /save stores the
 // credentials as WifiStation's NVS blob and the device restarts into station
-// mode; there is no in-place switch back, hence [[noreturn]].
+// mode; there is no in-place switch back, hence [[noreturn]]. After
+// kIdleTimeoutMs with no client on the AP and no request it also restarts,
+// into a normal boot.
 class WifiCaptivePortal {
 public:
+    static constexpr uint32_t kIdleTimeoutMs = 10UL * 60UL * 1000UL;
     [[noreturn]] void runAndReboot(ports::IStorage& storage);
 };
 

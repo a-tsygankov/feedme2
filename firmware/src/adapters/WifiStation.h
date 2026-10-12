@@ -33,15 +33,19 @@ public:
     // the join up; a budgetMs > 0 additionally polls for the association that long before
     // returning. Returns whether the station is connected on return.
     bool connect(const std::string& ssid, const std::string& pass, uint32_t budgetMs = kDefaultBudgetMs);
-    // Non-blocking and cheap (one status read plus timestamps). A manual esp_light_sleep_start()
-    // (EspPower::lightSleep) drops the association: only esp_pm's automatic light sleep coordinates
-    // with modem sleep. So after every wake the first sync would see WL_CONNECTED gone. This
-    // returns the current status and, when it has dropped, re-kicks WiFi.begin() with the
-    // credentials connect() was given. A begin() this object issued is left alone for
-    // kJoinBudgetMs unless the stack reports a definitive failure (WL_CONNECT_FAILED,
-    // WL_NO_SSID_AVAIL); re-kicks are never closer than kReconnectIntervalMs apart. App calls it
-    // after wake and lets SyncService's transient path retry.
+    // Non-blocking and cheap (one status read plus timestamps). Returns the current status and,
+    // when the link has dropped, re-kicks WiFi.begin() with the credentials connect() was given.
+    // A begin() this object issued is left alone for kJoinBudgetMs unless the stack reports a
+    // definitive failure (WL_CONNECT_FAILED, WL_NO_SSID_AVAIL); re-kicks are never closer than
+    // kReconnectIntervalMs apart. main.cpp probes it once a second.
     bool ensureConnected();
+    // Call as soon as a manual light sleep (EspPower::lightSleep) returns, before anything reads
+    // the link. That sleep drops the association (only esp_pm's automatic light sleep coordinates
+    // with modem sleep), but the driver status lags: WiFi.status() still reads WL_CONNECTED, so
+    // the wake sync went out over a dead link, failed, and the device waited for the 60 s retry.
+    // This forces a clean rejoin (disconnect + begin) that gets the normal kJoinBudgetMs; a no-op
+    // before connect().
+    void noteWake(uint32_t nowMs);
     bool isConnected() const;
     // dBm, 0 when not associated.
     int8_t rssi() const;
@@ -54,6 +58,8 @@ public:
     // normally takes 3-8 s (DHCP, weak signal), so re-kicking at the 5 s gate restarted every slow
     // join and some stations never came up; the association gets its own, longer budget.
     static constexpr uint32_t kJoinBudgetMs = 15000;
+    // How long noteWake() waits for the disconnect to clear the stale WL_CONNECTED.
+    static constexpr uint32_t kWakeSettleMs = 150;
 
 private:
     void beginJoin(uint32_t nowMs);

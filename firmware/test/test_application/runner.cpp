@@ -55,6 +55,19 @@ void test_power_sleep_timeout_below_sixty_seconds_clamps_to_sixty();
 void test_power_held_knob_never_sleeps_and_its_wake_is_swallowed();
 void test_power_hold_awake_postpones_light_sleep_but_not_dim();
 void test_power_timers_survive_millis_wrap();
+void test_app_boot_unpaired_shows_pair_and_starts_pairing();
+void test_app_boot_paired_with_cached_state_renders_idle_and_requests_sync();
+void test_app_knob_feed_flow_single_cat();
+void test_app_all_cats_feed_creates_one_per_cat();
+void test_app_double_tap_history_and_long_press_system_menu();
+void test_app_unauthorized_during_sync_returns_to_pair();
+void test_app_idle_press_with_no_cats_stays_on_idle();
+void test_app_first_event_after_dim_is_swallowed_and_requests_wake_round();
+void test_app_timer_wake_requests_timer_round_and_queue_holds_device_awake();
+void test_app_long_press_arc_follows_the_held_knob();
+void test_app_unpair_long_press_clears_token();
+void test_app_sleep_now_naps_on_the_next_tick();
+void test_app_hunger_uses_the_snapshot_clock_until_the_server_answers();
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -115,5 +128,18 @@ int main() {
     RUN_TEST(test_power_held_knob_never_sleeps_and_its_wake_is_swallowed);
     RUN_TEST(test_power_hold_awake_postpones_light_sleep_but_not_dim);
     RUN_TEST(test_power_timers_survive_millis_wrap);
+    RUN_TEST(test_app_boot_unpaired_shows_pair_and_starts_pairing);
+    RUN_TEST(test_app_boot_paired_with_cached_state_renders_idle_and_requests_sync);
+    RUN_TEST(test_app_knob_feed_flow_single_cat);
+    RUN_TEST(test_app_all_cats_feed_creates_one_per_cat);
+    RUN_TEST(test_app_double_tap_history_and_long_press_system_menu);
+    RUN_TEST(test_app_unauthorized_during_sync_returns_to_pair);
+    RUN_TEST(test_app_idle_press_with_no_cats_stays_on_idle);
+    RUN_TEST(test_app_first_event_after_dim_is_swallowed_and_requests_wake_round);
+    RUN_TEST(test_app_timer_wake_requests_timer_round_and_queue_holds_device_awake);
+    RUN_TEST(test_app_long_press_arc_follows_the_held_knob);
+    RUN_TEST(test_app_unpair_long_press_clears_token);
+    RUN_TEST(test_app_sleep_now_naps_on_the_next_tick);
+    RUN_TEST(test_app_hunger_uses_the_snapshot_clock_until_the_server_answers);
     return UNITY_END();
 }

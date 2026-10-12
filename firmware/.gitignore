@@ -4,6 +4,8 @@
 .vscode/launch.json
 .vscode/ipch
 serial.log
+# Generated from fixtures/device-state.sample.json by scripts/embed_fixture.py (simulator env).
+src/adapters/FakeState.h
 # OTA signing material (Phase 3) — never committed.
 scripts/secrets/
 src/application/SigningPublicKey.h

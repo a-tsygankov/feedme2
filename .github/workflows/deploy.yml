@@ -365,14 +365,18 @@ jobs:
             firmware/.pio/build/simulator/firmware-merged.bin
             firmware/diagram.json
             firmware/wokwi.toml
-            firmware/wokwi/boot.scenario.yaml
+            firmware/wokwi/*.scenario.yaml
           retention-days: 1
 
   firmware-hil2:
-    name: Firmware HIL-2 (Wokwi scenario)
+    name: Firmware HIL-2 (Wokwi ${{ matrix.scenario }})
     needs: firmware-build
     if: needs.firmware-build.outputs.sim_built == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [boot, pair, feed, feed_all, system_menu]
     steps:
       - uses: actions/checkout@v4
       # The artifact keeps the `firmware/...` subtree; downloading to the
@@ -395,20 +399,20 @@ jobs:
             echo "have=true" >> "$GITHUB_OUTPUT"
           fi
         shell: bash
-      - name: HIL-2 boot + input scenario (Wokwi)
+      - name: HIL-2 ${{ matrix.scenario }} scenario (Wokwi)
         if: steps.tok.outputs.have == 'true'
         uses: wokwi/wokwi-ci-action@v1
         with:
           token: ${{ secrets.WOKWI_CLI_TOKEN }}
           path: firmware
-          timeout: 20000
-          scenario: wokwi/boot.scenario.yaml
-          serial_log_file: firmware/serial.log
+          timeout: 90000
+          scenario: wokwi/${{ matrix.scenario }}.scenario.yaml
+          serial_log_file: firmware/serial-${{ matrix.scenario }}.log
       - name: Upload serial log
         if: always() && steps.tok.outputs.have == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: hil2-serial-log
-          path: firmware/serial.log
+          name: wokwi-serial-${{ matrix.scenario }}
+          path: firmware/serial-${{ matrix.scenario }}.log
           retention-days: 7
           if-no-files-found: ignore

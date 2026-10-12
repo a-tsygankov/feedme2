@@ -26,3 +26,9 @@ Firmware: `firmware/src/spike/sleep_touch/main.cpp`, env `spike-sleep`.
 Note: ext0 wake keeps the RTC_PERIPH power domain on, so the measured sleep current includes that overhead; Phase 3 can revisit ext1 if the idle budget is tight.
 
 Status: bench run not yet performed (no board attached on 2026-09-20).
+
+## 2026-10-12 — still open (Phase 3); a spec correction from Phase 2b
+
+The spike is still open: Phase 2b (firmware MVP) stops at light sleep and never runs the deep-sleep path, so Q2 (touch-controller rail, ext0 wake) is a Phase 3 item together with deep sleep itself. The `spike-sleep` env and this procedure are unchanged.
+
+Correction to spec §5.5, found while implementing `EspPower::lightSleep` (not a spec edit; the spec keeps its wording until Phase 3 revisits §5.5): **a manual `esp_light_sleep_start()` drops the Wi-Fi association.** Only esp_pm's automatic light sleep coordinates with the modem's sleep, so the §5.5 line "light sleep keeps the Wi-Fi association and RAM" holds for RAM but not for Wi-Fi. The Phase 2b firmware accepts this: `main.cpp` calls `WifiStation::ensureConnected()` after every wake (and once a second while awake), the first sync round after a wake may stop as transient and `SyncService` retries after 60 s. The USB-CDC console drops across the sleep too. When Phase 3 measures the bench unit, record here whether esp_pm's automatic light sleep (`CONFIG_PM_ENABLE` + `esp_pm_configure` with `light_sleep_enable`) can replace the manual call and keep the association, and what it costs in idle current.

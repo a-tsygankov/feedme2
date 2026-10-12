@@ -1,0 +1,18 @@
+name: 'all cats logs one feeding per cat with each default'
+version: 1
+author: 'feedme2'
+# Review Focus 5: Luna has no default amount and still gets a feeding (the house fallback), so the
+# fake api accepts two.
+steps:
+  - wait-serial: '[feedme2] idle cat=Mochi level='
+  - write-serial: "cw\n"
+  - wait-serial: '[feedme2] idle cat=Luna level='
+  - write-serial: "cw\n"
+  - wait-serial: '[feedme2] idle cat=all level='
+  - write-serial: "press\n"
+  - wait-serial: '[feedme2] screen=amount'
+  - write-serial: "press\n"
+  - wait-serial: '[feedme2] feeding queued id='
+  - wait-serial: '[feedme2] feeding queued id='
+  - wait-serial: '[feedme2] screen=fed'
+  - wait-serial: '[feedme2] sync ok accepted=2 state=changed'

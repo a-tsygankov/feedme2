@@ -90,6 +90,13 @@ assets/cats/render.py       + firmware outputs (white 130/88 PNG → C arrays)
 
 ---
 
+## Corrections recorded during execution (2026-10-12)
+
+Two places where the firmware as built differs from the text below; the text is left as written and the handoff `docs/handoffs/2026-10-12-phase2b-execution-handoff.md` has the details.
+
+1. **Boot scenario order (Task 15).** The `boot.scenario.yaml` listed below waits for `[feedme2] idle cat=Mochi level=` before `[feedme2] sync ok accepted=0 state=changed`. The firmware prints `sync ok` first: the roster only exists after the `paired` round, and wokwi-cli's `wait-serial` never rescans. The committed `boot.scenario.yaml` and `pair.scenario.yaml` follow the firmware order (`boot ok` → `screen=pair` → `pair start code=424242` → `paired house=` → `screen=idle` → `sync ok accepted=0 state=changed` → `idle cat=Mochi level=`).
+2. **Asset cap (Task 13 Step 2).** The 24 generated `cat_*.c` files total 268 673 bytes of source, over the 250 KB cap; the PNG bytes in flash are about 74 KB, which meets spec D2. The cap is relaxed to 275 KB of source (or measure flash bytes instead).
+
 ## Task 1: Build scaffolding for the layered firmware
 
 **Files:**
@@ -99,7 +106,7 @@ assets/cats/render.py       + firmware outputs (white 130/88 PNG → C arrays)
 **Interfaces:**
 - Produces: `namespace feedme2::application { enum class InputEvent : uint8_t { None, RotateCW, RotateCCW, Press, DoubleTap, LongPress, SwipeLeft, SwipeRight }; }` and the two Unity runners that every later task appends `RUN_TEST` lines to.
 
-- [ ] **Step 1: Write the failing test** — `firmware/test/test_application/test_events.cpp`:
+- [x] **Step 1: Write the failing test** — `firmware/test/test_application/test_events.cpp`:
 
 ```cpp
 #include <unity.h>
@@ -127,9 +134,9 @@ int main() {
 }
 ```
 
-- [ ] **Step 2: Run** `cd firmware && pio test -e native` → FAIL (missing header).
+- [x] **Step 2: Run** `cd firmware && pio test -e native` → FAIL (missing header).
 
-- [ ] **Step 3: Write `firmware/src/application/Events.h`**
+- [x] **Step 3: Write `firmware/src/application/Events.h`**
 
 ```cpp
 #pragma once
@@ -158,7 +165,7 @@ inline const char* eventName(InputEvent e) {
 }  // namespace feedme2::application
 ```
 
-- [ ] **Step 4: platformio.ini** — in `[env:native]` set:
+- [x] **Step 4: platformio.ini** — in `[env:native]` set:
 
 ```ini
 [env:native]
@@ -172,9 +179,9 @@ lib_deps = bblanchon/ArduinoJson@^7.2.0
 
 (keep whatever Phase 0 already had that is compatible; ArduinoJson is header-only and builds on the host.) Confirm `[env:crowpanel]`/`[env:simulator]` have `-I src` (the common flags do).
 
-- [ ] **Step 5: Run** `pio test -e native` → both runners green (`test_domain` 8 + `test_application` 1). Also `pio run -e crowpanel` and `pio run -e simulator` still build (nothing in `src/` references the new header yet).
+- [x] **Step 5: Run** `pio test -e native` → both runners green (`test_domain` 8 + `test_application` 1). Also `pio run -e crowpanel` and `pio run -e simulator` still build (nothing in `src/` references the new header yet).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add firmware/platformio.ini firmware/include/lv_conf.h firmware/src/application/Events.h firmware/test/test_application/runner.cpp firmware/test/test_application/test_events.cpp firmware/test/test_application/stubs.h firmware/src/application/Version.h
@@ -194,7 +201,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces (`namespace feedme2::domain`): `enum class FoodUnit : uint8_t { Grams, Ounces, Cans }`, `enum class CanFraction : uint8_t { Quarter, Third, Half }`, `constexpr double kMgPerOz = 28349.5`, `constexpr int32_t kDefaultCanMg = 155922`, `struct StepSettings { int gramStep; int ozStepHundredths; CanFraction canFraction; int32_t canSizeMg; }`, `int32_t toMg(double value, FoodUnit, int32_t canSizeMg)`, `double fromMg(int32_t mg, FoodUnit, int32_t canSizeMg)`, `int32_t stepMg(FoodUnit, const StepSettings&)`, `int32_t snapToStep(int32_t mg, int32_t step)`, `std::string formatAmountAscii(int32_t mg, FoodUnit, int32_t canSizeMg)` ("40 g", "1.5 oz", "1/3 can", "1 1/2 can" — ASCII because Montserrat has no fraction glyphs), `const char* unitLabel(FoodUnit)`, `FoodUnit parseUnit(const char*)`, `CanFraction parseFraction(const char*)` ("1/4" → Quarter).
 
-- [ ] **Step 1: Write `firmware/test/fixtures.h`**
+- [x] **Step 1: Write `firmware/test/fixtures.h`**
 
 ```cpp
 #pragma once
@@ -220,7 +227,7 @@ inline JsonDocument loadFixture(const char* name) {
 }
 ```
 
-- [ ] **Step 2: Failing test `firmware/test/test_domain/test_units.cpp`**
+- [x] **Step 2: Failing test `firmware/test/test_domain/test_units.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -277,9 +284,9 @@ void test_units_round_half_away_from_zero() {
 
 Register the five tests in `runner.cpp` (forward declarations + `RUN_TEST`).
 
-- [ ] **Step 3: Run** `pio test -e native` → FAIL (missing `domain/Units.h`).
+- [x] **Step 3: Run** `pio test -e native` → FAIL (missing `domain/Units.h`).
 
-- [ ] **Step 4: Write `firmware/src/domain/Units.h`**
+- [x] **Step 4: Write `firmware/src/domain/Units.h`**
 
 ```cpp
 #pragma once
@@ -393,9 +400,9 @@ inline std::string formatAmountAscii(int32_t mg, FoodUnit u, int32_t canSizeMg) 
 }  // namespace feedme2::domain
 ```
 
-- [ ] **Step 5: Run** `pio test -e native` → green (14 cases).
+- [x] **Step 5: Run** `pio test -e native` → green (14 cases).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add firmware/src/domain/Units.h firmware/test/fixtures.h firmware/test/test_domain/test_units.cpp firmware/test/test_domain/runner.cpp firmware/src/application/Version.h
@@ -415,7 +422,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `enum class HungerLevel : uint8_t { Fed, Content, Peckish, Hungry, VeryHungry, Starving }`, `constexpr int32_t kFedWindowSec = 900`, `struct HungerState { HungerLevel level; double ratio; double ageSec; }`, `HungerState hungerState(int64_t nowMs, const int64_t* lastFedAtMs /*nullptr = never*/, int32_t hungryAfterSec)`, `const char* levelName(HungerLevel)` ("fed", "content", …, "starving" — the TS names), `enum class LevelColor { Good, Warn, Danger }`, `LevelColor levelColor(HungerLevel)` (hungry → Warn, like shared); `class ClockModel { void setMonotonic(uint32_t ms); void syncFromServer(int64_t serverNowMs, uint32_t monotonicMs); bool isSynced() const; int64_t nowMs() const /* monotonic + offset; before sync: monotonic only */; int64_t offsetMs() const; }` with `kUnsyncedEpochMs = 0`.
 
-- [ ] **Step 1: Failing `test_hunger.cpp`**
+- [x] **Step 1: Failing `test_hunger.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -450,7 +457,7 @@ void test_hunger_colours_and_degenerate_interval() {
 }
 ```
 
-- [ ] **Step 2: Failing `test_clock.cpp`**
+- [x] **Step 2: Failing `test_clock.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -478,9 +485,9 @@ void test_clock_syncs_from_server_and_keeps_counting() {
 }
 ```
 
-- [ ] **Step 3: Run** → FAIL. Register the four tests in `runner.cpp`.
+- [x] **Step 3: Run** → FAIL. Register the four tests in `runner.cpp`.
 
-- [ ] **Step 4: Write `firmware/src/domain/Hunger.h`**
+- [x] **Step 4: Write `firmware/src/domain/Hunger.h`**
 
 ```cpp
 #pragma once
@@ -543,7 +550,7 @@ inline LevelColor levelColor(HungerLevel l) {
 }  // namespace feedme2::domain
 ```
 
-- [ ] **Step 5: Write `firmware/src/domain/Clock.h`**
+- [x] **Step 5: Write `firmware/src/domain/Clock.h`**
 
 ```cpp
 #pragma once
@@ -576,7 +583,7 @@ private:
 }  // namespace feedme2::domain
 ```
 
-- [ ] **Step 6: Run** `pio test -e native` → green (18 cases). Commit:
+- [x] **Step 6: Run** `pio test -e native` → green (18 cases). Commit:
 
 ```bash
 git add firmware/src/domain/Hunger.h firmware/src/domain/Clock.h firmware/test/test_domain/test_hunger.cpp firmware/test/test_domain/test_clock.cpp firmware/test/test_domain/runner.cpp firmware/src/application/Version.h
@@ -601,7 +608,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `Router.h`: `enum class ScreenId { Boot, Pair, Idle, Amount, Fed, History, System, WifiList, About, UnpairConfirm }`, `class Router { ScreenId current() const; void push(ScreenId); bool pop(); void replaceRoot(ScreenId); bool atRoot() const; }`.
 - `LongPressArc.h`: `class LongPressArc { explicit LongPressArc(uint32_t holdMs = 600); void update(uint32_t nowMs, bool held); int percent() const; bool charging() const; }`.
 
-- [ ] **Step 1: Failing tests** (each file registers in `runner.cpp`):
+- [x] **Step 1: Failing tests** (each file registers in `runner.cpp`):
 
 `test_roster.cpp`:
 ```cpp
@@ -783,9 +790,9 @@ void test_arc_charges_over_hold_and_resets_on_release() {
 }
 ```
 
-- [ ] **Step 2: Run** `pio test -e native` → FAIL (missing headers).
+- [x] **Step 2: Run** `pio test -e native` → FAIL (missing headers).
 
-- [ ] **Step 3: Write the headers**
+- [x] **Step 3: Write the headers**
 
 `DeviceState.h`:
 ```cpp
@@ -1100,7 +1107,7 @@ private:
 }  // namespace feedme2::domain
 ```
 
-- [ ] **Step 4: Run** `pio test -e native` → green (29 cases). Commit:
+- [x] **Step 4: Run** `pio test -e native` → green (29 cases). Commit:
 
 ```bash
 git add firmware/src/domain/DeviceState.h firmware/src/domain/CatRoster.h firmware/src/domain/FeedFlow.h firmware/src/domain/FeedingQueue.h firmware/src/domain/Router.h firmware/src/domain/LongPressArc.h firmware/test/test_domain/test_roster.cpp firmware/test/test_domain/test_feedflow.cpp firmware/test/test_domain/test_queue.cpp firmware/test/test_domain/test_router.cpp firmware/test/test_domain/test_arc.cpp firmware/test/test_domain/runner.cpp firmware/src/application/Version.h
@@ -1130,7 +1137,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `StateCodec`: `bool decodeState(const std::string& json, domain::DeviceState& out, std::string& err)` (accepts the shared `DeviceState` shape; unknown keys ignored; `hungryAfterSec` etc. validated > 0), `std::string encodeHeartbeat(const char* fw, uint32_t uptimeSec, const char* resetReason, uint32_t freeHeap, int batteryPct /* -1 = none */)`.
 - `QueueCodec`: `std::string encodeDraft(const domain::FeedingDraft&)` (one JSON object matching `DeviceFeedingCreate`: `id, catId, fedAt, amountMg, enteredUnit, enteredValue`), `bool decodeDraft(const std::string&, domain::FeedingDraft&)`, `std::string encodeDraftsArray(const std::vector<domain::FeedingDraft>&)`, `std::vector<std::string> decodeAcceptedIds(const std::string& responseJson, int64_t* serverNow /*nullable*/)`, `std::string encodeLogEntry(int64_t ts, const char* level, const char* msg, const char* dataJson)`, `std::string joinArray(const std::vector<std::string>& jsonObjects)`.
 
-- [ ] **Step 1: Failing `test_state_codec.cpp`**
+- [x] **Step 1: Failing `test_state_codec.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -1175,7 +1182,7 @@ void test_heartbeat_encoding() {
 }
 ```
 
-- [ ] **Step 2: Failing `test_queue_codec.cpp`**
+- [x] **Step 2: Failing `test_queue_codec.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -1235,9 +1242,9 @@ void test_encoded_draft_has_exactly_the_six_contract_keys() {
 }
 ```
 
-- [ ] **Step 3: Run** → FAIL. Register the seven tests.
+- [x] **Step 3: Run** → FAIL. Register the seven tests.
 
-- [ ] **Step 4: Write the ports** (one header each, all `#pragma once`, `namespace feedme2::ports`, pure virtual with virtual destructors) exactly as listed in Interfaces. `INetwork.h` also defines:
+- [x] **Step 4: Write the ports** (one header each, all `#pragma once`, `namespace feedme2::ports`, pure virtual with virtual destructors) exactly as listed in Interfaces. `INetwork.h` also defines:
 
 ```cpp
 struct NetResult {
@@ -1259,9 +1266,9 @@ struct NetResult {
 };
 ```
 
-- [ ] **Step 5: Write `StateCodec.{h,cpp}` and `QueueCodec.{h,cpp}`** with ArduinoJson 7 (`JsonDocument`; `deserializeJson(doc, json)`; `serializeJson(doc, out)`). `decodeState` requires `house.settings`, `cats` (array), `now`; parses colours from `#rrggbb` with `strtoul`; `defaultAmountMg`/`lastFedAt` null → `hasDefault=false`/`hasLastFed=false`; calls `out.sortCats()`; on any missing required field returns false with `err = "missing <field>"`. `encodeDraft` writes `fedAt` as an integer (ArduinoJson supports `int64_t`). `encodeLogEntry` embeds `data` by deserialising the given JSON string into a nested object (skip `data` when the string is null or fails to parse).
+- [x] **Step 5: Write `StateCodec.{h,cpp}` and `QueueCodec.{h,cpp}`** with ArduinoJson 7 (`JsonDocument`; `deserializeJson(doc, json)`; `serializeJson(doc, out)`). `decodeState` requires `house.settings`, `cats` (array), `now`; parses colours from `#rrggbb` with `strtoul`; `defaultAmountMg`/`lastFedAt` null → `hasDefault=false`/`hasLastFed=false`; calls `out.sortCats()`; on any missing required field returns false with `err = "missing <field>"`. `encodeDraft` writes `fedAt` as an integer (ArduinoJson supports `int64_t`). `encodeLogEntry` embeds `data` by deserialising the given JSON string into a nested object (skip `data` when the string is null or fails to parse).
 
-- [ ] **Step 6: Write `test_application/stubs.h`**
+- [x] **Step 6: Write `test_application/stubs.h`**
 
 ```cpp
 #pragma once
@@ -1326,7 +1333,7 @@ struct StubNetwork : INetwork {
 }  // namespace feedme2::test
 ```
 
-- [ ] **Step 7: Run** `pio test -e native` → green (36 cases); `pio run -e crowpanel` still builds (ports/application compile in the Arduino env too). Commit:
+- [x] **Step 7: Run** `pio test -e native` → green (36 cases); `pio run -e crowpanel` still builds (ports/application compile in the Arduino env too). Commit:
 
 ```bash
 git add firmware/src/ports firmware/src/application/StateCodec.h firmware/src/application/StateCodec.cpp firmware/src/application/QueueCodec.h firmware/src/application/QueueCodec.cpp firmware/test/test_application/stubs.h firmware/test/test_application/test_state_codec.cpp firmware/test/test_application/test_queue_codec.cpp firmware/test/test_application/runner.cpp firmware/src/application/Version.h
@@ -1348,7 +1355,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `LogService(ports::ILogSink& serial, ports::IFileQueue& files, ports::IClock&, domain::ClockModel&)`: `void info(const char* msg, const char* dataJson = nullptr)`, `warn`, `error`; `void event(const char* name, const char* kv)` → writes `[feedme2] <name> <kv>` to the serial sink AND queues an info line `name kv`; `size_t pending() const`; `std::vector<std::string> takeBatch(size_t max = 50)` (returns the oldest lines and removes them from the file); `void requeue(std::vector<std::string>)`; persistence: every queued line is `appendLine("/logs.jsonl", …)`; cap 300 lines on disk (rewrite when exceeded); `void loadFromDisk()`.
 - `FeedingService(ports::IFileQueue&, ports::IRandom&, domain::ClockModel&, LogService&)`: `void loadFromDisk()`, `std::vector<domain::FeedingDraft> commit(domain::FeedFlow& flow, int64_t nowMs)` (confirms the flow, pushes drafts, persists, logs `feeding queued id=… cat=… mg=…`, returns them), `const domain::FeedingQueue& queue() const`, `std::vector<domain::FeedingDraft> headBatch(size_t n = 20)`, `void markAccepted(const std::vector<std::string>& ids)` (removes + rewrites the file), `std::vector<domain::FeedingDraft> recent(size_t n = 5)` (last n queued or sent — kept in a 5-entry ring for the History overlay; sent ones come from the state's cats as well, see Task 10).
 
-- [ ] **Step 1: Failing `test_log_service.cpp`**
+- [x] **Step 1: Failing `test_log_service.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -1385,7 +1392,7 @@ void test_log_service_caps_disk_lines_and_reloads() {
 }
 ```
 
-- [ ] **Step 2: Failing `test_feeding_service.cpp`**
+- [x] **Step 2: Failing `test_feeding_service.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -1429,11 +1436,11 @@ void test_feeding_service_keeps_last_five_for_history() {
 }
 ```
 
-- [ ] **Step 3: Run** → FAIL. Register the four tests.
+- [x] **Step 3: Run** → FAIL. Register the four tests.
 
-- [ ] **Step 4: Implement** `LogService` (ring of pending JSON lines mirrored to `/logs.jsonl`; `event()` formats `[feedme2] name kv` and writes it to the sink at info; `takeBatch` rewrites the file with the remainder; `loadFromDisk` reads the file and keeps the last 300) and `FeedingService` (wraps `FeedingQueue`; `commit` calls `flow.confirm([&]{ return rnd.uuid(); }, nowMs)`, pushes each draft, `appendLine("/feedings.jsonl", encodeDraft(d))`, logs the event, pushes into a 5-entry `recent_` deque newest-first; `markAccepted` removes and `rewrite`s the file; `loadFromDisk` decodes each line, skipping malformed ones with a warn).
+- [x] **Step 4: Implement** `LogService` (ring of pending JSON lines mirrored to `/logs.jsonl`; `event()` formats `[feedme2] name kv` and writes it to the sink at info; `takeBatch` rewrites the file with the remainder; `loadFromDisk` reads the file and keeps the last 300) and `FeedingService` (wraps `FeedingQueue`; `commit` calls `flow.confirm([&]{ return rnd.uuid(); }, nowMs)`, pushes each draft, `appendLine("/feedings.jsonl", encodeDraft(d))`, logs the event, pushes into a 5-entry `recent_` deque newest-first; `markAccepted` removes and `rewrite`s the file; `loadFromDisk` decodes each line, skipping malformed ones with a warn).
 
-- [ ] **Step 5: Run** `pio test -e native` → green (40 cases). Commit:
+- [x] **Step 5: Run** `pio test -e native` → green (40 cases). Commit:
 
 ```bash
 git add firmware/src/application/LogService.h firmware/src/application/LogService.cpp firmware/src/application/FeedingService.h firmware/src/application/FeedingService.cpp firmware/test/test_application/test_log_service.cpp firmware/test/test_application/test_feeding_service.cpp firmware/test/test_application/runner.cpp firmware/src/application/Version.h
@@ -1453,7 +1460,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - `enum class PairPhase { Idle, Starting, Pending, Confirmed, Expired, Failed }`; `struct PairView { PairPhase phase; std::string pairCode; int64_t expiresAt; std::string error; }`; `PairCoordinator(ports::INetwork&, ports::IStorage&, ports::IClock&, ports::IRandom&, LogService&, std::string deviceId, std::string hwModel, std::string fwVersion)`: `bool isPaired() const` (token in storage), `void start()`, `void tick(uint32_t nowMs)` (polls every `pollAfterSec` from the start response, default 3 s; `Expired` → restart automatically after 2 s; `Failed` → retry start after 5 s). Poll secret: every `start()` generates a fresh `pollSecret = random.hex(16)` (32 lowercase hex chars), holds it in RAM only (a reboot mid-pairing starts over), and sends it in `pairStart` and in every `pairCheck`. A check answer `unknown` is treated like `expired` (the server lost the row: restart); a 400 on check (`Permanent`) is `Failed` (retry after 5 s with a new `start()`); and because the start response carries no server `now`, `Pending` that lasts 10 monotonic minutes restarts `start()` regardless of what the server says, `const PairView& view() const`, `void clearToken()` (storage erase + `network.setToken("")`), `std::string token() const`; on `Confirmed` writes `token` and `name` to storage and calls `network.setToken`.
 
-- [ ] **Step 1: Failing `test_pair.cpp`**
+- [x] **Step 1: Failing `test_pair.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -1566,7 +1573,7 @@ void test_pair_clear_token() {
 }
 ```
 
-- [ ] **Step 2: Run** → FAIL. Register. **Step 3: Implement** per the interface (ArduinoJson to read `pairCode`, `pollAfterSec`, `status`, `deviceToken`, `houseId`, `deviceName`; `Unauthorized`/`Permanent` on start → `Failed` with `error = body.slice(0,60)`; log events `pair start code=…`, `paired house=…`). **Step 4:** `pio test -e native` → 46 green (the plan counts the four new pairing tests above). Commit `feat(firmware): pairing coordinator with code polling, expiry restart and token persistence`.
+- [x] **Step 2: Run** → FAIL. Register. **Step 3: Implement** per the interface (ArduinoJson to read `pairCode`, `pollAfterSec`, `status`, `deviceToken`, `houseId`, `deviceName`; `Unauthorized`/`Permanent` on start → `Failed` with `error = body.slice(0,60)`; log events `pair start code=…`, `paired house=…`). **Step 4:** `pio test -e native` → 46 green (the plan counts the four new pairing tests above). Commit `feat(firmware): pairing coordinator with code polling, expiry restart and token persistence`.
 
 ---
 
@@ -1580,7 +1587,7 @@ void test_pair_clear_token() {
 - `SyncService(ports::INetwork&, ports::IStorage&, ports::IClock&, domain::ClockModel&, FeedingService&, LogService&, PairCoordinator&)`: `void loadCachedState()` (storage `state` + `etag` → `state_`, so Idle renders before Wi-Fi), `bool hasState() const`, `const domain::DeviceState& state() const`, `void requestRound(const char* reason)` (flags a round; reasons: `wake`, `feeding`, `paired`, `timer`, `boot`), `void tick(uint32_t nowMs)` (runs at most one round per tick when requested and online; also requests a `timer` round every `state.settings.syncIntervalSec`), `struct RoundResult { bool ran; int feedingsSent, feedingsAccepted; int logsSent; bool stateChanged; bool heartbeatOk; bool unauthorized; std::string stoppedBy; }`, `const RoundResult& last() const`, `uint32_t generation() const` (increments when `state_` changes), `bool lastRoundOk() const`, `uint32_t lastOkAtMs() const`.
 - Round order (spec §5.3): feedings (batches of 20 via `postFeedings`; on Ok → `markAccepted(ids)` and `clock.syncFromServer(now)`; Transient → stop round; Permanent (400/404/409) → drop the batch with an `error` log; Unauthorized → `pair.clearToken()`, set `unauthorized`, stop) → logs (`takeBatch(50)` → `postLogs`; Transient → `requeue` + stop; Permanent → drop) → `getState(etag)` (Ok → decode; on decode failure log error and keep old state; store `state` JSON + `etag`; `clock.syncFromServer(state.now)`; NotModified → keep; Unauthorized → clearToken; Transient → stop) → heartbeat (`encodeHeartbeat`; failure is logged, not fatal; on Ok also `clock.syncFromServer(now)` from the response `{now}`: a 304 state carries no `now`, so after a reboot with cached state the heartbeat is the first sync of the clock). Every outcome logs `[feedme2] sync ok accepted=N state=changed|same` or `[feedme2] sync stopped at=<step> status=<n>`.
 
-- [ ] **Step 1: Failing `test_sync.cpp`** — a `Rig` like Task 7 plus `FeedingService` and `SyncService`; tests:
+- [x] **Step 1: Failing `test_sync.cpp`** — a `Rig` like Task 7 plus `FeedingService` and `SyncService`; tests:
   1. `round_order_and_success`: queue one feeding and one log line; push `feedingResults: ok({"accepted":["<id>"],"clamped":[],"now":1700000000000})`, `logResults: status(202)`, `stateResults: ok(sampleFixtureJson, 'W/"abc"')`, `heartbeatResults: ok({"now":…})`; `requestRound("feeding")`, `tick` → `last()` has `feedingsAccepted 1, logsSent 1, stateChanged true, heartbeatOk true`; queue empty; `store.kv["etag"] == 'W/"abc"'`; `model.isSynced()`; `net.ifNoneMatch[0] == ""`; the next round with `stateResults: status(304)` sends `If-None-Match W/"abc"` and reports `stateChanged false`; serial contains `[feedme2] sync ok accepted=1 state=changed`.
   2. `transient_failure_keeps_feedings_and_stops`: `feedingResults: status(503)` → `last().stoppedBy == "feedings"`, queue still 1, no state call made (`net.ifNoneMatch.empty()`).
   3. `permanent_failure_drops_batch_and_continues`: `feedingResults: status(404, '{"error":"cat_not_found","catIds":["x"]}')` → queue empty, an `error` log line queued, state fetched.
@@ -1590,7 +1597,7 @@ void test_pair_clear_token() {
   7. `offline_skips_round_until_online`: `net.online = false; requestRound("wake"); tick` → `last().ran == false`; `net.online = true; tick` → ran.
   8. `heartbeat_syncs_the_clock_when_state_is_304`: `loadCachedState()` with a cached etag, `stateResults: status(304)`, `heartbeatResults: ok({"now":1700000000000})` → `model.isSynced()` is true after the round and `stateChanged` is false.
 
-- [ ] **Step 2: Run** → FAIL. Register. **Step 3: Implement.** **Step 4:** `pio test -e native` → 54 green. Commit `feat(firmware): sync service — feedings, logs, etag state and heartbeat in one round`.
+- [x] **Step 2: Run** → FAIL. Register. **Step 3: Implement.** **Step 4:** `pio test -e native` → 54 green. Commit `feat(firmware): sync service — feedings, logs, etag state and heartbeat in one round`.
 
 ---
 
@@ -1603,9 +1610,9 @@ void test_pair_clear_token() {
 **Interfaces:**
 - `enum class PowerTier { Awake, Dim, LightSleep }`; `PowerManager(ports::IPower&, ports::IClock&, LogService&)`: `void noteInput(uint32_t nowMs)` (returns to Awake; backlight 100), `void tick(uint32_t nowMs)` (Awake → Dim after `kDimAfterMs = 15'000` (backlight 30%), Dim → LightSleep after `kSleepAfterMs = 30'000` from the last input (display sleep-in, backlight 0, LED off, `power.lightSleep(…)` with a max of `sleepTimeoutSec` ms, then on return `tick` treats the next poll as a wake)), `PowerTier tier() const`, `bool consumeWakeEvent()` (true exactly once after leaving Dim/LightSleep — the UI swallows that first event, Review Focus 1), `void setSleepTimeoutSec(int32_t)`, `void setSyncIntervalSec(int32_t)`, `bool timerWakeDue(uint32_t nowMs)` (true once per `syncIntervalSec` while sleeping, for the timer sync round; deep sleep arrives in Phase 3 behind the same port).
 
-- [ ] **Step 1: Failing `test_power.cpp`**: (1) `awake_dims_then_sleeps_and_input_wakes`: tick 0 → Awake, backlight 100; tick 15'001 → Dim, backlight 30; tick 30'001 → LightSleep, `displayAsleep`, backlight 0, `lightSleeps == 1`; `noteInput(31'000)` → Awake, backlight 100, `displayAsleep == false`, `consumeWakeEvent()` true then false. (2) `input_while_dim_is_swallowed_once`: tick 16'000 → Dim; `noteInput` → `consumeWakeEvent()` true; a second `noteInput` → false. (3) `timer_wake_due_once_per_interval`: `setSyncIntervalSec(60)`; sleeping; `timerWakeDue(90'000)` false, `(31'000 + 60'000)` true once, then false until the next interval. (4) `sleep_timeout_from_settings_bounds_light_sleep_call` (arg to `lightSleep` ≤ `sleepTimeoutSec*1000`, captured in the stub).
+- [x] **Step 1: Failing `test_power.cpp`**: (1) `awake_dims_then_sleeps_and_input_wakes`: tick 0 → Awake, backlight 100; tick 15'001 → Dim, backlight 30; tick 30'001 → LightSleep, `displayAsleep`, backlight 0, `lightSleeps == 1`; `noteInput(31'000)` → Awake, backlight 100, `displayAsleep == false`, `consumeWakeEvent()` true then false. (2) `input_while_dim_is_swallowed_once`: tick 16'000 → Dim; `noteInput` → `consumeWakeEvent()` true; a second `noteInput` → false. (3) `timer_wake_due_once_per_interval`: `setSyncIntervalSec(60)`; sleeping; `timerWakeDue(90'000)` false, `(31'000 + 60'000)` true once, then false until the next interval. (4) `sleep_timeout_from_settings_bounds_light_sleep_call` (arg to `lightSleep` ≤ `sleepTimeoutSec*1000`, captured in the stub).
 
-- [ ] **Step 2–4:** implement, 58 green, commit `feat(firmware): power tiers — dim, light sleep, swallowed wake event, timer wake`.
+- [x] **Step 2–4:** implement, 58 green, commit `feat(firmware): power tiers — dim, light sleep, swallowed wake event, timer wake`.
 
 ---
 
@@ -1620,9 +1627,9 @@ void test_pair_clear_token() {
 - `begin()`: loads cached state, logs, queue; `router.replaceRoot(pair.isPaired() ? Idle : Pair)`; if not paired → `pair.start()`; else `sync.requestRound("boot")`. Prints `[feedme2] boot ok fw=… paired=0|1 cats=N`.
 - `tick()`: `power.tick`; polls input; if `power.consumeWakeEvent()` swallow it (and `sync.requestRound("wake")`); otherwise dispatch per the table in spec §5.2 (Idle: rotate → `roster.rotate`, Press → `flow.begin(state, roster.selected(), now)` + `router.push(Amount)`, LongPress → `push(System)`, DoubleTap → `push(History)`; Amount: rotate → `flow.rotate`, Press → `feedings.commit(flow, clock.nowMs())` + `router.replaceRoot(Idle)` + `push(Fed)` + `sync.requestRound("feeding")`, LongPress → `flow.cancel()` + pop; Fed: Press or 2 s → pop; History: rotate scrolls (`historyOffset_`), Press → pop; System: rotate → `menuIndex_` wrap over {Wi-Fi, Pair/Unpair, About, Sleep now}, Press → open, LongPress → pop; UnpairConfirm: LongPress → `pair.clearToken()` + `replaceRoot(Pair)` + `pair.start()`; Pair: Press → `pair.start()`; About/WifiList: LongPress → pop); then `pair.tick` (when on Pair; on Confirmed → `replaceRoot(Idle)`, `sync.requestRound("paired")`), `sync.tick`, if `sync.last().unauthorized` → `replaceRoot(Pair)` + `pair.start()`; when `sync.generation()` changed → `roster.setState(state)`, `power.setSleepTimeoutSec/SyncIntervalSec`; `uiGeneration_` bumps on router change, roster change, flow change, sync generation change, power tier change. Every router change prints `[feedme2] screen=<name>`; Idle also prints `[feedme2] idle cat=<name|all> level=<level>`.
 
-- [ ] **Step 1: Failing `test_app.cpp`** (a `Rig` holding all stubs + `App`): (1) `boot_unpaired_shows_pair_and_starts_pairing`; (2) `boot_paired_with_cached_state_renders_idle_and_requests_sync` (serial has `screen=idle` and `idle cat=Mochi level=…`); (3) `knob_feed_flow_single_cat` (push Press, RotateCW, Press → queue has 1 draft of 45 000 mg, router at Fed, `[feedme2] feeding queued` printed, a `feeding` round requested → with `feedingResults: ok(...)` the next tick sends it); (4) `all_cats_feed_creates_one_per_cat`; (5) `double_tap_history_and_long_press_system_menu`; (6) `unauthorized_during_sync_returns_to_pair`; (7) `first_event_after_dim_is_swallowed` (power: tick to Dim, push RotateCW → roster index unchanged); (8) `unpair_long_press_clears_token`.
+- [x] **Step 1: Failing `test_app.cpp`** (a `Rig` holding all stubs + `App`): (1) `boot_unpaired_shows_pair_and_starts_pairing`; (2) `boot_paired_with_cached_state_renders_idle_and_requests_sync` (serial has `screen=idle` and `idle cat=Mochi level=…`); (3) `knob_feed_flow_single_cat` (push Press, RotateCW, Press → queue has 1 draft of 45 000 mg, router at Fed, `[feedme2] feeding queued` printed, a `feeding` round requested → with `feedingResults: ok(...)` the next tick sends it); (4) `all_cats_feed_creates_one_per_cat`; (5) `double_tap_history_and_long_press_system_menu`; (6) `unauthorized_during_sync_returns_to_pair`; (7) `first_event_after_dim_is_swallowed` (power: tick to Dim, push RotateCW → roster index unchanged); (8) `unpair_long_press_clears_token`.
 
-- [ ] **Step 2–4:** implement; `pio test -e native` → ≥ 61 cases green; commit `feat(firmware): app wiring — screens routing, knob grammar, sync and power glue`.
+- [x] **Step 2–4:** implement; `pio test -e native` → ≥ 61 cases green; commit `feat(firmware): app wiring — screens routing, knob grammar, sync and power glue`.
 
 ---
 ## Task 11: ESP32 adapters — clock, random, storage, queues, input, power, serial sink
@@ -1634,7 +1641,7 @@ void test_pair_clear_token() {
 **Interfaces:**
 - Each adapter implements exactly one port from Task 5 with the pins from Global Constraints. `RotaryInput` (polled, howler's quadrature table, 4 edges per detent, `kLongPressMs 600`, `kDoubleTapMs 350`, long-press fired eagerly while held, release after long is silent, short release deferred `kDoubleTapMs` → Press / second release in window → DoubleTap); `Cst816Touch` (I²C 0x15, polled 50 Hz, finger count reg 0x02, XY 0x03; tap < 300 ms and < 10 px → Press; horizontal swipe ≥ 36 px → SwipeLeft/SwipeRight; long touch ≥ 600 ms → LongPress; `isHeld`); `CompositeInput<A,B>` round-robins `poll()` and ORs `isHeld()`; `EspPower` (`setBacklight` via `ledcWrite` on BL 46 channel 0, 5 kHz 8-bit; `displaySleep(true)` sends GC9A01 `0x10` sleep-in via `tft.writecommand`, `false` sends `0x11` + 120 ms; `lightSleep(maxMs)`: `esp_sleep_enable_gpio_wakeup()` with GPIO 41/45/5 as low-level wake, `esp_sleep_enable_timer_wakeup(maxMs*1000)`, `esp_light_sleep_start()`; `ledRing` via NeoPixel on 48 with the LED rail GPIO 2 driven HIGH on first use); `SerialLogSink` prints `[level] msg data`; `NvsStorage` (`Preferences` namespace `feedme2`); `LittleFsQueue` (`LittleFS.begin(true)`; `appendLine` with `FILE_APPEND`; `readLines` splits on `\n`; `rewrite` writes a temp file then renames); `ArduinoClock::monotonicMs = millis()`; `EspRandom::uuid` from `esp_random()` formatted as v4.
 
-- [ ] **Step 1: Write the adapters** following the interfaces; keep each under 150 lines; comments name the CrowPanel quirks (GPIO 1/2 rails, DC=3, LVGL 9 buffer type, light-sleep wake pins outside the RTC domain are fine for *light* sleep).
+- [x] **Step 1: Write the adapters** following the interfaces; keep each under 150 lines; comments name the CrowPanel quirks (GPIO 1/2 rails, DC=3, LVGL 9 buffer type, light-sleep wake pins outside the RTC domain are fine for *light* sleep).
 
 `RotaryInput.h` core (from howler, verified on this board):
 ```cpp
@@ -1660,9 +1667,9 @@ void EspPower::lightSleep(uint32_t maxMs) {
 }
 ```
 
-- [ ] **Step 2: Build** `cd firmware && pio run -e crowpanel` → success (nothing references the adapters yet besides compiling them; add a `static_assert` or a dummy include in `main.cpp` only if PlatformIO's LDF skips them — it compiles everything under `src/`).
+- [x] **Step 2: Build** `cd firmware && pio run -e crowpanel` → success (nothing references the adapters yet besides compiling them; add a `static_assert` or a dummy include in `main.cpp` only if PlatformIO's LDF skips them — it compiles everything under `src/`).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add firmware/src/adapters/ArduinoClock.h firmware/src/adapters/EspRandom.h firmware/src/adapters/NvsStorage.h firmware/src/adapters/LittleFsQueue.h firmware/src/adapters/LittleFsQueue.cpp firmware/src/adapters/RotaryInput.h firmware/src/adapters/Cst816Touch.h firmware/src/adapters/Cst816Touch.cpp firmware/src/adapters/CompositeInput.h firmware/src/adapters/EspPower.h firmware/src/adapters/EspPower.cpp firmware/src/adapters/LedRing.h firmware/src/adapters/LedRing.cpp firmware/src/adapters/SerialLogSink.h firmware/src/application/Version.h
@@ -1687,7 +1694,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `FakeNetwork : ports::INetwork` (`-DSIMULATOR=1`): in-memory: `pairStart` → `{"pairCode":"424242","expiresAt":…,"pollAfterSec":1}` and remembers the `pollSecret`; `pairCheck` enforces the secret like the real server (a different secret → `pending` forever, never the token) → pending twice then confirmed with token `sim-token`; `getState` → the embedded sample with `now` = clock + a fixed ETag, 304 when matched, and after any `postFeedings` it updates the matching cat's `lastFedAt`/defaults and changes the ETag; `postFeedings` → accepts all ids; `postLogs` 202; `postHeartbeat` ok. Deterministic, so Wokwi scenarios can assert `[feedme2] sync ok accepted=1 state=changed`.
 - `SimulatedClock : ports::IClock` — `millis()` × `kSimSpeed` (default 1; set `-DFEEDME2_SIM_SPEED=60` to run hunger arcs fast in a scenario).
 
-- [ ] **Step 1: `firmware/scripts/embed_fixture.py`**
+- [x] **Step 1: `firmware/scripts/embed_fixture.py`**
 
 ```python
 # Embeds fixtures/device-state.sample.json as a C string for the simulator's FakeNetwork.
@@ -1704,7 +1711,7 @@ out.write_text("// generated by scripts/embed_fixture.py — do not edit\n#pragm
 
 Add `firmware/src/adapters/FakeState.h` to `firmware/.gitignore`.
 
-- [ ] **Step 2: Write the adapters** per the interfaces (port howler's `WifiCaptivePortal.cpp` form and flow; `WifiNetwork` request helper:
+- [x] **Step 2: Write the adapters** per the interfaces (port howler's `WifiCaptivePortal.cpp` form and flow; `WifiNetwork` request helper:
 
 ```cpp
 ports::NetResult WifiNetwork::request(const char* method, const std::string& path, const std::string& body, const std::string& ifNoneMatch) {
@@ -1725,9 +1732,9 @@ ports::NetResult WifiNetwork::request(const char* method, const std::string& pat
 ```
 )
 
-- [ ] **Step 3: Build** `pio run -e crowpanel && pio run -e simulator` → both succeed; `FakeState.h` generated for the simulator env.
+- [x] **Step 3: Build** `pio run -e crowpanel && pio run -e simulator` → both succeed; `FakeState.h` generated for the simulator env.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add firmware/src/adapters/WifiStation.h firmware/src/adapters/WifiStation.cpp firmware/src/adapters/WifiCaptivePortal.h firmware/src/adapters/WifiCaptivePortal.cpp firmware/src/adapters/WifiNetwork.h firmware/src/adapters/WifiNetwork.cpp firmware/src/adapters/FakeNetwork.h firmware/src/adapters/FakeNetwork.cpp firmware/src/adapters/SimulatedClock.h firmware/scripts/embed_fixture.py firmware/platformio.ini firmware/.gitignore firmware/src/application/Version.h
@@ -1747,7 +1754,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - `CatAssets.h`: `const lv_image_dsc_t* catImage(const char* slug /* "A1".."C4" */, uint8_t size /* 130 | 88 */)` returning a descriptor with `header.cf = LV_COLOR_FORMAT_RAW` (PNG bytes decoded by LVGL's lodepng at draw time), `header.w/h` = size; falls back to `C2` for an unknown slug. Images are **white on transparent** so `lv_obj_set_style_image_recolor(img, cat colour)` + `recolor_opa = LV_OPA_COVER` tints them (feedme's approach; LVGL 9 names).
 
-- [ ] **Step 1: Extend `assets/cats/render.py`**: after the web masks, render each master to `size ∈ {130, 88}` white-on-transparent (`L` alpha → RGBA with RGB=255), `optimize=True`, and call `firmware/scripts/png_to_c.py <png> <symbol> <out.c>` which writes:
+- [x] **Step 1: Extend `assets/cats/render.py`**: after the web masks, render each master to `size ∈ {130, 88}` white-on-transparent (`L` alpha → RGBA with RGB=255), `optimize=True`, and call `firmware/scripts/png_to_c.py <png> <symbol> <out.c>` which writes:
 
 ```c
 // generated by assets/cats/render.py — do not edit
@@ -1761,11 +1768,11 @@ const lv_image_dsc_t cat_c2_130 = {
 
 (`LV_IMAGE_HEADER_MAGIC` exists in LVGL 9.0; verify the field names against `lvgl/src/draw/lv_image_dsc.h` of the pinned 9.0.0 and adjust.) `CatAssets.h` declares the 24 `extern const lv_image_dsc_t` and the lookup.
 
-- [ ] **Step 2: Run** `python assets/cats/render.py` → 24 `.c` files; total size (`du -ch firmware/src/assets/cats/*.c`) under 250 KB of source, ≈ 70 KB of PNG bytes (spec D2). Re-run → byte-identical.
+- [x] **Step 2: Run** `python assets/cats/render.py` → 24 `.c` files; total size (`du -ch firmware/src/assets/cats/*.c`) under 250 KB of source, ≈ 70 KB of PNG bytes (spec D2). Re-run → byte-identical.
 
-- [ ] **Step 3: Build** `pio run -e crowpanel` with `LV_USE_LODEPNG 1` → success; firmware size printed; note it in the commit body.
+- [x] **Step 3: Build** `pio run -e crowpanel` with `LV_USE_LODEPNG 1` → success; firmware size printed; note it in the commit body.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add assets/cats/render.py assets/cats/README.md firmware/scripts/png_to_c.py firmware/src/assets/cats/CatAssets.h firmware/src/assets/cats/cat_A1_130.c firmware/src/assets/cats/cat_A1_88.c <… all 24 …> firmware/src/application/Version.h
@@ -1787,7 +1794,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `Theme.h`: background `0x1a1226`, text `0xf6f1e6`, dim `0x9c97a4`, ring colours good `0x4CAF50` / warn `0xFFB300` / danger `0xE53935`, fonts montserrat 12/14/18/24/48.
 - `CatImage::create(parent, slug, size, colorRgb)` → `lv_image` with recolor; `HungerRing::create(parent, diameter)` + `update(ratio, level, starvingPulse)` (an `lv_arc` 236 px, width 8, fill = 1 − min(ratio,1), colour by `levelColor`, `lv_anim` opacity pulse when starving); `LongPressArcWidget` from howler (236 px, rotation 270, track hidden until charging); `RoundList` — a 4-row vertical list (montserrat 18, selected row highlighted, wraps) used by System and Wi-Fi; `lv_qrcode` on the Pair screen.
 
-- [ ] **Step 1: Screens, following spec §5.2 exactly**
+- [x] **Step 1: Screens, following spec §5.2 exactly**
   - **Boot**: wordmark + `kFirmwareVersion`.
   - **Pair**: `lv_qrcode_create(scr, 120, black, white)` with `https://feedme2-webapp.pages.dev/settings?pair=<code>`; the code as `"%c%c%c %c%c%c"` in montserrat_24; status line per `PairPhase` ("Enter this code in the app", "Expired — press to retry", "Paired!"); Press → `app.pair().start()` (App handles).
   - **Idle**: cat name (montserrat_18, top y=28); `HungerRing` centred; `CatImage` 130 px of `poseForLevel(level, avatarPose)` (same table as the webapp: fed → C4, content → avatar, peckish → A2, hungry → B2, very_hungry → B4, starving → C3) tinted with the cat colour, centred; "fed 2 h ago" / "never fed" / "—" when the clock is unsynced and never fed (montserrat_14 dim, y=+74); default amount "40 g" (montserrat_14, bottom −24). "All cats" entry: three small 88-px avatars side by side and the label "All cats". Prints `[feedme2] idle cat=<name|all> level=<level>` on build.
@@ -1799,7 +1806,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - **About**: fw version, device id tail, house name, last sync "ok 3 m ago" / "failed: feedings 503", heap.
   - **UnpairConfirm**: "Hold to unpair" with the arc; LongPress handled by App.
 
-- [ ] **Step 2: `main.cpp`**
+- [x] **Step 2: `main.cpp`**
 
 ```cpp
 #include <Arduino.h>
@@ -1902,9 +1909,9 @@ void loop() {
 
 `SimInputQueue` (in `adapters/SimInputQueue.h`, SIMULATOR only) wraps Phase 0's `pollSimInput` logic: reads lines from `Serial`, maps `domain::SimEvent` → `application::InputEvent` (`Touch` → `Press`), queues them for `poll()`, and echoes `[feedme2] input=<Name>` so the existing `boot.scenario.yaml` keeps passing.
 
-- [ ] **Step 3: Build** `pio run -e crowpanel && pio run -e simulator` → both succeed. Run `pio test -e native` → unchanged (≥ 61). If `wokwi-cli` is installed locally, run `wokwi-cli --scenario wokwi/boot.scenario.yaml --timeout 60000 firmware` (optional; CI runs it).
+- [x] **Step 3: Build** `pio run -e crowpanel && pio run -e simulator` → both succeed. Run `pio test -e native` → unchanged (≥ 61). If `wokwi-cli` is installed locally, run `wokwi-cli --scenario wokwi/boot.scenario.yaml --timeout 60000 firmware` (optional; CI runs it).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add firmware/src/screens firmware/src/main.cpp firmware/src/adapters/SimInputQueue.h firmware/src/application/Version.h
@@ -1923,7 +1930,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes the serial command channel (`press`, `double`, `long`, `cw`, `ccw`, `touch`) and the `[feedme2] …` event lines from Tasks 6–14 and the `FakeNetwork` (pair code `424242`, confirmed on the third check, state = the sample fixture with cats Mochi and Luna).
 
-- [ ] **Step 1: Scenarios**
+- [x] **Step 1: Scenarios**
 
 `boot.scenario.yaml` (replace):
 ```yaml
@@ -2001,11 +2008,11 @@ steps:
 
 `pair.scenario.yaml`: starts like boot, then `long` → system → select "Unpair" → `long` to confirm → `[feedme2] screen=pair` → `[feedme2] pair start code=424242` again.
 
-- [ ] **Step 2: CI** — the existing `firmware-hil2` job (`.github/workflows/deploy.yml` ~line 360) runs one scenario through `wokwi/wokwi-ci-action@v1`. Change two things: (a) the `firmware-build` job's artifact upload lists `firmware/wokwi/*.scenario.yaml` instead of only `boot.scenario.yaml`; (b) `firmware-hil2` gets a `strategy.matrix.scenario: [boot, pair, feed, feed_all, system_menu]` (`fail-fast: false`), the action step uses `scenario: wokwi/${{ matrix.scenario }}.scenario.yaml`, `timeout: 90000`, `serial_log_file: firmware/serial-${{ matrix.scenario }}.log`, and the upload step names the artifact `wokwi-serial-${{ matrix.scenario }}`. Keep the existing `WOKWI_CLI_TOKEN` presence check (`steps.tok.outputs.have`) so the job skips, not fails, while the secret is unset; say so in `handoff.md`.
+- [x] **Step 2: CI** — the existing `firmware-hil2` job (`.github/workflows/deploy.yml` ~line 360) runs one scenario through `wokwi/wokwi-ci-action@v1`. Change two things: (a) the `firmware-build` job's artifact upload lists `firmware/wokwi/*.scenario.yaml` instead of only `boot.scenario.yaml`; (b) `firmware-hil2` gets a `strategy.matrix.scenario: [boot, pair, feed, feed_all, system_menu]` (`fail-fast: false`), the action step uses `scenario: wokwi/${{ matrix.scenario }}.scenario.yaml`, `timeout: 90000`, `serial_log_file: firmware/serial-${{ matrix.scenario }}.log`, and the upload step names the artifact `wokwi-serial-${{ matrix.scenario }}`. Keep the existing `WOKWI_CLI_TOKEN` presence check (`steps.tok.outputs.have`) so the job skips, not fails, while the secret is unset; say so in `handoff.md`.
 
-- [ ] **Step 3: Local run (optional)** — if `wokwi-cli` is available, run the four scenarios; otherwise the build artefacts (`firmware-merged.bin`, `diagram.json`) must exist after `pio run -e simulator`.
+- [x] **Step 3: Local run (optional)** — if `wokwi-cli` is available, run the four scenarios; otherwise the build artefacts (`firmware-merged.bin`, `diagram.json`) must exist after `pio run -e simulator`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add firmware/wokwi .github/workflows/deploy.yml firmware/src/application/Version.h
@@ -2022,7 +2029,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create or extend: `firmware/test/test_domain/test_units.cpp` (formatting edge cases: 0.9999 can → "1 can", 1560 mg can → "0.01 can", oz two decimals, each `fractionText` entry; `snapToStep` with step 0 returns input), `test_hunger.cpp` (each boundary ±1 ms, `levelName` for all six), `test_feedflow.cpp` (max cap, oz unit, scale text for all three, `confirm` twice yields nothing the second time), `test_roster.cpp` (empty roster, `rotate` by large negative), `test_queue.cpp` (`replace`, `head(0)`), `test_router.cpp` (`screenName` for every id), `firmware/test/test_application/test_state_codec.cpp` (cat colour parse of lowercase hex, missing optional fields default, `tzOffsetMin` bounds), `test_sync.cpp` (logs transient requeue; heartbeat failure non-fatal; decode failure keeps old state), `test_power.cpp` (`setSleepTimeoutSec` below 60 clamps to 60), `test_app.cpp` (Fed auto-pops after 2 s; History scroll bounds; rotate on Pair does nothing)
 - Modify: both runners
 
-- [ ] **Step 1:** Add the tests above (each a real assertion; no empty tests). **Step 2:** `pio test -e native` → `>= 100 test cases` in the summary line; paste it into the commit body. **Step 3:** Commit `test(firmware): edge cases across domain and application (≥ 100 native cases)`.
+- [x] **Step 1:** Add the tests above (each a real assertion; no empty tests). **Step 2:** `pio test -e native` → `>= 100 test cases` in the summary line; paste it into the commit body. **Step 3:** Commit `test(firmware): edge cases across domain and application (≥ 100 native cases)`.
 
 ---
 
@@ -2032,7 +2039,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `handoff.md` (phase line → "Phase 2b firmware MVP in review", versions, Wokwi note), `README.md` (firmware section: envs, serial command channel, scenarios, how to flash), `CLAUDE.md` (Layout: `firmware/src/{domain,ports,application,adapters,screens,assets}`; rule: domain/application must stay Arduino-free; `fixtures/` consumed by Unity now), `docs/spikes/2026-09-deep-sleep-touch-wake.md` (still open; Phase 3)
 - Create: `docs/handoffs/<date>-phase2b-execution-handoff.md`
 
-- [ ] **Step 1: Docs** as listed, including the list of `[feedme2]` event lines (name + fields) as the scenario contract.
+- [x] **Step 1: Docs** as listed, including the list of `[feedme2]` event lines (name + fields) as the scenario contract.
 - [ ] **Step 2: Full verification**
 
 ```bash

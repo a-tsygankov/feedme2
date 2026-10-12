@@ -8,8 +8,14 @@
 using namespace feedme2;
 
 namespace {
+// NVS can refuse a write (full page, wear); failKey makes exactly that key fail so the pairing of
+// the state JSON with its ETag can be pinned.
+struct FailingStorage : test::StubStorage {
+    std::string failKey;
+    bool write(const char* k, const std::string& v) override { return failKey != k && StubStorage::write(k, v); }
+};
 struct Rig {
-    test::StubNetwork net; test::StubStorage store; test::StubClock clk; test::StubLogSink serial; test::StubFileQueue files; test::StubRandom rnd;
+    test::StubNetwork net; FailingStorage store; test::StubClock clk; test::StubLogSink serial; test::StubFileQueue files; test::StubRandom rnd;
     domain::ClockModel model;
     application::LogService log{serial, files, clk, model};
     application::FeedingService feedings{files, rnd, model, log};
@@ -320,4 +326,157 @@ void test_sync_state_decode_failure_keeps_old_state() {
     TEST_ASSERT_EQUAL_STRING(sample().c_str(), r.store.kv["state"].c_str());
     TEST_ASSERT_TRUE(r.serialHas("error state decode failed"));
     TEST_ASSERT_TRUE(r.sync.last().heartbeatOk);
+}
+
+void test_sync_non_json_2xx_keeps_feedings_and_stops() {
+    // An intercepting portal (hotel Wi-Fi, a captive proxy) answers 2xx with HTML; a stock
+    // decode reads that as accepted=[] and the whole batch would be settled and lost (Review
+    // Focus 2). Only a body with an `accepted` array may settle anything.
+    Rig r;
+    r.queueOne("cat-a");
+    r.net.feedingResults.push_back(test::StubNetwork::status(201, "<html>"));
+    r.sync.requestRound("feeding");
+    r.sync.tick(10);
+    TEST_ASSERT_EQUAL_STRING("feedings", r.sync.last().stoppedBy.c_str());
+    TEST_ASSERT_FALSE(r.sync.lastRoundOk());
+    TEST_ASSERT_EQUAL_INT(0, r.sync.last().feedingsAccepted);
+    TEST_ASSERT_EQUAL_UINT32(1, r.feedings.queue().size());
+    TEST_ASSERT_TRUE(r.net.ifNoneMatch.empty());
+    TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync stopped at=feedings status=201"));
+    // An empty 200 (a dropped body) is the same thing.
+    r.net.feedingResults.push_back(test::StubNetwork::ok(""));
+    r.sync.requestRound("wake");
+    r.sync.tick(20);
+    TEST_ASSERT_EQUAL_STRING("feedings", r.sync.last().stoppedBy.c_str());
+    TEST_ASSERT_EQUAL_UINT32(1, r.feedings.queue().size());
+}
+
+void test_sync_state_write_failure_drops_the_etag() {
+    // If the state JSON fails to persist but the ETag does, the next boot pairs the old JSON with
+    // the new ETag and a 304 would freeze the stale copy for good.
+    Rig r;
+    r.store.kv["etag"] = "W/\"old\"";
+    r.store.failKey = "state";
+    r.pushHappyRound(sample());
+    r.sync.requestRound("boot");
+    r.sync.tick(10);
+    TEST_ASSERT_TRUE(r.sync.lastRoundOk());
+    TEST_ASSERT_TRUE(r.sync.hasState());   // the RAM copy is applied either way
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("state"));
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("etag"));
+}
+
+void test_sync_304_without_state_is_transient_and_retried() {
+    // The device sends no If-None-Match when it holds no state, so a 304 is a proxy or a server
+    // bug; accepting it would leave Idle blank until the next timer round.
+    Rig r;
+    r.net.logResults.push_back(test::StubNetwork::status(202));
+    r.net.stateResults.push_back(test::StubNetwork::status(304));
+    r.sync.requestRound("boot");
+    r.sync.tick(10);
+    TEST_ASSERT_FALSE(r.sync.hasState());
+    TEST_ASSERT_EQUAL_STRING("state", r.sync.last().stoppedBy.c_str());
+    TEST_ASSERT_FALSE(r.sync.lastRoundOk());
+    TEST_ASSERT_TRUE(r.net.postedHeartbeats.empty());
+    // No state means no syncIntervalSec, yet the stopped round still gets its 60 s retry.
+    r.pushHappyRound(sample());
+    r.sync.tick(10 + application::SyncService::kRetryAfterMs);
+    TEST_ASSERT_TRUE(r.sync.hasState());
+    TEST_ASSERT_TRUE(r.sync.lastRoundOk());
+}
+
+void test_sync_unauthorized_erases_cached_state() {
+    // A 401 means the pairing is gone; the cached house must not render after a re-pair to
+    // another house, in RAM (no reboot) or from NVS (next boot).
+    Rig r;
+    r.store.kv["state"] = sample();
+    r.store.kv["etag"] = "W/\"x\"";
+    r.sync.loadCachedState();
+    r.net.logResults.push_back(test::StubNetwork::status(202));
+    r.net.stateResults.push_back(test::StubNetwork::status(401));
+    r.sync.requestRound("boot");
+    r.sync.tick(10);
+    TEST_ASSERT_TRUE(r.sync.last().unauthorized);
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("state"));
+    TEST_ASSERT_EQUAL_UINT32(0, r.store.kv.count("etag"));
+    TEST_ASSERT_FALSE(r.sync.hasState());
+    TEST_ASSERT_EQUAL_UINT32(2, r.sync.generation());
+    // Re-paired without a reboot: the next GET is unconditional and the new house lands.
+    r.store.kv["token"] = "tok2";
+    r.pushHappyRound(sample());
+    r.sync.requestRound("paired");
+    r.sync.tick(20);
+    TEST_ASSERT_EQUAL_STRING("", r.net.ifNoneMatch[1].c_str());
+    TEST_ASSERT_TRUE(r.sync.hasState());
+    TEST_ASSERT_EQUAL_STRING("W/\"abc\"", r.store.kv["etag"].c_str());
+}
+
+void test_sync_stopped_round_retries_after_sixty_seconds() {
+    // One transient failure must not wait the full syncIntervalSec (6 h by default) for the next
+    // attempt: the feeding would sit on the device all afternoon.
+    Rig r;
+    r.store.kv["state"] = sample();   // syncIntervalSec 21600
+    r.sync.loadCachedState();
+    const std::string id = r.queueOne("cat-a");
+    r.net.feedingResults.push_back(test::StubNetwork::status(503));
+    r.sync.requestRound("feeding");
+    r.sync.tick(1000);
+    TEST_ASSERT_EQUAL_STRING("feedings", r.sync.last().stoppedBy.c_str());
+    r.sync.tick(1000 + application::SyncService::kRetryAfterMs - 1);
+    TEST_ASSERT_EQUAL_UINT32(1, r.net.postedFeedings.size());
+    r.net.feedingResults.push_back(test::StubNetwork::ok("{\"accepted\":[\"" + id + "\"],\"clamped\":[],\"now\":1700000000000}"));
+    r.pushHappyRound(sample());
+    r.sync.tick(1000 + application::SyncService::kRetryAfterMs);
+    TEST_ASSERT_EQUAL_UINT32(2, r.net.postedFeedings.size());
+    TEST_ASSERT_TRUE(r.sync.lastRoundOk());
+    TEST_ASSERT_TRUE(r.feedings.queue().empty());
+    TEST_ASSERT_TRUE(r.serialHas("[feedme2] sync start reason=timer"));
+    // After a good round the full interval applies again: nothing at +60 s, a round at +6 h.
+    r.sync.tick(1000 + 2 * application::SyncService::kRetryAfterMs);
+    TEST_ASSERT_EQUAL_UINT32(1, r.net.ifNoneMatch.size());
+    r.pushHappyRound(sample());
+    r.sync.tick(1000 + application::SyncService::kRetryAfterMs + 21600u * 1000u);
+    TEST_ASSERT_EQUAL_UINT32(2, r.net.ifNoneMatch.size());
+}
+
+void test_sync_sends_the_queue_in_batches_of_twenty() {
+    Rig r;
+    std::vector<std::string> ids;
+    for (int i = 0; i < 25; ++i) ids.push_back(r.queueOne("cat-a"));
+    auto accepted = [&](size_t from, size_t to) {
+        std::string body = "{\"accepted\":[";
+        for (size_t i = from; i < to; ++i) body += (i == from ? "\"" : ",\"") + ids[i] + "\"";
+        return body + "],\"clamped\":[],\"now\":1700000000000}";
+    };
+    r.net.feedingResults.push_back(test::StubNetwork::ok(accepted(0, 20)));
+    r.net.feedingResults.push_back(test::StubNetwork::ok(accepted(20, 25)));
+    r.pushHappyRound(sample());
+    r.sync.requestRound("feeding");
+    r.sync.tick(10);
+    TEST_ASSERT_EQUAL_UINT32(2, r.net.postedFeedings.size());
+    TEST_ASSERT_TRUE(r.net.postedFeedings[0].find(ids[19]) != std::string::npos);
+    TEST_ASSERT_TRUE(r.net.postedFeedings[0].find(ids[20]) == std::string::npos);
+    TEST_ASSERT_TRUE(r.net.postedFeedings[1].find(ids[20]) != std::string::npos);
+    TEST_ASSERT_TRUE(r.net.postedFeedings[1].find(ids[24]) != std::string::npos);
+    TEST_ASSERT_EQUAL_INT(25, r.sync.last().feedingsSent);
+    TEST_ASSERT_EQUAL_INT(25, r.sync.last().feedingsAccepted);
+    TEST_ASSERT_TRUE(r.feedings.queue().empty());
+    TEST_ASSERT_TRUE(r.sync.lastRoundOk());
+}
+
+void test_sync_unauthorized_on_feedings_clears_token_and_keeps_queue() {
+    Rig r;
+    r.queueOne("cat-a");
+    r.net.feedingResults.push_back(test::StubNetwork::status(401));
+    r.sync.requestRound("feeding");
+    r.sync.tick(10);
+    TEST_ASSERT_TRUE(r.sync.last().unauthorized);
+    TEST_ASSERT_EQUAL_STRING("feedings", r.sync.last().stoppedBy.c_str());
+    TEST_ASSERT_FALSE(r.pair.isPaired());
+    TEST_ASSERT_EQUAL_STRING("", r.net.token.c_str());
+    // The feeding is not lost: it goes out once the device is paired again.
+    TEST_ASSERT_EQUAL_UINT32(1, r.feedings.queue().size());
+    TEST_ASSERT_TRUE(r.net.postedLogs.empty());
+    TEST_ASSERT_TRUE(r.net.ifNoneMatch.empty());
+    TEST_ASSERT_TRUE(r.serialHas("warn device unpaired by server"));
 }

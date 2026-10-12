@@ -48,6 +48,11 @@ public:
     static constexpr const char* kEtagKey = "etag";
     static constexpr size_t kFeedingBatch = 20;
     static constexpr size_t kLogBatch = 50;
+    // A stopped round (transient failure) is retried after this instead of the full
+    // syncIntervalSec (6 h by default): a queued feeding would otherwise sit on the device all
+    // afternoon after one dropped request. Fixed, not exponential: one 60 s probe is cheap and
+    // a server outage that outlasts it is already visible to the household.
+    static constexpr uint32_t kRetryAfterMs = 60 * 1000;
 
     SyncService(ports::INetwork& net, ports::IStorage& storage, ports::IClock& clock, domain::ClockModel& model,
                 FeedingService& feedings, LogService& log, PairCoordinator& pair);

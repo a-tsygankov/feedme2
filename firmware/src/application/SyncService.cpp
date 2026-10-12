@@ -27,6 +27,19 @@ std::string rejection(const std::string& body, const char* listKey, std::vector<
     return doc["error"] | "";
 }
 
+// True only for a feedings response: a JSON object with an `accepted` array. A 2xx whose body
+// is anything else (empty, an intercepting portal's HTML) must not be read as accepted=[], or the
+// sent ids would be settled and the feedings lost (Review Focus 2). `now` is left untouched
+// when absent.
+bool decodeFeedingsResponse(const std::string& body, std::vector<std::string>& accepted, int64_t& now) {
+    JsonDocument doc;
+    if (deserializeJson(doc, body) || !doc.is<JsonObject>() || !doc["accepted"].is<JsonArrayConst>()) return false;
+    for (JsonVariantConst v : doc["accepted"].as<JsonArrayConst>())
+        if (v.is<const char*>()) accepted.emplace_back(v.as<const char*>());
+    if (doc["now"].is<int64_t>()) now = doc["now"].as<int64_t>();
+    return true;
+}
+
 int64_t serverNowOf(const std::string& body) {
     JsonDocument doc;
     if (deserializeJson(doc, body) || !doc["now"].is<int64_t>()) return 0;
@@ -64,10 +77,15 @@ void SyncService::requestRound(const char* reason) {
 }
 
 void SyncService::tick(uint32_t nowMs) {
-    if (hasState_ && state_.settings.syncIntervalSec > 0) {
-        const uint32_t interval = static_cast<uint32_t>(state_.settings.syncIntervalSec) * 1000u;
-        if (nowMs - lastRoundAtMs_ >= interval) requestRound("timer");
+    // 0 = no interval known (no state yet): only a stopped round re-arms the timer then.
+    uint32_t due = hasState_ && state_.settings.syncIntervalSec > 0 ? static_cast<uint32_t>(state_.settings.syncIntervalSec) * 1000u : 0;
+    if (last_.ran && !lastOk_ && !last_.unauthorized) {
+        // A stopped round left work behind (queued feedings, requeued logs, a stale state); the
+        // timer re-arms at kRetryAfterMs rather than the full interval. A 401 is excluded: the
+        // device is unpaired and tick() would only park the request until it pairs again.
+        due = due > 0 ? std::min(due, kRetryAfterMs) : kRetryAfterMs;
     }
+    if (due > 0 && nowMs - lastRoundAtMs_ >= due) requestRound("timer");
     if (!requested_ || !net_.isOnline() || !pair_.isPaired()) return;
     requested_ = false;
     runRound(nowMs);
@@ -97,6 +115,16 @@ void SyncService::unauthorized(RoundResult& r, const char* step) {
     // Tokens are per pairing: a 401 means this one was revoked (forget or re-pair), so retrying
     // can only 401 again. Clear it and let App route to Pair (Review Focus 3).
     pair_.clearToken();
+    // The cached state belongs to the old pairing: after a re-pair (to another house, maybe) it
+    // must not render from RAM nor from NVS on the next boot, and the next GET must be unconditional.
+    storage_.erase(kStateKey);
+    storage_.erase(kEtagKey);
+    if (hasState_) {
+        state_ = domain::DeviceState{};
+        hasState_ = false;
+        etag_.clear();
+        ++generation_;
+    }
     r.unauthorized = true;
     log_.warn("device unpaired by server", statusJson(401, "at", step).c_str());
     r.stoppedBy = step;
@@ -108,7 +136,11 @@ void SyncService::syncClock(int64_t serverNowMs) {
 }
 
 bool SyncService::syncFeedings(RoundResult& r) {
-    while (!feedings_.queue().empty()) {
+    // Every outcome below removes at least one sent id (a 404 may drop a single cat's feedings and
+    // re-send the rest), so the queue length bounds the POSTs; the bound only keeps a future
+    // mistake there from turning into an endless loop.
+    size_t budget = feedings_.queue().size();
+    while (budget-- > 0 && !feedings_.queue().empty()) {
         const auto batch = feedings_.headBatch(kFeedingBatch);
         std::vector<std::string> sentIds;
         for (const auto& d : batch) sentIds.push_back(d.id);
@@ -117,7 +149,13 @@ bool SyncService::syncFeedings(RoundResult& r) {
         switch (res.kind) {
             case Kind::Ok: {
                 int64_t now = 0;
-                const auto accepted = decodeAcceptedIds(res.body, &now);
+                std::vector<std::string> accepted;
+                if (!decodeFeedingsResponse(res.body, accepted, now)) {
+                    // Not our server's answer (a portal, a truncated body): keep the queue and try later.
+                    log_.warn("feedings response unreadable", statusJson(res.status).c_str());
+                    stop(r, "feedings", res);
+                    return false;
+                }
                 // A 201 settles every id sent: one missing from `accepted` is a duplicate the server
                 // already holds (a retry after a lost response; ON CONFLICT DO NOTHING), never a rejection —
                 // foreign ids are a 409 and unknown cats a 404 before anything is written.
@@ -211,8 +249,12 @@ void SyncService::applyState(const std::string& json, const std::string& etag, b
     etag_ = etag;
     ++generation_;
     if (persist) {
-        storage_.write(kStateKey, json);
-        storage_.write(kEtagKey, etag_);
+        // The two keys are only useful together: the old JSON next to the new ETag would make the
+        // next boot 304 forever against a state it never stored. If either write fails, no ETag.
+        if (!storage_.write(kStateKey, json) || !storage_.write(kEtagKey, etag_)) {
+            log_.warn("state cache write failed", nullptr);
+            storage_.erase(kEtagKey);
+        }
     }
     syncClock(state_.nowMs);
 }
@@ -226,7 +268,11 @@ bool SyncService::syncState(RoundResult& r) {
             r.stateChanged = generation_ != before;
             return true;
         case Kind::NotModified:
-            return true;
+            if (hasState_) return true;
+            // No If-None-Match went out, so this 304 is a proxy's or a server bug; taking it would
+            // leave Idle blank until the next round. Retry instead.
+            stop(r, "state", res);
+            return false;
         case Kind::Unauthorized:
             unauthorized(r, "state");
             return false;

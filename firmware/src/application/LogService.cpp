@@ -61,6 +61,9 @@ void LogService::persist() {
 }
 
 std::vector<std::string> LogService::takeBatch(size_t max) {
+    // Every sync round calls this; with nothing pending a rewrite would be one flash erase per
+    // round for no change in the file.
+    if (pending_.empty()) return {};
     const size_t n = pending_.size() < max ? pending_.size() : max;
     std::vector<std::string> out(pending_.begin(), pending_.begin() + n);
     pending_.erase(pending_.begin(), pending_.begin() + n);

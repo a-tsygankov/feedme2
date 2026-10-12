@@ -36,4 +36,5 @@ void test_feeding_service_keeps_last_five_for_history() {
     auto r = svc.recent(5);
     TEST_ASSERT_EQUAL_UINT32(5, r.size());
     TEST_ASSERT_EQUAL_INT64(1006, r[0].fedAtMs);  // newest first
+    TEST_ASSERT_EQUAL_INT64(1002, r[4].fedAtMs);  // the two oldest were dropped, not the newest
 }

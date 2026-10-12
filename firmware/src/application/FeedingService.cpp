@@ -20,7 +20,6 @@ void FeedingService::loadFromDisk() {
 }
 
 std::vector<domain::FeedingDraft> FeedingService::commit(domain::FeedFlow& flow, int64_t nowMs) {
-    (void)model_;  // the caller passes the ClockModel's nowMs so the drafts and the event share one stamp
     auto drafts = flow.confirm([&] { return random_.uuid(); }, nowMs);
     for (const auto& d : drafts) {
         const bool atCap = queue_.size() >= domain::FeedingQueue::kCap;

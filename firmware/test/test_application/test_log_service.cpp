@@ -58,3 +58,64 @@ void test_log_service_drops_data_over_one_kb() {
     TEST_ASSERT_FALSE(deserializeJson(d, batch[1]));
     TEST_ASSERT_EQUAL_INT(2, d["data"]["k"].as<int>());
 }
+
+// The file is only compacted once it holds twice the cap: rewriting 300 lines on every log past
+// the cap would wear LittleFS on a device stuck offline, but letting it grow unbounded would too.
+void test_log_service_compacts_file_once_it_holds_twice_the_cap() {
+    test::StubLogSink serial; test::StubFileQueue files; test::StubClock clk; domain::ClockModel model;
+    application::LogService log(serial, files, clk, model);
+    for (int i = 0; i < 600; ++i) log.info("spam");
+    TEST_ASSERT_EQUAL_INT(0, files.rewrites);
+    TEST_ASSERT_EQUAL_UINT32(600, files.files["/logs.jsonl"].size());
+    log.info("one past twice the cap");
+    TEST_ASSERT_EQUAL_INT(1, files.rewrites);
+    TEST_ASSERT_EQUAL_UINT32(300, files.files["/logs.jsonl"].size());
+    TEST_ASSERT_EQUAL_UINT32(300, log.pending());
+}
+
+// Lines already on disk at boot count towards the compaction threshold; otherwise a device that
+// reboots every few hundred lines would never compact and the file would grow without bound.
+void test_log_service_compaction_counts_lines_loaded_from_disk() {
+    test::StubLogSink serial; test::StubFileQueue files; test::StubClock clk; domain::ClockModel model;
+    {
+        application::LogService log(serial, files, clk, model);
+        for (int i = 0; i < 599; ++i) log.info("spam");
+        TEST_ASSERT_EQUAL_INT(0, files.rewrites);
+    }
+    application::LogService again(serial, files, clk, model);
+    again.loadFromDisk();
+    again.info("600th line");
+    TEST_ASSERT_EQUAL_INT(0, files.rewrites);
+    again.info("601st line");
+    TEST_ASSERT_EQUAL_INT(1, files.rewrites);
+    TEST_ASSERT_EQUAL_UINT32(300, files.files["/logs.jsonl"].size());
+}
+
+// A sync round with nothing to upload must not cost a flash rewrite.
+void test_log_service_idle_take_batch_does_not_rewrite_the_file() {
+    test::StubLogSink serial; test::StubFileQueue files; test::StubClock clk; domain::ClockModel model;
+    application::LogService log(serial, files, clk, model);
+    log.info("one");
+    TEST_ASSERT_EQUAL_UINT32(1, log.takeBatch(50).size());
+    TEST_ASSERT_EQUAL_INT(1, files.rewrites);
+    TEST_ASSERT_TRUE(log.takeBatch(50).empty());
+    TEST_ASSERT_EQUAL_INT(1, files.rewrites);
+}
+
+// A 2-byte character straddling the 500-byte cut is dropped whole: a lone lead byte would make
+// the JSON line invalid UTF-8 and the server would reject the entire batch.
+void test_log_service_msg_clamp_does_not_split_a_utf8_sequence() {
+    test::StubLogSink serial; test::StubFileQueue files; test::StubClock clk; domain::ClockModel model;
+    application::LogService log(serial, files, clk, model);
+    // bytes 0..498 are 'x', byte 499 is the lead byte of "é" (C3 A9), byte 500 its continuation.
+    const std::string msg = std::string(499, 'x') + "\xC3\xA9" + std::string(50, 'x');
+    log.info(msg.c_str());
+    auto batch = log.takeBatch(50);
+    JsonDocument d; TEST_ASSERT_FALSE(deserializeJson(d, batch[0]));
+    const std::string out = d["msg"].as<const char*>();
+    TEST_ASSERT_TRUE(out.size() <= application::LogService::kMaxMsgChars);
+    TEST_ASSERT_EQUAL_UINT32(499, out.size());
+    TEST_ASSERT_EQUAL_HEX8('x', static_cast<unsigned char>(out.back()));
+    // Valid UTF-8: no byte of the result is a lead byte (>= 0xC0) left without its continuation.
+    for (size_t i = 0; i < out.size(); ++i) TEST_ASSERT_TRUE((static_cast<unsigned char>(out[i]) & 0x80) == 0);
+}

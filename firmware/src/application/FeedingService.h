@@ -36,6 +36,10 @@ private:
 
     ports::IFileQueue& files_;
     ports::IRandom& random_;
+    // Not read yet: commit() takes nowMs from the caller, which has just refreshed the model from
+    // the clock, so the drafts and the `feeding queued` line share one stamp. This service has no
+    // clock port, so stamping from model_ here could reuse a monotonic value from a previous tick.
+    // The reference stays so the constructor matches the plan's Task 6 contract and the App wiring.
     domain::ClockModel& model_;
     LogService& log_;
     domain::FeedingQueue queue_;

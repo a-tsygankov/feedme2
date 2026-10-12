@@ -24,9 +24,9 @@ void signalBars(lv_obj_t* parent, int8_t rssi, int32_t dy) {
 
 }  // namespace
 
-// Connection status. The App's Wi-Fi grammar is back only (there is no "connect to this SSID"
-// path in the App), so this is a status page: a secured or unknown network is set up through the
-// captive portal, which hardware main.cpp opens when this screen is entered while offline.
+// Connection status. There is no "connect to this SSID" path in the App, so this is a status page:
+// a network is set up through the captive portal, which hardware main.cpp opens only when the
+// person asks for it with a Press here (App::takePortalRequest); opening the screen never does.
 void buildWifi(application::App& app) {
     (void)app;
     lv_obj_t* scr = theme::freshScreen();
@@ -44,6 +44,8 @@ void buildWifi(application::App& app) {
     }
 #if SIMULATOR
     theme::label(scr, "simulator: fake network", theme::font12(), theme::kDim, LV_ALIGN_BOTTOM_MID, 0, -44);
+#else
+    theme::label(scr, "press: Wi-Fi setup portal", theme::font12(), theme::kDim, LV_ALIGN_BOTTOM_MID, 0, -44);
 #endif
     theme::label(scr, "hold to go back", theme::font12(), theme::kDim, LV_ALIGN_BOTTOM_MID, 0, -24);
 }

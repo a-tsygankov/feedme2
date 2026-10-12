@@ -82,6 +82,7 @@ void test_app_sleep_now_naps_on_the_next_tick();
 void test_app_hunger_uses_the_snapshot_clock_until_the_server_answers();
 void test_app_history_scrolls_within_the_rows_logged();
 void test_app_swipes_act_as_rotations();
+void test_app_wifi_press_requests_the_portal_once();
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -169,5 +170,6 @@ int main() {
     RUN_TEST(test_app_hunger_uses_the_snapshot_clock_until_the_server_answers);
     RUN_TEST(test_app_history_scrolls_within_the_rows_logged);
     RUN_TEST(test_app_swipes_act_as_rotations);
+    RUN_TEST(test_app_wifi_press_requests_the_portal_once);
     return UNITY_END();
 }

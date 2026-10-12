@@ -158,6 +158,8 @@ feedme2::adapters::EspPower& power = espPower;
 constexpr const char* kHwModel = "crowpanel-1.28";
 std::string g_ssid;   // the saved network, for the Wi-Fi screen
 uint32_t g_lastWifiProbeMs = 0;
+uint32_t g_bootJoinStartedMs = 0;   // when connectWifi() kicked the association
+bool g_bootJoinDecided = false;     // the boot rule (join failed AND unpaired → portal) ran
 
 #endif
 
@@ -209,6 +211,17 @@ void flushCb(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap) {
     lv_display_flush_ready(disp);
 }
 
+// LVGL's own warnings and errors (a decoder that cannot open an image, a failed allocation) go
+// through the serial sink like every other line. LV_LOG_LEVEL is WARN, so no per-frame trace
+// arrives here; the check is belt and braces. Before this nothing was registered and the cat
+// decoder failing on every draw was invisible (review of 944eedc).
+void lvglLogCb(lv_log_level_t level, const char* buf) {
+    if (level < LV_LOG_LEVEL_WARN) return;
+    std::string line(buf ? buf : "");
+    while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
+    serialSink.write(level >= LV_LOG_LEVEL_ERROR ? "error" : "warn", line.c_str(), nullptr);
+}
+
 void initDisplay() {
     pinMode(kLcdPowerPin, OUTPUT);
     digitalWrite(kLcdPowerPin, HIGH);
@@ -220,6 +233,7 @@ void initDisplay() {
     power.setBacklight(feedme2::application::PowerManager::kAwakeBacklight);
 
     lv_init();
+    lv_log_register_print_cb(lvglLogCb);
     lv_tick_set_cb([]() -> uint32_t { return millis(); });
     lv_display_t* disp = lv_display_create(240, 240);
     lv_display_set_flush_cb(disp, flushCb);
@@ -256,23 +270,39 @@ void publishWifiInfo() {
     portal.runAndReboot(storage);
 }
 
-// Idle is already on the glass from the cached state (spec §5.3); only now does Wi-Fi join, with
-// WifiStation's budget. Without credentials, or when the join fails, an unpaired device has
-// nothing to show and goes straight to the setup portal; a paired one keeps serving the cache and
-// ensureConnected() retries from loop(). The Wi-Fi menu entry opens the portal on demand.
+// Idle is already on the glass from the cached state (spec §5.3); only now does Wi-Fi join, and
+// it joins in the background: WiFi.begin() is asynchronous and wifiHousekeeping() probes once a
+// second, so the loop (and the knob) keep running during the association. Without credentials an
+// unpaired device has nothing to show and goes straight to the setup portal; the "join failed AND
+// unpaired" case is decided from loop() once the budget has elapsed (bootJoinRule).
 void connectWifi() {
     std::string pass;
     const bool haveCredentials = station.loadCredentials(storage, g_ssid, pass);
-    const bool joined = haveCredentials && station.connect(g_ssid, pass, feedme2::adapters::WifiStation::kDefaultBudgetMs);
-    if (!joined && !g_app->pair().isPaired()) runPortal();
+    if (!haveCredentials && !g_app->pair().isPaired()) runPortal();
+    if (haveCredentials) station.connect(g_ssid, pass, /*budgetMs=*/0);
+    g_bootJoinStartedMs = millis();
+    g_bootJoinDecided = !haveCredentials;
     publishWifiInfo();
-    // The join blocked loop() for up to the budget: without this the idle timer counts from
-    // power-on and the screen dims the moment the device becomes usable.
-    g_app->power().noteInput(millis());
+}
+
+// The boot rule, once: joined within the budget → settled; still offline after it → an unpaired
+// device goes to the portal, a paired one keeps serving the cache while ensureConnected() retries.
+void bootJoinRule(uint32_t now) {
+    if (g_bootJoinDecided) return;
+    if (station.isConnected()) {
+        g_bootJoinDecided = true;
+        return;
+    }
+    if (now - g_bootJoinStartedMs < feedme2::adapters::WifiStation::kDefaultBudgetMs) return;
+    g_bootJoinDecided = true;
+    if (!g_app->pair().isPaired()) runPortal();
 }
 
 void wifiHousekeeping(uint32_t now, PowerTier before) {
     const PowerTier after = g_app->power().tier();
+    // No probe while asleep: the manual light sleep drops the association anyway, and skipping it
+    // relies on WiFi.setAutoReconnect(true) (WifiStation::connect) to let the stack re-associate on
+    // its own once the chip is back; the re-kick on the wake below covers the case it does not.
     if (after == PowerTier::LightSleep) return;
     // A manual light sleep drops the association (EspPower::lightSleep): re-kick it on the wake,
     // then keep probing once a second so a failed boot join is retried too.
@@ -281,8 +311,10 @@ void wifiHousekeeping(uint32_t now, PowerTier before) {
         station.ensureConnected();
         publishWifiInfo();
     }
-    // "The menu asks": entering the Wi-Fi screen while offline is the request to set Wi-Fi up.
-    if (g_app->router().current() == feedme2::domain::ScreenId::WifiList && !station.isConnected()) runPortal();
+    bootJoinRule(now);
+    // The portal only on request: a Press on the Wi-Fi screen (App::takePortalRequest), never from
+    // merely opening it (review of 944eedc: an offline device rebooted into the portal on every tick).
+    if (g_app->takePortalRequest()) runPortal();
 }
 
 #endif
@@ -321,11 +353,15 @@ void loop() {
     input.pump();
 #endif
     const PowerTier before = g_app->power().tier();
-    g_app->tick(now);
+    // The App ticks on the IClock, the same source begin() read: under FEEDME2_SIM_SPEED the
+    // SimulatedClock runs ahead of millis(), and a tick on millis() would make the two diverge.
+    g_app->tick(g_clock.monotonicMs());
 #if !SIMULATOR
     wifiHousekeeping(now, before);
 #else
     (void)before;
+    // No portal on the simulator: the request is logged by the App and dropped here.
+    (void)g_app->takePortalRequest();
 #endif
     if (now - g_lastHeapMs >= kHeapRefreshMs) {
         g_lastHeapMs = now;

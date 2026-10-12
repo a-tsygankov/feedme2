@@ -11,15 +11,14 @@ namespace feedme2::screens {
 
 namespace {
 
-// "fed 2 h ago" and the History rows age without any App change, so those two screens are
-// rebuilt on a timer as well as on uiGeneration.
-constexpr uint32_t kAgoRefreshMs = 30'000;
-
+// "fed 2 h ago" and the History rows age without any App change; App::fingerprint() mixes in
+// wallNowMs / 60000, so uiGeneration() already ticks once a minute and that is the one cadence
+// the screens rebuild on. A second 30 s timer here made Idle decode its PNG twice as often for
+// a label that shows no seconds (review of 944eedc).
 DeviceInfo g_info;
 uint32_t g_infoGeneration = 0;
 uint32_t g_seenUi = 0xFFFFFFFFu;
 uint32_t g_seenInfo = 0xFFFFFFFFu;
-uint32_t g_builtAtMs = 0;
 LongPressArcWidget g_arc;
 
 void build(application::App& app) {
@@ -37,8 +36,6 @@ void build(application::App& app) {
         case ScreenId::UnpairConfirm: buildUnpair(app); return;
     }
 }
-
-bool agesOnScreen(domain::ScreenId s) { return s == domain::ScreenId::Idle || s == domain::ScreenId::History; }
 
 }  // namespace
 
@@ -62,15 +59,9 @@ void setDeviceInfo(const DeviceInfo& info) {
 }
 
 void render(application::App& app) {
-    // lv_tick is millis(): the same monotonic source as the hardware clock port, and only the
-    // simulator's speed factor apart from it, which a 30 s label refresh does not mind.
-    const uint32_t now = lv_tick_get();
-    const bool changed = app.uiGeneration() != g_seenUi || g_infoGeneration != g_seenInfo;
-    const bool aged = agesOnScreen(app.router().current()) && now - g_builtAtMs >= kAgoRefreshMs;
-    if (changed || aged) {
+    if (app.uiGeneration() != g_seenUi || g_infoGeneration != g_seenInfo) {
         g_seenUi = app.uiGeneration();
         g_seenInfo = g_infoGeneration;
-        g_builtAtMs = now;
         build(app);
     }
     g_arc.update(app.arc());

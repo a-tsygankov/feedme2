@@ -107,6 +107,16 @@ public:
     const char* menuLabel(int index) const;
     const FedSummary& fedSummary() const { return fed_; }
 
+    // The captive portal is a request the person makes with a Press on the Wi-Fi screen, never a
+    // side effect of opening it (review of 944eedc: an offline device rebooted into the portal
+    // on every tick). main.cpp takes the flag, which empties it; nothing else here acts on it.
+    bool portalRequested() const { return portalRequested_; }
+    bool takePortalRequest() {
+        const bool was = portalRequested_;
+        portalRequested_ = false;
+        return was;
+    }
+
 private:
     void dispatch(InputEvent ev, uint32_t nowMs);
     void onIdle(InputEvent ev);
@@ -144,6 +154,7 @@ private:
     uint32_t fedSinceMs_ = 0;
     int historyOffset_ = 0;
     int menuIndex_ = 0;
+    bool portalRequested_ = false;
     FedSummary fed_;
     uint32_t uiGeneration_ = 0;
     uint64_t lastFingerprint_ = 0;

@@ -10,8 +10,21 @@
 
 #define LV_COLOR_DEPTH         16
 
+/* lv_malloc is the C heap, not LVGL's built-in 64 KB static pool (LV_MEM_POOL_EXPAND_SIZE 0).
+ * lodepng decodes a 130 px cat through lv_malloc into 130*130*4 = 67 600 B of ARGB8888 plus a
+ * scanline buffer of the same size (~135 KB peak), so every decoder_open failed silently and no
+ * cat ever rendered (review of 944eedc). With -DBOARD_HAS_PSRAM the Arduino core builds
+ * CONFIG_SPIRAM_USE_MALLOC with a 4 KB always-internal threshold: those buffers land in the
+ * 8 MB PSRAM, the widgets' small allocations stay in internal RAM. */
+#define LV_USE_STDLIB_MALLOC   LV_STDLIB_CLIB
+#define LV_USE_STDLIB_STRING   LV_STDLIB_CLIB
+#define LV_USE_STDLIB_SPRINTF  LV_STDLIB_CLIB
+
+/* Warnings and errors reach the serial console through the callback main.cpp registers with
+ * lv_log_register_print_cb (no printf: the SerialLogSink owns the port). */
 #define LV_USE_LOG             1
 #define LV_LOG_LEVEL           LV_LOG_LEVEL_WARN
+#define LV_LOG_PRINTF          0
 
 /* Decoded-image cache off: the cat PNGs are drawn once per screen and PSRAM is not worth spending on a cache. */
 #define LV_CACHE_DEF_SIZE      0

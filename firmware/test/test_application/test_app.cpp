@@ -634,3 +634,37 @@ void test_app_swipes_act_as_rotations() {
     TEST_ASSERT_EQUAL_UINT32(1, p.net.pairStarts.size());
     TEST_ASSERT_EQUAL_STRING("424242", p.app->pair().view().pairCode.c_str());
 }
+
+// Review of 944eedc: entering the Wi-Fi screen while offline rebooted into the captive portal with
+// no confirmation. The portal is a request the person makes with a Press on that screen; the App
+// only raises the flag (main.cpp runs the portal) and hands it over exactly once.
+void test_app_wifi_press_requests_the_portal_once() {
+    Rig r;
+    r.app->begin();
+    r.pushAndTick(InputEvent::LongPress, 10);
+    TEST_ASSERT_EQUAL(ScreenId::System, r.screen());
+    r.pushAndTick(InputEvent::Press, 20);   // menu row 0 is Wi-Fi
+    TEST_ASSERT_EQUAL(ScreenId::WifiList, r.screen());
+    // Entering the screen is not the request.
+    TEST_ASSERT_FALSE(r.app->portalRequested());
+    TEST_ASSERT_FALSE(r.app->takePortalRequest());
+    TEST_ASSERT_FALSE(r.serialHas("[feedme2] portal requested"));
+    r.pushAndTick(InputEvent::Press, 30);
+    TEST_ASSERT_EQUAL(ScreenId::WifiList, r.screen());
+    TEST_ASSERT_TRUE(r.app->portalRequested());
+    TEST_ASSERT_EQUAL_UINT32(1, r.serialCount("[feedme2] portal requested"));
+    TEST_ASSERT_TRUE(r.app->takePortalRequest());
+    TEST_ASSERT_FALSE(r.app->portalRequested());
+    TEST_ASSERT_FALSE(r.app->takePortalRequest());   // consumed: a second take is empty
+    // Back still leaves the screen and raises nothing.
+    r.pushAndTick(InputEvent::LongPress, 40);
+    TEST_ASSERT_EQUAL(ScreenId::System, r.screen());
+    TEST_ASSERT_FALSE(r.app->portalRequested());
+    // A Press anywhere else is not the request either.
+    r.pushAndTick(InputEvent::RotateCW, 50);
+    r.pushAndTick(InputEvent::RotateCW, 60);
+    r.pushAndTick(InputEvent::Press, 70);   // About
+    TEST_ASSERT_EQUAL(ScreenId::About, r.screen());
+    TEST_ASSERT_FALSE(r.app->portalRequested());
+    TEST_ASSERT_EQUAL_UINT32(1, r.serialCount("[feedme2] portal requested"));
+}

@@ -60,23 +60,30 @@ bool WifiStation::connect(const std::string& ssid, const std::string& pass, uint
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
     WiFi.begin(ssid.c_str(), pass.c_str());
+    // WiFi.begin() is asynchronous; the association is now in flight and ensureConnected() must
+    // not restart it on its next probe, so it is booked like one of its own re-kicks. A budget of 0
+    // returns at once and main.cpp's loop (which probes once a second) picks up the join.
+    reconnectPending_ = true;
+    lastReconnectMs_ = millis();
     // Unsigned delta rather than a `millis() < deadline` compare: a deadline computed near the
     // 49-day wrap would already be in the past and the first connect after it would fail instantly.
     const uint32_t started = millis();
     while (millis() - started < budgetMs) {
-        if (WiFi.status() == WL_CONNECTED) {
-            // Zero offsets: the app renders in the house timezone from the server's tzOffsetMin.
-            configTime(0, 0, "pool.ntp.org", "time.google.com");
-            return true;
-        }
+        if (WiFi.status() == WL_CONNECTED) break;
         delay(100);
     }
-    return false;
+    return ensureConnected();
 }
 
 bool WifiStation::ensureConnected() {
     if (WiFi.status() == WL_CONNECTED) {
-        reconnectPending_ = false;
+        if (reconnectPending_) {
+            // The connected transition of a join this object kicked off (boot or a wake re-kick):
+            // start SNTP here rather than in connect(), which no longer waits for the association.
+            // Zero offsets: the app renders in the house timezone from the server's tzOffsetMin.
+            configTime(0, 0, "pool.ntp.org", "time.google.com");
+            reconnectPending_ = false;
+        }
         return true;
     }
     if (ssid_.empty()) return false;  // connect() never ran: nothing to re-associate with

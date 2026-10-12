@@ -167,8 +167,14 @@ void App::dispatch(InputEvent ev, uint32_t nowMs) {
             onSystem(ev, nowMs);
             return;
         case ScreenId::WifiList:
-            // Press (connect / open the portal) needs the Wi-Fi adapter: the screen handles it.
-            if (isBack(ev)) router_.pop();
+            // Press asks for the captive portal; running it needs the Wi-Fi adapter, so main.cpp
+            // takes the request (takePortalRequest) and the simulator just logs it.
+            if (ev == InputEvent::Press) {
+                portalRequested_ = true;
+                log_.event("portal requested", nullptr);
+            } else if (isBack(ev)) {
+                router_.pop();
+            }
             return;
         case ScreenId::About:
             if (isBack(ev)) router_.pop();

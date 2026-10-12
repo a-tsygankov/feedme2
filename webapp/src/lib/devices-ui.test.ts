@@ -8,6 +8,14 @@ describe("devices ui helpers", () => {
     expect(pairErrorMessage(new ApiError(409, { error: "pair_code_used" }))).toBe("That code was already used.");
     expect(pairErrorMessage(new ApiError(409, { error: "device_in_use" }))).toBe("That device still belongs to another house. Forget it there first.");
     expect(pairErrorMessage(new ApiError(400, { error: "invalid_request", issues: [] }))).toBe("Enter the six digits shown on the device.");
+    // 429 from the confirm budget: the wait is rounded up to whole minutes so "try again" is never too early.
+    const tooMany = (retryAfterSec: number) => new ApiError(429, { error: "too_many_attempts", retryAfterSec });
+    expect(pairErrorMessage(tooMany(600))).toBe("Too many wrong codes. Try again in 10 minutes.");
+    expect(pairErrorMessage(tooMany(61))).toBe("Too many wrong codes. Try again in 2 minutes.");
+    expect(pairErrorMessage(tooMany(120))).toBe("Too many wrong codes. Try again in 2 minutes.");
+    expect(pairErrorMessage(tooMany(60))).toBe("Too many wrong codes. Try again in a minute.");
+    expect(pairErrorMessage(tooMany(5))).toBe("Too many wrong codes. Try again in a minute.");
+    expect(pairErrorMessage(new ApiError(429, { error: "too_many_attempts" }))).toBe("Too many wrong codes. Try again in a minute.");
     // A bare 404 (route missing, proxy hiccup) is not "code not found"; only the server's own code says that.
     expect(pairErrorMessage(new ApiError(404, { error: "not_found" }))).toBe("Something went wrong. Try again.");
     expect(pairErrorMessage(new ApiError(404, null))).toBe("Something went wrong. Try again.");

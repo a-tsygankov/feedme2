@@ -134,7 +134,9 @@ export class DeviceSim {
   }
 
   async pairCheck(): Promise<PairCheckResponse> {
-    const r = await this.call("/api/pair/check", { method: "POST", auth: false, body: JSON.stringify({ deviceId: this.deviceId, ...(this.snap.pollSecret ? { pollSecret: this.snap.pollSecret } : {}) }) });
+    // A snapshot saved before the server required the secret would poll forever and only ever see 400s.
+    if (!this.snap.pollSecret) throw new SimError(400, null, "pairing has no poll secret; run pair again");
+    const r = await this.call("/api/pair/check", { method: "POST", auth: false, body: JSON.stringify({ deviceId: this.deviceId, pollSecret: this.snap.pollSecret }) });
     const body = PairCheckResponseSchema.parse(await r.json());
     if (body.status === "confirmed") {
       this.snap.token = body.deviceToken;
@@ -144,6 +146,7 @@ export class DeviceSim {
   }
 
   async pairUntilConfirmed({ timeoutMs = 120_000, intervalMs = 500 }: { timeoutMs?: number; intervalMs?: number } = {}): Promise<void> {
+    if (!this.snap.pollSecret) throw new SimError(400, null, "pairing has no poll secret; run pair again");
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const r = await this.pairCheck();

@@ -96,6 +96,15 @@ describe("/api/pair", () => {
     expect(fw!.fw_version).toBe("0.2.1");
   });
 
+  it("refuses oversized bodies on the public routes before parsing them", async () => {
+    const big = "x".repeat(2000);
+    for (const path of ["/api/pair/start", "/api/pair/check"]) {
+      const r = await post(path, { deviceId: newDeviceId(), pollSecret: newPollSecret(), junk: big });
+      expect(r.status).toBe(413);
+      expect(await r.json()).toEqual({ error: "payload_too_large" });
+    }
+  });
+
   it("validates bodies with the standard 400 shape", async () => {
     const r = await post("/api/pair/start", { deviceId: "nope", hwModel: "device-sim", fwVersion: "0.2.0", pollSecret: newPollSecret() });
     expect(r.status).toBe(400);

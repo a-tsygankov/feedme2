@@ -51,6 +51,21 @@ describe("DeviceSim", () => {
     expect(again.deviceId).toBe(sim.deviceId);
   });
 
+  it("refuses to poll without a poll secret, before any request", async () => {
+    const api = fakeApi();
+    const sim = new DeviceSim({ apiBase: "http://x", fetchFn: api.fetchFn });
+    await sim.pairStart();
+    const { pollSecret: _gone, ...legacy } = sim.snapshot();
+    const old = DeviceSim.fromSnapshot({ apiBase: "http://x", fetchFn: api.fetchFn }, legacy);
+    const before = api.calls.length;
+    const e1 = await old.pairCheck().catch((e: unknown) => e);
+    expect(e1).toBeInstanceOf(SimError);
+    expect(e1).toMatchObject({ status: 400, message: "pairing has no poll secret; run pair again" });
+    const e2 = await old.pairUntilConfirmed({ timeoutMs: 50, intervalMs: 1 }).catch((e: unknown) => e);
+    expect(e2).toMatchObject({ status: 400, message: "pairing has no poll secret; run pair again" });
+    expect(api.calls.length).toBe(before);
+  });
+
   it("sends a fresh random poll secret on start and repeats it on every check", async () => {
     const api = fakeApi();
     const sim = new DeviceSim({ apiBase: "http://x", fetchFn: api.fetchFn });
@@ -120,6 +135,7 @@ describe("DeviceSim", () => {
   it("pairUntilConfirmed gives up with a timeout, and reports an expired or unknown code", async () => {
     const api = fakeApi();
     const sim = new DeviceSim({ apiBase: "http://x", fetchFn: api.fetchFn });
+    await sim.pairStart();
     await expect(sim.pairUntilConfirmed({ timeoutMs: 30, intervalMs: 5 })).rejects.toMatchObject({ name: "SimError", status: 408 });
     api.setCheckStatus("expired");
     await expect(sim.pairUntilConfirmed({ timeoutMs: 1000, intervalMs: 1 })).rejects.toMatchObject({ status: 410, message: "pairing expired" });

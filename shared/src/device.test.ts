@@ -58,6 +58,13 @@ describe("device contracts", () => {
     expect(s.house.tzOffsetMin).toBe(-240);
     expect(s.syncIntervalSec).toBe(s.house.settings.syncIntervalSec);
   });
+  it("device feedings accept fedAt 0 (an unset RTC; the route clamps it) but not negatives", () => {
+    const base = { id: "4b1a0e2d-7c7b-4b7e-9a3a-5c3e2e1f0a11", catId: "4b1a0e2d-7c7b-4b7e-9a3a-5c3e2e1f0a12", amountMg: 40000, enteredUnit: "g", enteredValue: "40" };
+    expect(DeviceFeedingCreateSchema.safeParse({ ...base, fedAt: 0 }).success).toBe(true);
+    expect(DeviceFeedingCreateSchema.safeParse({ ...base, fedAt: -1 }).success).toBe(false);
+    expect(DeviceFeedingCreateSchema.safeParse({ ...base, fedAt: 4_102_444_800_001 }).success).toBe(false);
+    expect(DeviceFeedingCreateSchema.safeParse({ ...base, fedAt: 1.5 }).success).toBe(false);
+  });
   it("device feedings carry no note and heartbeat bounds battery", () => {
     expect(DeviceFeedingCreateSchema.safeParse({ id: "4b1a0e2d-7c7b-4b7e-9a3a-5c3e2e1f0a11", catId: "4b1a0e2d-7c7b-4b7e-9a3a-5c3e2e1f0a12", fedAt: 1_700_000_000_000, amountMg: 40000, enteredUnit: "g", enteredValue: "40", note: "x" }).success).toBe(false);
     expect(HeartbeatBodySchema.safeParse({ fwVersion: "0.2.0", batteryPct: 101, uptimeSec: 1, resetReason: "POWERON", freeHeap: 1000 }).success).toBe(false);

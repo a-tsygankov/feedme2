@@ -57,6 +57,19 @@ describe("POST /api/device/feedings", () => {
     expect(byId.get(backlog)).toBe(t0 - 30 * DAY);
   });
 
+  it("accepts fedAt 0 (an RTC that never came up) and clamps it to now", async () => {
+    const d = await pairDevice();
+    const cat = crypto.randomUUID();
+    await d.house.fetchAuthed("/api/cats", { method: "POST", body: JSON.stringify({ id: cat, name: "Mochi" }) });
+    const zero = crypto.randomUUID();
+    const r = await d.fetchDevice("/api/device/feedings", { method: "POST", body: JSON.stringify([{ id: zero, catId: cat, fedAt: 0, amountMg: 40000, enteredUnit: "g", enteredValue: "40" }]) });
+    expect(r.status).toBe(201);
+    const a = DeviceFeedingsResponseSchema.parse(await r.json());
+    expect(a.accepted).toEqual([zero]);
+    expect(a.clamped).toEqual([zero]);
+    expect(clampFedAt(0, 1_800_000_000_000)).toEqual({ fedAt: 1_800_000_000_000, clamped: true });
+  });
+
   it("clampFedAt edges: only > now + 5 min and < 2020-01-01 move", () => {
     const now = 1_800_000_000_000;
     expect(clampFedAt(now + FED_AT_MAX_FUTURE_MS, now)).toEqual({ fedAt: now + FED_AT_MAX_FUTURE_MS, clamped: false });

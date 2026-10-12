@@ -48,9 +48,10 @@ jobs:
               - 'fixtures/**'
             shared:
               - 'shared/**'
+              - 'fixtures/**'
             tools:
               - 'tools/**'
-              - 'shared/**'
+              - 'fixtures/**'
 
   shared-test:
     name: Shared + device-sim test + typecheck
@@ -148,7 +149,7 @@ jobs:
   webapp-preview-deploy:
     name: Webapp preview deploy (PR)
     needs: [changes, webapp-build]
-    if: github.event_name == 'pull_request' && (needs.changes.outputs.webapp == 'true' || needs.changes.outputs.tools == 'true')
+    if: github.event_name == 'pull_request' && needs.changes.outputs.webapp == 'true'
     runs-on: ubuntu-latest
     outputs:
       preview_url: ${{ steps.deploy.outputs.deployment-url }}
@@ -173,7 +174,7 @@ jobs:
   webapp-e2e-preview:
     name: Webapp E2E (preview smoke)
     needs: [changes, webapp-preview-deploy]
-    if: github.event_name == 'pull_request' && (needs.changes.outputs.webapp == 'true' || needs.changes.outputs.tools == 'true')
+    if: github.event_name == 'pull_request' && needs.changes.outputs.webapp == 'true'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: webapp } }
     steps:
@@ -305,7 +306,7 @@ jobs:
     # still deploys.
     if: |
       needs.webapp-build.result == 'success' &&
-      ((github.event_name == 'push' && (needs.changes.outputs.webapp == 'true' || needs.changes.outputs.tools == 'true')) ||
+      ((github.event_name == 'push' && needs.changes.outputs.webapp == 'true') ||
        github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: webapp } }

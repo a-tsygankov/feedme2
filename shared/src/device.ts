@@ -88,7 +88,9 @@ export const DeviceStateSchema = z.object({
 });
 export type DeviceState = z.infer<typeof DeviceStateSchema>;
 
-export const DeviceFeedingCreateSchema = FeedingCreateSchema.omit({ note: true }).strict();
+// fedAt may be 0: a device whose RTC never came up reports 1970, and the route clamps it to now (web feedings
+// still reject 0 because feedings.fed_at is CHECK > 0). Refusing it here would 400 the whole sync batch forever.
+export const DeviceFeedingCreateSchema = FeedingCreateSchema.omit({ note: true }).extend({ fedAt: epochMs }).strict();
 export type DeviceFeedingCreate = z.infer<typeof DeviceFeedingCreateSchema>;
 export const DeviceFeedingsBodySchema = z.array(DeviceFeedingCreateSchema).min(1).max(100);
 export const DeviceFeedingsResponseSchema = z.object({

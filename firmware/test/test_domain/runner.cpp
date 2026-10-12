@@ -16,6 +16,13 @@ void test_sim_input_is_case_insensitive_and_trims();
 void test_sim_input_unknown_is_none();
 void test_sim_input_names_round_trip();
 
+// test_units.cpp
+void test_units_fixture_loads();
+void test_units_to_mg_matches_every_vector();
+void test_units_step_matches_every_vector();
+void test_units_snap_and_format();
+void test_units_round_half_away_from_zero();
+
 extern "C" void setUp(void) {}
 extern "C" void tearDown(void) {}
 
@@ -29,5 +36,10 @@ int main(int, char**) {
     RUN_TEST(test_sim_input_is_case_insensitive_and_trims);
     RUN_TEST(test_sim_input_unknown_is_none);
     RUN_TEST(test_sim_input_names_round_trip);
+    RUN_TEST(test_units_fixture_loads);
+    RUN_TEST(test_units_to_mg_matches_every_vector);
+    RUN_TEST(test_units_step_matches_every_vector);
+    RUN_TEST(test_units_snap_and_format);
+    RUN_TEST(test_units_round_half_away_from_zero);
     return UNITY_END();
 }

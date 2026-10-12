@@ -20,6 +20,9 @@ class SimulatedClock final : public ports::IClock {
 public:
     static constexpr uint32_t kSimSpeed = FEEDME2_SIM_SPEED;
     static_assert(kSimSpeed >= 1, "FEEDME2_SIM_SPEED must be >= 1");
+    // Pins the "wraps far beyond any scenario's runtime" claim above: at 600x the product wraps
+    // after 2^32 / 600 ms, about two hours of simulator wall time.
+    static_assert(kSimSpeed <= 600, "FEEDME2_SIM_SPEED above 600 makes millis() * speed wrap within a scenario");
 
     uint32_t monotonicMs() override { return millis() * kSimSpeed; }
 };

@@ -169,7 +169,9 @@ void WifiCaptivePortal::runAndReboot(ports::IStorage& storage) {
 
     const std::string blob = WifiStation::encodeCredentials(std::string(pendingSsid.c_str()), std::string(pendingPass.c_str()));
     if (storage.write(WifiStation::kWifiKey, blob)) {
-        Serial.printf("[feedme2] portal saved ssid=%s\n", pendingSsid.c_str());
+        // The SSID is typed by whoever is on the portal; one containing a newline would forge a
+        // second `[feedme2] …` serial line, so only its length is logged, never the text.
+        Serial.printf("[feedme2] portal saved ssid_len=%u\n", static_cast<unsigned>(pendingSsid.length()));
     } else {
         Serial.println("[feedme2] portal save failed");
     }

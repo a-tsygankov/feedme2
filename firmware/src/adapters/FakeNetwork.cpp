@@ -140,6 +140,9 @@ ports::NetResult FakeNetwork::postFeedings(const std::string& jsonArray) {
             fedAt = now;
             clamped.add(id);
         }
+        // Deliberately simpler than the server: a replayed id is re-accepted here, whereas the server
+        // omits duplicates from `accepted` (ON CONFLICT DO NOTHING). Do not assert server behaviour
+        // from the simulator.
         accepted.add(id);
         for (JsonObject cat : cats) {
             if (std::strcmp(cat["id"] | "", catId) != 0) continue;
@@ -155,7 +158,10 @@ ports::NetResult FakeNetwork::postFeedings(const std::string& jsonArray) {
             break;
         }
     }
-    ++generation_;  // the cats changed, so the next getState must not be a 304
+    // Deliberately simpler than the server: the ETag bumps on every batch, even one that changed no
+    // cat row, whereas the server's ETag only changes when a cat row changes. Do not assert server
+    // behaviour from the simulator.
+    ++generation_;  // the next getState must not be a 304
     resp["now"] = now;
     return jsonResult(201, resp);
 }

@@ -82,7 +82,9 @@ export class PairingsRepo {
   async release(deviceId: string, claimedAt: number, originalExpiresAt: number): Promise<void> {
     await this.db
       .update(pendingPairings)
-      .set({ houseId: null, deviceToken: null, confirmedAt: null, expiresAt: originalExpiresAt })
+      // deliveredAt too: a /check that slipped in between the claim and the
+      // failed upsert must not shorten the next confirm's delivery window.
+      .set({ houseId: null, deviceToken: null, confirmedAt: null, deliveredAt: null, expiresAt: originalExpiresAt })
       .where(and(eq(pendingPairings.deviceId, deviceId), eq(pendingPairings.confirmedAt, claimedAt)));
   }
 

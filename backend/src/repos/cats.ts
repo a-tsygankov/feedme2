@@ -36,6 +36,11 @@ export class CatsRepo {
     return this.db.query.cats.findMany({ where: live(houseId), orderBy: [asc(cats.sortOrder), asc(cats.createdAt), asc(cats.id)] });
   }
 
+  listIncludingDeleted(houseId: string): Promise<Row[]> {
+    // Reports keep a removed cat's history (spec §1.3); same order as list().
+    return this.db.query.cats.findMany({ where: eq(cats.houseId, houseId), orderBy: [asc(cats.sortOrder), asc(cats.createdAt), asc(cats.id)] });
+  }
+
   get(houseId: string, id: string): Promise<Row | undefined> {
     return this.db.query.cats.findFirst({ where: and(live(houseId), eq(cats.id, id)) });
   }

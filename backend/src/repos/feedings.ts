@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { encodeFeedingsCursor, type Feeding, type FeedingCreate, type FeedingPatch } from "@feedme2/shared";
 import type { Db } from "../db/client.ts";
 import { cats, feedings } from "../db/schema.ts";
@@ -69,6 +69,26 @@ function chunks<T>(xs: T[], n: number): T[][] {
 
 export class FeedingsRepo {
   constructor(private readonly db: Db) {}
+
+  /** Live feedings of the house with fromMs <= fed_at < toMs (the local midnights of a report range). */
+  private rangeWhere(houseId: string, fromMs: number, toMs: number, catId?: string) {
+    const conds = [eq(feedings.houseId, houseId), isNull(feedings.deletedAt), gte(feedings.fedAt, fromMs), lt(feedings.fedAt, toMs)];
+    if (catId) conds.push(eq(feedings.catId, catId));
+    return and(...conds);
+  }
+
+  /** Only the four columns the aggregation reads: a two-year range can be thousands of rows. */
+  listForReport(houseId: string, fromMs: number, toMs: number, catId?: string): Promise<Array<{ id: string; catId: string; fedAt: number; amountMg: number }>> {
+    return this.db
+      .select({ id: feedings.id, catId: feedings.catId, fedAt: feedings.fedAt, amountMg: feedings.amountMg })
+      .from(feedings)
+      .where(this.rangeWhere(houseId, fromMs, toMs, catId))
+      .orderBy(asc(feedings.fedAt), asc(feedings.id));
+  }
+
+  listForExport(houseId: string, fromMs: number, toMs: number, catId?: string): Promise<Row[]> {
+    return this.db.query.feedings.findMany({ where: this.rangeWhere(houseId, fromMs, toMs, catId), orderBy: [asc(feedings.fedAt), asc(feedings.id)] });
+  }
 
   async page(houseId: string, q: PageQuery): Promise<{ items: Row[]; nextCursor: string | null }> {
     const conds = [eq(feedings.houseId, houseId), isNull(feedings.deletedAt)];

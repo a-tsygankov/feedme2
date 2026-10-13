@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CatCreateSchema, DebugLogsQuerySchema, FeedingCreateSchema, FeedingPatchSchema, FeedingsPageSchema,
   HousePatchSchema, HouseSettingsSchema, LoginBodySchema, LogsUploadBodySchema, SetupBodySchema, CAT_COLORS,
-  decodeFeedingsCursor, encodeFeedingsCursor,
+  UuidSchema, decodeFeedingsCursor, encodeFeedingsCursor,
 } from "./api.ts";
 
 const uuid = "123e4567-e89b-42d3-a456-426614174000";
@@ -163,5 +163,13 @@ describe("api contracts: hardening", () => {
   it("DebugLogsQuerySchema accepts minLevel and keeps level", () => {
     expect(DebugLogsQuerySchema.parse({ minLevel: "warn" })).toMatchObject({ minLevel: "warn", limit: 200 });
     expect(DebugLogsQuerySchema.safeParse({ minLevel: "loud" }).success).toBe(false);
+  });
+});
+
+describe("UuidSchema", () => {
+  it("takes only the lowercase canonical form, for query params as well as bodies", () => {
+    expect(UuidSchema.safeParse(uuid).success).toBe(true);
+    expect(UuidSchema.safeParse(uuid.toUpperCase()).success).toBe(false);
+    expect(UuidSchema.safeParse("nope").success).toBe(false);
   });
 });

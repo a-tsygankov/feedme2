@@ -7,6 +7,7 @@ import { App } from "./App.tsx";
 import { SyncDroppedBanner } from "./components/SyncBadge.tsx";
 import { authStore, crossesSessionBoundary } from "./lib/auth-store.ts";
 import { api } from "./lib/api-client.ts";
+import { queriesToRefreshAfterDrain, refreshAfterHydration } from "./lib/drain-refresh.ts";
 import { createUploadSink, visibleInterval } from "./lib/log-upload.ts";
 import { appLog, attachSink, clientLogBuffer, installGlobalErrorCapture } from "./lib/logger.ts";
 import { CLIENT_VERSION } from "./lib/versions.ts";
@@ -70,20 +71,18 @@ const queryClient = new QueryClient({
 saveOnHide(window, document, () =>
   persistQueryClientSave({ queryClient, persister: queryPersister, buster: CLIENT_VERSION }));
 
-// The restored cache is only the first paint: refetch the lists right after hydration, whatever staleTime says.
+// The restored cache is only the first paint: every restored query is stale right after hydration, whatever staleTime
+// says (see refreshAfterHydration).
 const onHydrated = () => {
   syncTriggers.markHydrated();
-  void queryClient.invalidateQueries({ queryKey: ["cats"] });
-  void queryClient.invalidateQueries({ queryKey: ["feedings"] });
+  void refreshAfterHydration(queryClient);
 };
 
 // What a drain changed on the server (a create landing, an edit applied, a change refused) is only visible after the
-// lists are refetched. This is the one place that happens, whichever screen started the drain.
+// lists (and, when something was sent, the reports) are refetched. This is the one place that happens, whichever
+// screen started the drain.
 syncEngine.onDrained((r) => {
-  if (r.sent === 0 && r.dropped.length === 0) return;
-  void queryClient.invalidateQueries({ queryKey: ["cats"] });
-  void queryClient.invalidateQueries({ queryKey: ["feedings"] });
-  void queryClient.invalidateQueries({ queryKey: ["feedings-history"] });
+  for (const queryKey of queriesToRefreshAfterDrain(r)) void queryClient.invalidateQueries({ queryKey });
 });
 
 // Cache isolation: the query cache (and its Dexie copy) belongs to one house's session. On sign-out, or if the house

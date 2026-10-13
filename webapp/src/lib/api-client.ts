@@ -5,9 +5,9 @@
  */
 import {
   CatSchema, DeviceResponseSchema, DevicesResponseSchema, FeedingSchema, FeedingsPageSchema, HouseSchema, DebugLogsResponseSchema,
-  PairConfirmResponseSchema, TokensResponseSchema,
+  PairConfirmResponseSchema, ReportSummarySchema, TokensResponseSchema,
   type Cat, type CatCreate, type CatPatch, type DebugLogsQuery, type Feeding, type FeedingCreate, type FeedingPatch,
-  type DevicePatch, type FeedingsPage, type House, type HousePatch, type LogEntry, type LogUploadEntry, type PairConfirmBody, type TokensResponse,
+  type DevicePatch, type FeedingsPage, type House, type HousePatch, type LogEntry, type LogUploadEntry, type PairConfirmBody, type ReportBucket, type ReportSummary, type TokensResponse,
 } from "@feedme2/shared";
 import { z } from "zod";
 import { authStore, type RefreshOutcome } from "./auth-store.ts";
@@ -124,6 +124,12 @@ async function publicPost<T>(path: string, body: unknown, schema: z.ZodType<T>):
   return schema.parse(await res.json());
 }
 
+function queryOf(q: Record<string, string | number | undefined>): URLSearchParams {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(q)) if (v !== undefined) params.set(k, String(v));
+  return params;
+}
+
 async function json<T>(res: Response, schema: z.ZodType<T>): Promise<T> {
   return schema.parse(await res.json());
 }
@@ -168,6 +174,11 @@ export const api = {
   patchDevice: (id: string, patch: DevicePatch) =>
     apiFetch(`/api/devices/${id}`, { method: "PATCH", body: JSON.stringify(patch) }).then((r) => json(r, DeviceResponseSchema)),
   deleteDevice: (id: string): Promise<void> => apiFetch(`/api/devices/${id}`, { method: "DELETE" }).then(() => undefined),
+  reportSummary: (q: { from: string; to: string; cat?: string; bucket?: ReportBucket }): Promise<ReportSummary> =>
+    apiFetch(`/api/reports/summary?${queryOf(q)}`).then((r) => json(r, ReportSummarySchema)),
+  // A Blob through apiFetch, not a plain link: the bearer header rules out <a href> (as gigsy found).
+  exportCsv: (q: { from: string; to: string; cat?: string }): Promise<Blob> =>
+    apiFetch(`/api/reports/export.csv?${queryOf(q)}`).then((r) => r.blob()),
   confirmPair: (body: PairConfirmBody) =>
     apiFetch("/api/pair/confirm", { method: "POST", body: JSON.stringify(body) }).then((r) => json(r, PairConfirmResponseSchema)),
 };

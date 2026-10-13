@@ -19,12 +19,17 @@ on:
 
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  # PR runs are superseded by newer pushes; main runs must all finish, or a cancelled
+  # run's changes never deploy (2026-10-12: PR #2's merge run was cancelled by PR #3's).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    # actions: read lets `gh run list` find the last green run; pull-requests: read is
+    # what paths-filter needs on PRs.
+    permissions: { contents: read, actions: read, pull-requests: read }
     outputs:
       backend:  ${{ steps.filter.outputs.backend }}
       webapp:   ${{ steps.filter.outputs.webapp }}
@@ -33,9 +38,26 @@ jobs:
       tools:    ${{ steps.filter.outputs.tools }}
     steps:
       - uses: actions/checkout@v4
+        # Full history: the diff base may be several pushes back.
+        with: { fetch-depth: 0 }
+      - name: Last commit main deployed successfully
+        id: lastgood
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Diff from the last green push/dispatch run instead of the previous push, so a
+        # run that was queued, failed or cancelled leaves its changes to the next one.
+        run: |
+          sha=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy.yml --branch main \
+            --status success --limit 30 --json headSha,event \
+            --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch")][0].headSha // ""')
+          if [ -z "$sha" ] || ! git cat-file -e "$sha^{commit}" 2>/dev/null; then sha="${{ github.event.before }}"; fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # Empty on PRs and dispatches, where paths-filter keeps its default base.
+          base: ${{ steps.lastgood.outputs.sha || '' }}
           filters: |
             backend:
               - 'backend/**'
@@ -99,10 +121,11 @@ jobs:
     # A custom if: replaces the implicit success() gate on needs, so the
     # test result must be checked explicitly — otherwise a red test job
     # still deploys.
+    # A dispatch deploys only main: any other ref would ship unreviewed code to production.
     if: |
       needs.backend-test.result == 'success' &&
       ((github.event_name == 'push' && needs.changes.outputs.backend == 'true') ||
-       github.event_name == 'workflow_dispatch')
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: backend } }
     steps:
@@ -292,6 +315,14 @@ jobs:
           name: playwright-report-full
           path: webapp/playwright-report
           retention-days: 7
+      - name: Failure snapshots
+        if: failure()
+        # Playwright's per-failure page snapshot (aria tree + the failing step), printed so a CI-only
+        # failure can be read from the log without downloading the report artifact.
+        run: |
+          find webapp/test-results -name error-context.md 2>/dev/null | head -n 6 | while read -r f; do
+            echo "::group::$f"; head -c 12000 "$f"; echo; echo "::endgroup::"
+          done
       - name: Server logs on failure
         if: failure()
         run: |
@@ -304,10 +335,11 @@ jobs:
     # A custom if: replaces the implicit success() gate on needs, so the
     # test result must be checked explicitly — otherwise a red test job
     # still deploys.
+    # A dispatch deploys only main: any other ref would ship unreviewed code to production.
     if: |
       needs.webapp-build.result == 'success' &&
       ((github.event_name == 'push' && needs.changes.outputs.webapp == 'true') ||
-       github.event_name == 'workflow_dispatch')
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: webapp } }
     steps:

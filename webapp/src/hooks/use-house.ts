@@ -29,6 +29,12 @@ export function usePatchHouse() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (patch: HousePatch) => api.patchHouse(patch),
-    onSuccess: (house) => { qc.setQueryData(houseKey, house); authStore.updateHouse(house); },
+    // Reports too: a unit or can-size change alters their totals (a zone change also moves their key, see reportKey),
+    // and they would otherwise keep the old numbers for their 60 s staleTime, or longer from the persisted cache.
+    onSuccess: (house) => {
+      qc.setQueryData(houseKey, house);
+      authStore.updateHouse(house);
+      void qc.invalidateQueries({ queryKey: ["report"] });
+    },
   });
 }

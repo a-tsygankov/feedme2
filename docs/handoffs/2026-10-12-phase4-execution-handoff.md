@@ -85,6 +85,13 @@ Recorded in the plan under "Corrections recorded during execution":
 - CSV guard: also prefix a cell whose first non-space character is `=`, and the full-width `＝`.
 - `CatPage`'s `onDrained` and its `refresh()` can both invalidate after one edit (pre-existing; a harmless double fetch).
 
+## CI-only failures fixed on the PR
+
+The local full stack passed 20/20, but PR #4's `Webapp E2E (full stack)` job on the Linux runner failed twice. A new CI step prints Playwright's `error-context.md` page snapshots into the job log, so a CI-only failure can be read without downloading the report.
+
+1. **The Reports page was wider than a phone** (`aa9b76e`). Each chart's screen-reader data table had `sr-only` on the `<table>` itself. A table sizes to its content and ignores `width: 1px`, so `/reports` was 472 px wide on a 412 px screen. Mobile Chrome zoomed out, and on Linux the e2e's taps landed on the heatmap or on the next drill row. The table now sits inside an `sr-only` div. A new e2e helper, `expectNoHorizontalOverflow`, fails any page wider than the screen. Real phones would have seen a sideways-scrolling Reports page.
+2. **A restored cache showed "No devices paired yet"** (`6ec5eae`). The device-flow spec pairs a device and later does a full reload. The throttled cache save (250 ms) could lose the race with the reload. The restored device list then looked fresh to its 15 s `staleTime`, so it never refetched. Phase 1 had fixed the same race for cats and feedings only. Now `refreshAfterHydration` marks every restored query stale. Phase 4's larger persisted cache, with reports and trends, made the race likelier on the slower runner.
+
 ## Process notes
 
 - Several agents shared one checkout: pathspec-only staging under the commit lock (`mkdir .git/feedme2-commit.lock`), never `git add -A`.

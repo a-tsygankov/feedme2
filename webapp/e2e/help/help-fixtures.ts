@@ -78,6 +78,26 @@ export const HELP_CATS = ["Mochi", "Luna"] as const;
 /** What one seeded feeding gives each cat: 40 g, entered in grams. */
 const FEEDING_MG = 40_000;
 
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+
+/**
+ * When the seeded feedings happened: two minutes ago, but never before
+ * the start of today (UTC).
+ *
+ * It must stay on the house's TODAY: reachability.spec.ts reads "Today: 1
+ * feeding · 40 g" off the card, and test houses are in UTC. It used to be
+ * an hour ago, which between 00:00 and 01:00 UTC landed on yesterday and
+ * failed that spec every night. It must not be ahead of now either: the
+ * API rejects a feeding more than 5 minutes in the future
+ * (fedat_in_future, routes/feedings.ts). The clamp closes the last two
+ * minutes after midnight; today's start is also inside the week /reports
+ * opens on.
+ */
+function seededFedAt(nowMs: number): number {
+  return Math.max(nowMs - 2 * MINUTE_MS, Math.floor(nowMs / DAY_MS) * DAY_MS);
+}
+
 /**
  * Seeds the house the scenarios expect, through the public API.
  *
@@ -85,11 +105,10 @@ const FEEDING_MG = 40_000;
  *    `change-units` pins `grams`, and that should not depend on a default
  *    staying what it is today.
  *  - Two cats, so Feed all and the Reports cat filter render.
- *  - One feeding each, an hour ago. The backend copies the latest
- *    feeding's amount onto the cat as its usual amount (repos/feedings.ts),
- *    which is what makes `cat-feed-more` ("Other…") render — `feed-a-cat`
- *    pins `can-feed-other`. An hour ago keeps it inside the current week
- *    /reports opens on, and well clear of the server's future-skew check.
+ *  - One feeding each, just now (see `seededFedAt`). The backend copies
+ *    the latest feeding's amount onto the cat as its usual amount
+ *    (repos/feedings.ts), which is what makes `cat-feed-more` ("Other…")
+ *    render — `feed-a-cat` pins `can-feed-other`.
  *
  * Fresh ids every call: cat and feeding ids are global primary keys and the
  * local D1 outlives a run.
@@ -100,7 +119,7 @@ async function seedHelpHouse(page: Page, accessToken: string): Promise<void> {
   const house = await page.request.patch("/api/house", { headers, data: { foodUnit: "g" } });
   expect(house.status(), await house.text()).toBe(200);
 
-  const fedAt = Date.now() - 60 * 60 * 1000;
+  const fedAt = seededFedAt(Date.now());
   const feedings = [];
   for (const [i, name] of HELP_CATS.entries()) {
     const id = crypto.randomUUID();

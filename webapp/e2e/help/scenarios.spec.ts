@@ -11,7 +11,14 @@ import { validateHelpRegistry } from "../../src/help/validate.ts";
 import { prepareHelpScenario, requireLocalTarget } from "./help-fixtures.ts";
 import { runHelpScenario } from "./help-runner.ts";
 
-requireLocalTarget();
+// In a beforeEach, not at module top level: a top-level throw broke
+// collection itself, so `test:e2e:ui` and `--list` (which load every
+// project) died whenever E2E_BASE_URL was unset. Here each test still
+// FAILS off a local stack (a skip would read as green), and nothing else
+// is affected.
+test.beforeEach(() => {
+  requireLocalTarget();
+});
 
 test("the registry is structurally valid", () => {
   expect(validateHelpRegistry(helpScenarios)).toEqual([]);

@@ -259,7 +259,7 @@ export function Settings() {
           {catError ? <p className="text-sm text-red-600" role="alert">{catError}</p> : null}
           {onlyOne && catList.length === 1 ? <p className="text-xs text-slate-500">A house keeps at least one cat, so the last one can't be deleted. Feedings are kept when a cat is deleted.</p> : null}
           <Button className="mt-3" onClick={() => setEditing("new")} disabled={atMax} data-testid="cat-add">Add a cat</Button>
-          {atMax ? <p className="text-xs text-slate-500">A house can have up to {MAX_CATS} cats.</p> : null}
+          {atMax ? <p className="text-xs text-slate-500" data-testid="cat-limit">A house can have up to {MAX_CATS} cats.</p> : null}
         </Section>
 
         <Section title="Devices" id="devices">

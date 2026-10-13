@@ -57,6 +57,12 @@ export const HelpTarget = {
 
   // Settings.tsx Cats section, and CatEditor.tsx (a sheet opened by
   // `cat-add`; the editor's fields exist only while it is open).
+  // `cat-row` and `cat-limit` render from the loaded cat list in the same
+  // commit; `cat-limit` (the "up to 8 cats" note) only at MAX_CATS, when
+  // `cat-add` is disabled. `cat-add` itself is up while the list is still
+  // loading, so it says nothing about whether there is room.
+  CatRow: element("cat-row"),
+  CatLimit: element("cat-limit"),
   CatAdd: element("cat-add"),
   CatName: element("cat-name"),
   CatColors: element("cat-colors"),

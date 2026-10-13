@@ -7,6 +7,7 @@ import {
   helpScenarios,
 } from "./registry.ts";
 import { matchesRoute } from "./routes.ts";
+import { HelpTarget } from "./targets.ts";
 import { groupScenarios } from "./runtime/HelpMenu.tsx";
 import type { HelpScenario, HelpStep } from "./types.ts";
 import { validateHelpRegistry } from "./validate.ts";
@@ -112,6 +113,25 @@ describe("the help registry", () => {
       );
       expect(writes, scenario.id).toEqual([]);
     }
+  });
+
+  // At MAX_CATS Settings disables "Add a cat", so a tour that opened with
+  // the click step waited on a tap that could never happen. The full-house
+  // check must come first; the CI fixture (two cats) takes the other branch.
+  it("add-a-cat checks for a full house before asking for the Add a cat tap", () => {
+    const scenario = getHelpScenario("add-a-cat")!;
+    const first = scenario.steps[0]!;
+    expect(first.action).toBe("branch");
+    if (first.action !== "branch") return;
+    expect(first.branches.map((b) => b.id)).toEqual(["house-full", "room-for-another"]);
+
+    const [full, room] = first.branches;
+    expect(full!.when).toEqual({ type: "target-visible", target: HelpTarget.CatLimit });
+    expect(full!.steps.map((s) => s.action)).toEqual(["highlight"]);
+    expect(full!.steps.at(-1)).toMatchObject({ target: HelpTarget.CatLimit, end: true });
+    expect(room!.steps[0]).toMatchObject({ action: "click", target: HelpTarget.CatAdd });
+
+    expect(scenario.expectedCiBranches).toEqual(["room-for-another"]);
   });
 
   it("finds a scenario by id", () => {

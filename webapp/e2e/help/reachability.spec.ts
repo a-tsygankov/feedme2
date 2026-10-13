@@ -18,7 +18,14 @@ import { HelpTarget } from "../../src/help/targets.ts";
 import { expectNoHorizontalOverflow } from "../helpers/ui.ts";
 import { prepareHelpScenario, requireLocalTarget } from "./help-fixtures.ts";
 
-requireLocalTarget();
+// In a beforeEach, not at module top level: a top-level throw broke
+// collection itself, so `test:e2e:ui` and `--list` (which load every
+// project) died whenever E2E_BASE_URL was unset. Here each test still
+// FAILS off a local stack (a skip would read as green), and nothing else
+// is affected.
+test.beforeEach(() => {
+  requireLocalTarget();
+});
 
 /** Only TourRenderer's `popoverClass` puts `feedme2-help-popover` on a
  *  driver.js popover, and every rule in styles/help.css hangs off it. */
@@ -101,7 +108,7 @@ test("help is reachable from the dashboard header and tours a cat card", async (
   await expectNoHorizontalOverflow(page);
 });
 
-test("the header button closes the sheet it opened, and so does Close", async ({ page }) => {
+test("help closes on a backdrop tap over the \"?\", on Enter on the focused button, and on Close", async ({ page }) => {
   await prepareHelpScenario(page, { ...openReports, startRoute: "/" });
 
   const helpLink = page.getByTestId("help-link");
@@ -113,11 +120,14 @@ test("the header button closes the sheet it opened, and so does Close", async ({
   await expect(sheet).toBeVisible();
   await expect(helpLink).toHaveAttribute("aria-expanded", "true");
 
-  // A second tap where the "?" is closes help. The backdrop (z-50) sits
-  // over the sticky header (z-30), so on a phone that tap lands on the
-  // backdrop, whose own handler closes help; either way the person sees the
-  // button they opened help with close it. A plain locator click would
-  // refuse ("backdrop intercepts pointer events"), so this taps the point.
+  // A second tap where the "?" is closes help, but it is the BACKDROP that
+  // closes it, not the button: the backdrop (z-50) sits over the sticky
+  // header (z-30), so a pointer tap on "?" while help is open always lands
+  // on the backdrop, whose own handler closes help. That is the intended
+  // outcome (the person sees the button they opened help with close it);
+  // only the keyboard below reaches the button itself. A plain locator
+  // click would refuse ("backdrop intercepts pointer events"), so this
+  // taps the point.
   await page.mouse.click(helpPoint.x, helpPoint.y);
   await expect(sheet).toBeHidden();
   await expect(helpLink).toHaveAttribute("aria-expanded", "false");

@@ -15,8 +15,9 @@ import type { HelpScenario } from "../types.ts";
  *      "loading" as "no cats" (gigsy's `no-gigs-yet` incident).
  *   2. Does the cat have a usual amount yet? `cat-feed-more` ("Other…")
  *      exists only when it does (CatCard.tsx `hasDefault`); the usual
- *      amount is whatever was given last (backend feedings repo). The
- *      fallback condition is `cat-feed`, which is on screen in both
+ *      amount is the amount of the cat's latest feeding by fed_at, not
+ *      the last one logged (catDefaultsStatement in
+ *      backend/src/repos/feedings.ts). The fallback condition is `cat-feed`, which is on screen in both
  *      cases: it is reached only because `can-feed-other` is checked
  *      first, and the two buttons render in the same card in the same
  *      commit, so there is no window where one is up and the other is
@@ -90,7 +91,7 @@ export const feedACat: HelpScenario = {
               target: HelpTarget.CatFeedMore,
               title: "Other…",
               description:
-                "Opens the feeding sheet for a different amount, an earlier time or a note. Whatever you log there becomes the new usual amount.",
+                "Opens the feeding sheet for a different amount, an earlier time or a note. The latest feeding's amount becomes the usual one, so a feeding logged for an earlier time leaves it as it is.",
               end: true,
             },
           ],

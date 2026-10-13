@@ -62,7 +62,15 @@
   opacity: 1;
 }
 
-.feedme2-help-popover .driver-popover-close-btn:hover {
+/* `:focus` as well as `:hover`, not only the `:focus-visible` ring below:
+   driver.css loads after this file and its
+   `.driver-popover-close-btn:hover,.driver-popover-close-btn:focus`
+   (#2d2d2d) beats the base rule above at equal specificity, (0,2,0),
+   so without this a Close focused by mouse or by driver itself went
+   near-invisible on the dark help surface. The namespace class lifts
+   this to (0,3,0), above driver's. */
+.feedme2-help-popover .driver-popover-close-btn:hover,
+.feedme2-help-popover .driver-popover-close-btn:focus {
   color: var(--text-strong);
 }
 

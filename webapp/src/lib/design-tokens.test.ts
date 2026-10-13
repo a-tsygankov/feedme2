@@ -95,6 +95,27 @@ describe("help surface tokens", () => {
     expect(help).toContain(".feedme2-help-popover.driver-popover");
   });
 
+  // driver.css loads AFTER help.css and styles the close button's
+  // `:hover, :focus` as #2d2d2d at (0,2,0). A `:focus-visible` rule alone
+  // does not cover a focus the browser decides not to show as visible
+  // (a mouse or programmatic focus), so driver's dark grey won there and
+  // the focused Close went near-invisible on the dark help surface.
+  it("the focused Close button keeps a token colour that beats driver's", () => {
+    const help = readFileSync(
+      fileURLToPath(new URL("../styles/help.css", import.meta.url)),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...help.matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({
+      selectors: m[1]!.split(",").map((sel) => sel.trim()),
+      body: m[2]!,
+    }));
+    const focus = rules.find((r) =>
+      r.selectors.includes(".feedme2-help-popover .driver-popover-close-btn:focus"),
+    );
+    expect(focus, "no plain :focus rule for the close button").toBeDefined();
+    expect(focus!.body).toMatch(/(^|[;\s])color:\s*var\(--text-strong\)/);
+  });
+
   it("the main stylesheet imports help.css", () => {
     const main = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
     expect(main).toContain('@import "./styles/help.css";');

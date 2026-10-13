@@ -167,3 +167,17 @@ export const pairAttempts = sqliteTable("pair_attempts", {
   windowStart: integer("window_start").notNull(),
   failures: integer("failures").notNull(),
 });
+
+/** One-time QR login tokens (0003). Only the SHA-256 hex of the token is stored, never the token. */
+export const loginQrTokens = sqliteTable(
+  "login_qr_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    deviceId: text("device_id").notNull(),
+    houseId: text("house_id").notNull(),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    consumedAt: integer("consumed_at"),
+  },
+  (t) => ({ deviceIdx: index("login_qr_tokens_device").on(t.deviceId), expiresIdx: index("login_qr_tokens_expires").on(t.expiresAt) }),
+);

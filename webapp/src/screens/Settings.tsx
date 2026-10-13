@@ -190,11 +190,11 @@ export function Settings() {
             options={[{ value: "g", label: "Grams" }, { value: "oz", label: "Ounces" }, { value: "can", label: "Cans" }]} />
           {/* Only the controls the chosen unit actually uses. */}
           {unit === "g" ? (
-            <Select label="Gram step" value={String(form.gramStep)} onChange={(e) => commit({ gramStep: Number(e.target.value) as 1 | 5 | 10 })}
+            <Select label="Gram step" value={String(form.gramStep)} data-testid="gram-step" onChange={(e) => commit({ gramStep: Number(e.target.value) as 1 | 5 | 10 })}
               options={[{ value: "1", label: "1 g" }, { value: "5", label: "5 g" }, { value: "10", label: "10 g" }]} />
           ) : null}
           {unit === "oz" ? (
-            <Select label="Ounce step" value={String(form.ozStepHundredths)} onChange={(e) => commit({ ozStepHundredths: Number(e.target.value) as 25 | 50 })}
+            <Select label="Ounce step" value={String(form.ozStepHundredths)} data-testid="oz-step" onChange={(e) => commit({ ozStepHundredths: Number(e.target.value) as 25 | 50 })}
               options={[{ value: "25", label: "¼ oz" }, { value: "50", label: "½ oz" }]} />
           ) : null}
           {unit === "can" ? (

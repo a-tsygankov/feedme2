@@ -21,19 +21,76 @@ export interface HelpTarget {
   readonly kind: HelpTargetKind;
 }
 
-// Unused until the map below gains entries (Phase 5b Task 3). Private on
-// purpose: every target is declared in this file, next to the reason for
-// its kind, rather than minted at a call site.
+// Private on purpose: every target is declared in this file, next to the
+// reason for its kind, rather than minted at a call site.
 const element = (id: string): HelpTarget => ({ id, kind: "element" });
+// Unused: feedme2 has no painted switch yet; kept so the first one has a home.
 const painted = (id: string): HelpTarget => ({ id, kind: "switch" });
 
 /** Deliberately shares its name with the interface above — one is a type,
- *  the other a value, and `HelpTarget.SettingsLink` is how call sites
+ *  the other a value, and `HelpTarget.TabReports` is how call sites
  *  want to read.
  *
- *  Every entry is an existing `data-testid` on a feedme2 screen. Empty
- *  until the scenarios that use them are written. */
-export const HelpTarget = {} as const;
+ *  Every entry is an existing `data-testid` on a feedme2 screen, checked
+ *  against the markup: renaming one of those ids breaks the tour that
+ *  uses it, which the help e2e suite catches. All are `element`: none
+ *  of them is an sr-only input behind painted chrome. Where a control is
+ *  rendered only in some states, the condition is noted, because that is
+ *  what the scenarios branch on. */
+export const HelpTarget = {
+  // TabBar.tsx — NavLinks, on every signed-in screen.
+  TabReports: element("tab-reports"),
+  TabSettings: element("tab-settings"),
+  // Header "?" (AppHeader.tsx), on every signed-in screen.
+  HelpLink: element("help-link"),
+
+  // Dashboard.tsx / CatCard.tsx. `cat-card` once house and cats have
+  // loaded; `empty-cats` only when the cat list loaded empty;
+  // `feed-all` only with two or more cats (rendered in the same commit
+  // as the cards); `cat-feed-more` only when the cat has a default
+  // amount, i.e. after its first feeding.
+  CatCard: element("cat-card"),
+  CatFeed: element("cat-feed"),
+  CatFeedMore: element("cat-feed-more"),
+  FeedAll: element("feed-all"),
+  EmptyCats: element("empty-cats"),
+
+  // Settings.tsx Cats section, and CatEditor.tsx (a sheet opened by
+  // `cat-add`; the editor's fields exist only while it is open).
+  CatAdd: element("cat-add"),
+  CatName: element("cat-name"),
+  CatColors: element("cat-colors"),
+  CatSave: element("cat-save"),
+
+  // Settings.tsx Units section: exactly one unit's controls at a time.
+  // `gram-step` and `oz-step` were added for help (Phase 5b) so each
+  // unit has something positive to branch on.
+  FoodUnit: element("food-unit"),
+  GramStep: element("gram-step"),
+  OzStep: element("oz-step"),
+  CanSize: element("can-size"),
+
+  // DevicesSection.tsx, inside Settings' Devices section.
+  Devices: element("devices"),
+  PairCode: element("pair-code"),
+  PairSubmit: element("pair-submit"),
+
+  // Reports: ReportControls.tsx is always rendered once the house has
+  // loaded; `report-cat` only with two or more live cats. The summary
+  // (charts, `report-drill`) only once the report has loaded, and
+  // `report-drill` only for a range finer than one day (a one-day range
+  // lists each feeding instead). `report-offline` when the report could
+  // not be fetched for want of a connection and nothing is cached.
+  ReportRange: element("report-range"),
+  ReportTitle: element("report-title"),
+  ReportPrev: element("report-prev"),
+  ReportNext: element("report-next"),
+  ReportCat: element("report-cat"),
+  ReportCsv: element("report-csv"),
+  ReportChart: element("report-chart-feedings"),
+  ReportDrill: element("report-drill"),
+  ReportOffline: element("report-offline"),
+} as const;
 
 /** The CSS form of a target, for anything that needs a selector rather
  *  than a node: Playwright locators, and Driver.js's `element`, which

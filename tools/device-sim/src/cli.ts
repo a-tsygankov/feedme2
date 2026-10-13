@@ -9,6 +9,7 @@ import { DeviceSim, SimError, type SimSnapshot } from "./sim.ts";
 
 const DEFAULT_API = "http://127.0.0.1:8787";
 const DEFAULT_STATE = "./device-sim.json";
+const DEFAULT_WEB = "https://feedme2-webapp.pages.dev";
 
 const USAGE = `usage: device-sim [--api <url>] [--state <file>] <command>
   --api <url>           API base (default: the one saved in the state file, else ${DEFAULT_API})
@@ -20,30 +21,33 @@ const USAGE = `usage: device-sim [--api <url>] [--state <file>] <command>
   log <level> <msg>     queue a device log line (level: debug, info, warn, error; msg up to 500 chars)
   sync                  feedings -> logs -> state -> heartbeat
   heartbeat             post a heartbeat
+  login-qr [--web <url>] print a one-time sign-in URL for a phone (web base default: ${DEFAULT_WEB})
   forget-local          delete the snapshot file
   --help                show this text`;
 
 /** Commands that change device state and so rewrite the snapshot. `status` only reads it. */
 const SAVES = new Set(["pair", "state", "feed", "log", "sync", "heartbeat"]);
-const COMMANDS = new Set([...SAVES, "status", "forget-local"]);
+const COMMANDS = new Set([...SAVES, "status", "forget-local", "login-qr"]);
 
 function parseArgs(argv: string[]) {
   let api: string | undefined;
   let stateFile = DEFAULT_STATE;
+  let web = DEFAULT_WEB;
   let help = false;
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--api") api = argv[++i] ?? api;
     else if (a === "--state") stateFile = argv[++i] ?? stateFile;
+    else if (a === "--web") web = argv[++i] ?? web;
     else if (a === "--help" || a === "-h") help = true;
     else rest.push(a);
   }
-  return { api, stateFile, help, cmd: rest[0], args: rest.slice(1) };
+  return { api, stateFile, web, help, cmd: rest[0], args: rest.slice(1) };
 }
 
 async function main(): Promise<void> {
-  const { api, stateFile, help, cmd, args } = parseArgs(process.argv.slice(2));
+  const { api, stateFile, web, help, cmd, args } = parseArgs(process.argv.slice(2));
   if (help || !cmd) { console.log(USAGE); return; }
   // Checked before any file is read or written: a typo must not create or rewrite a snapshot.
   if (!COMMANDS.has(cmd)) { console.error(`unknown command "${cmd}"\n${USAGE}`); process.exitCode = 1; return; }
@@ -105,6 +109,13 @@ async function main(): Promise<void> {
         break;
       }
       case "heartbeat": await sim.heartbeat(); console.log("heartbeat ok"); break;
+      case "login-qr": {
+        // Not in SAVES: minting a token changes nothing the device keeps, and the token must not land in the snapshot.
+        const { token, expiresInSec } = await sim.loginToken();
+        console.log(sim.loginUrl(web, token));
+        console.log(`valid once, for ${expiresInSec} s`);
+        break;
+      }
     }
   } catch (e) {
     if (e instanceof SimError) console.error(`${e.message}: ${JSON.stringify(e.body)}`);

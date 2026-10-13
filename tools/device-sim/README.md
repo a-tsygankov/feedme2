@@ -1,7 +1,7 @@
 # device-sim
 
 A fake CrowPanel for feedme2. `DeviceSim` speaks the real device API
-(`/api/pair/*`, `/api/device/*`) using the `@feedme2/shared` contracts; the
+(`/api/pair/*`, `/api/device/*`, and `/api/auth/login-token-create` for QR login) using the `@feedme2/shared` contracts; the
 Playwright system e2e imports it, and the CLI drives it by hand. The device
 state (id, token, ETag, cached state, queued feedings and logs, and the API
 base) lives in a JSON snapshot file, `./device-sim.json` relative to the
@@ -27,8 +27,21 @@ pnpm --filter @feedme2/device-sim start feed Mochi
 pnpm --filter @feedme2/device-sim start sync
 ```
 
-Other commands: `status`, `log <level> <msg>`, `heartbeat`, `forget-local`,
-`--help`. Log levels are `debug`, `info`, `warn` and `error`; a message is at
+To sign a phone into the device's house (the device's Login QR screen), a paired sim
+asks the API for a one-time token, valid for 60 s, and prints the URL the QR would hold:
+
+```
+pnpm --filter @feedme2/device-sim start login-qr
+pnpm --filter @feedme2/device-sim start login-qr --web http://127.0.0.1:5192
+```
+
+The web base defaults to `https://feedme2-webapp.pages.dev`; `--web` points it at a
+local webapp. Opening the URL signs that browser in; a second open, or one after the
+minute, is refused. The token is not saved in the snapshot. An unpaired sim exits 1
+without calling the API.
+
+Other commands: `status`, `log <level> <msg>`, `heartbeat`, `login-qr [--web <url>]`,
+`forget-local`, `--help`. Log levels are `debug`, `info`, `warn` and `error`; a message is at
 most 500 characters. A feeding amount is an integer from 1 to 5000000 mg.
 
 Exit codes: 0 ok, 1 error (bad input, a 4xx such as a forgotten device's 401, a

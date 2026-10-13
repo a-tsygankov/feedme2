@@ -80,4 +80,23 @@ describe("help surface tokens", () => {
     expect(darkPalette[help!]).not.toBe(darkPalette[card!]);
     expect(lightPalette[help!]).not.toBe(lightPalette[card!]);
   });
+
+  it("the tour popover draws itself on the help surface", () => {
+    // Driver.js paints its arrow as four one-sided borders, so an
+    // overlooked side leaves a card-white spike on a tinted popover.
+    // Comments stripped first — help.css explains why it is NOT on
+    // --surface-card, and the explanation is not a declaration.
+    const help = readFileSync(
+      fileURLToPath(new URL("../styles/help.css", import.meta.url)),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(help).not.toContain("--surface-card");
+    expect(help.match(/var\(--surface-help\)/g)?.length).toBe(5); // body + 4 arrow sides
+    expect(help).toContain(".feedme2-help-popover.driver-popover");
+  });
+
+  it("the main stylesheet imports help.css", () => {
+    const main = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    expect(main).toContain('@import "./styles/help.css";');
+  });
 });

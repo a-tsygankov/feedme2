@@ -162,6 +162,19 @@ describe("Heatmap", () => {
   });
 });
 
+describe("ChartFrame data table", () => {
+  // Incident 2026-10-12 (PR #4 CI): `sr-only` on the <table> itself does not clip it, because a table sizes to its
+  // content and ignores width:1px. The hidden table widened /reports to 472 px on a 412 px phone, so mobile Chrome
+  // zoomed the page out and taps landed on the wrong rows. The table must sit inside an sr-only box instead.
+  it("is wrapped in a visually hidden box rather than hidden itself", () => {
+    render(<BarChart title="Feedings" series={series} points={points} format={String} testId="c" />);
+    const table = byTestId("c").querySelector("table")!;
+    expect(table.classList.contains("sr-only")).toBe(false);
+    expect(table.parentElement!.classList.contains("sr-only")).toBe(true);
+    expect(table.parentElement!.tagName).toBe("DIV");
+  });
+});
+
 describe("FeedingChart", () => {
   it("switches on kind", () => {
     render(<FeedingChart kind="bars" title="Feedings" series={series} points={points} format={String} testId="c" />);

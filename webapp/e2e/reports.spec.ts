@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { requireTestAuth, signInAsTestHouse, uniqueHouseName } from "./helpers/test-auth.ts";
 import { seedReportMonth } from "./helpers/seed.ts";
-import { addCat } from "./helpers/ui.ts";
+import { addCat, expectNoHorizontalOverflow } from "./helpers/ui.ts";
 import { SEED_FROM, SEED_TO } from "../../shared/src/testing/seed-month.ts";
 
 /**
@@ -24,6 +24,7 @@ test("a seeded month reports, drills down to a DST day and exports", async ({ pa
   // Luna's 13:00 on the 15th to 07:00 on the 16th.
   await expect(page.getByTestId("tile-longest-gap")).toHaveText(/18 h/);
   await expect(page.getByTestId("report-cat")).toBeVisible(); // two cats, so the filter shows
+  await expectNoHorizontalOverflow(page);
 
   // month → week → day: the 23-hour day still lists its five feedings at Berlin wall times.
   await page.getByTestId("report-drill").getByRole("button", { name: /^23 – 29 Mar/ }).click();
@@ -73,6 +74,7 @@ test("a cat page shows its last 30 days and opens them in Reports", async ({ pag
   await page.goto(`/cats/${catId}`);
   const trends = page.getByTestId("cat-trends");
   await expect(trends).toBeVisible();
+  await expectNoHorizontalOverflow(page);
   await expect(trends.getByTestId("trend-feedings")).toHaveText(/1$/);
   await expect(trends.getByText("No feedings in this range")).toHaveCount(0);
   const link = trends.getByTestId("cat-trends-link");

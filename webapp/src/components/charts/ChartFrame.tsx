@@ -20,17 +20,21 @@ export function ChartFrame({ title, empty, emptyText = "No feedings in this rang
     <figure data-testid={testId} className="rounded-xl border border-slate-200 bg-white p-3">
       <figcaption className="mb-2 text-sm font-medium text-slate-700">{title}</figcaption>
       {empty ? <p className="py-8 text-center text-sm text-slate-500">{emptyText}</p> : children}
-      <table className="sr-only">
-        <caption>{title}</caption>
-        <thead>
-          <tr>{table.headers.map((h, i) => <th key={i} scope="col">{h}</th>)}</tr>
-        </thead>
-        <tbody>
-          {table.rows.map((r, i) => (
-            <tr key={i}>{r.map((c, j) => (j === 0 ? <th key={j} scope="row">{c}</th> : <td key={j}>{c}</td>))}</tr>
-          ))}
-        </tbody>
-      </table>
+      {/* The box is hidden, not the table: a table sizes to its content and ignores sr-only's width:1px, which widened
+          the page past the phone's width (2026-10-12, PR #4 CI). */}
+      <div className="sr-only">
+        <table>
+          <caption>{title}</caption>
+          <thead>
+            <tr>{table.headers.map((h, i) => <th key={i} scope="col">{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {table.rows.map((r, i) => (
+              <tr key={i}>{r.map((c, j) => (j === 0 ? <th key={j} scope="row">{c}</th> : <td key={j}>{c}</td>))}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

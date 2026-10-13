@@ -21,7 +21,8 @@ import { authStore } from "../lib/auth-store.ts";
 
 const DEVICE_ID = "0123456789abcdef0123456789abcdef";
 const TOKEN = "A".repeat(40) + "b-_";
-const qrUrl = (deviceId = DEVICE_ID, token = TOKEN) => `/qr?deviceId=${deviceId}&token=${token}`;
+// The fragment form: a fragment never reaches a server log or a Referer header.
+const qrUrl = (deviceId = DEVICE_ID, token = TOKEN) => `/qr#deviceId=${deviceId}&token=${token}`;
 const tokensFor = (houseId: string, name: string): TokensResponse => ({
   accessToken: `access-${name}`,
   expiresIn: 900,
@@ -38,6 +39,12 @@ function HomeProbe() {
   const l = useLocation();
   const type = useNavigationType();
   return <p data-testid="home">{`${l.pathname}${l.search}${l.hash}|${type}`}</p>;
+}
+/** Where the router is while QrLogin is still on screen (a failure or the confirm step). */
+function QrProbe() {
+  const l = useLocation();
+  const type = useNavigationType();
+  return <p data-testid="qr-location">{`${l.pathname}${l.search}${l.hash}|${type}`}</p>;
 }
 
 beforeEach(() => {
@@ -58,7 +65,7 @@ async function renderAt(url: string, strict = false) {
   const tree = (
     <MemoryRouter initialEntries={[url]}>
       <Routes>
-        <Route path="/qr" element={<QrLogin />} />
+        <Route path="/qr" element={<><QrLogin /><QrProbe /></>} />
         <Route path="/" element={<HomeProbe />} />
         <Route path="/login" element={<p data-testid="login-page">login</p>} />
       </Routes>
@@ -68,6 +75,7 @@ async function renderAt(url: string, strict = false) {
 }
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 const byTestId = (id: string) => host.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+const click = (id: string) => act(async () => { byTestId(id)!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
 
 describe("QrLogin", () => {
   it("exchanges the code, applies the tokens and replaces /qr with / so the token is in no history entry", async () => {
@@ -93,12 +101,22 @@ describe("QrLogin", () => {
     expect(byTestId("qr-login-retry")).toBeNull();
     expect(byTestId("home")).toBeNull();
     expect(authStore.getSnapshot().status).toBe("signedOut");
+    // The token left the address bar before the exchange, so a failure leaves nothing live in the URL or history.
+    expect(byTestId("qr-location")?.textContent).toBe("/qr|REPLACE");
+  });
+
+  it("still accepts the older query form, and scrubs it the same way", async () => {
+    loginQrMock.mockRejectedValue(new ApiError(401, { error: "unauthorized" }));
+    await renderAt(`/qr?deviceId=${DEVICE_ID}&token=${TOKEN}`);
+    await flush();
+    expect(api.loginQr).toHaveBeenCalledWith(DEVICE_ID, TOKEN);
+    expect(byTestId("qr-location")?.textContent).toBe("/qr|REPLACE");
   });
 
   it.each([
     ["a short token", qrUrl(DEVICE_ID, "abc")],
     ["an uppercase device id", qrUrl(DEVICE_ID.toUpperCase())],
-    ["no token", `/qr?deviceId=${DEVICE_ID}`],
+    ["no token", `/qr#deviceId=${DEVICE_ID}`],
     ["no parameters", "/qr"],
   ])("%s is rejected without calling the API", async (_name, url) => {
     await renderAt(url);
@@ -106,6 +124,7 @@ describe("QrLogin", () => {
     expect(api.loginQr).not.toHaveBeenCalled();
     expect(byTestId("qr-login-error")?.textContent).toBe("This sign-in code isn't valid.");
     expect(byTestId("qr-login")?.querySelector('a[href="/login"]')).not.toBeNull();
+    expect(byTestId("qr-location")?.textContent).toMatch(/^\/qr\|/);
   });
 
   it("calls the API once under StrictMode's double effects (a second call would find the token used)", async () => {
@@ -121,20 +140,43 @@ describe("QrLogin", () => {
     await renderAt(qrUrl());
     await flush();
     expect(byTestId("qr-login-error")?.textContent).toBe("No connection. Try again when you're online.");
-    await act(async () => { byTestId("qr-login-retry")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    // Offline, the screen waits for Retry with the code in state only: not in the address bar, not in history.
+    expect(byTestId("qr-location")?.textContent).toBe("/qr|REPLACE");
+    expect(host.innerHTML).not.toContain(TOKEN);
+    await click("qr-login-retry");
     await flush();
     expect(loginQrMock).toHaveBeenNthCalledWith(2, DEVICE_ID, TOKEN);
     expect(byTestId("home")?.textContent).toBe("/|REPLACE");
   });
 
-  it("signed in to another house: the device's house replaces it (applyTokens drives the cache reset)", async () => {
+  // Security review (Phase 5a): a QR link from someone else must not silently move a signed-in phone to their house.
+  it("signed in to another house: asks first, and Switch signs into the device's house", async () => {
     authStore.applyTokens(OLD_HOUSE);
     loginQrMock.mockResolvedValue(NEW_HOUSE);
-    const apply = vi.spyOn(authStore, "applyTokens");
     await renderAt(qrUrl());
     await flush();
+    expect(api.loginQr).not.toHaveBeenCalled();
+    expect(byTestId("qr-login-confirm-text")?.textContent).toBe("You're signed in to Home. Sign in to the device's house instead?");
+    expect(byTestId("qr-location")?.textContent).toBe("/qr|REPLACE");
+    expect(host.innerHTML).not.toContain(TOKEN);
+    const apply = vi.spyOn(authStore, "applyTokens");
+    await click("qr-login-confirm");
+    await flush();
+    expect(api.loginQr).toHaveBeenCalledWith(DEVICE_ID, TOKEN);
+    // applyTokens replaces the session; main.tsx's crossesSessionBoundary clears the old house's cached data.
     expect(apply).toHaveBeenCalledWith(NEW_HOUSE);
     expect(authStore.getSnapshot()).toEqual({ status: "signedIn", house: NEW_HOUSE.house });
+    expect(byTestId("home")?.textContent).toBe("/|REPLACE");
+  });
+
+  it("signed in to another house: Stay goes home without spending the code", async () => {
+    authStore.applyTokens(OLD_HOUSE);
+    await renderAt(qrUrl());
+    await flush();
+    await click("qr-login-cancel");
+    await flush();
+    expect(api.loginQr).not.toHaveBeenCalled();
+    expect(authStore.getSnapshot()).toEqual({ status: "signedIn", house: OLD_HOUSE.house });
     expect(byTestId("home")?.textContent).toBe("/|REPLACE");
   });
 });

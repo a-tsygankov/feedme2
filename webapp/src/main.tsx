@@ -7,7 +7,7 @@ import { App } from "./App.tsx";
 import { SyncDroppedBanner } from "./components/SyncBadge.tsx";
 import { authStore, crossesSessionBoundary } from "./lib/auth-store.ts";
 import { api } from "./lib/api-client.ts";
-import { queriesToRefreshAfterDrain } from "./lib/drain-refresh.ts";
+import { queriesToRefreshAfterDrain, refreshAfterHydration } from "./lib/drain-refresh.ts";
 import { createUploadSink, visibleInterval } from "./lib/log-upload.ts";
 import { appLog, attachSink, clientLogBuffer, installGlobalErrorCapture } from "./lib/logger.ts";
 import { CLIENT_VERSION } from "./lib/versions.ts";
@@ -71,11 +71,11 @@ const queryClient = new QueryClient({
 saveOnHide(window, document, () =>
   persistQueryClientSave({ queryClient, persister: queryPersister, buster: CLIENT_VERSION }));
 
-// The restored cache is only the first paint: refetch the lists right after hydration, whatever staleTime says.
+// The restored cache is only the first paint: every restored query is stale right after hydration, whatever staleTime
+// says (see refreshAfterHydration).
 const onHydrated = () => {
   syncTriggers.markHydrated();
-  void queryClient.invalidateQueries({ queryKey: ["cats"] });
-  void queryClient.invalidateQueries({ queryKey: ["feedings"] });
+  void refreshAfterHydration(queryClient);
 };
 
 // What a drain changed on the server (a create landing, an edit applied, a change refused) is only visible after the

@@ -1,5 +1,15 @@
-import type { QueryKey } from "@tanstack/react-query";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { DrainReport } from "./sync-engine.ts";
+
+/**
+ * After the persisted cache is restored, every query is stale, whatever its staleTime says: the snapshot may predate
+ * the last change, because the throttled save can lose the race with a reload. Only active queries refetch; the rest
+ * refetch when next shown. Incidents: "add cat, reload within 1 s showed No cats yet" (Phase 1, which fixed only cats
+ * and feedings), and PR #4's CI, where a device paired seconds before a reload came back as "No devices paired yet".
+ */
+export function refreshAfterHydration(qc: QueryClient): Promise<void> {
+  return qc.invalidateQueries();
+}
 
 /**
  * Which query roots a finished drain makes stale. The lists hold optimistic rows, so they refetch after any drain

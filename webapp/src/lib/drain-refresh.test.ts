@@ -1,5 +1,16 @@
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
-import { REFRESH_AFTER_EDIT, REFRESH_AFTER_REFUSED, queriesToRefreshAfterDrain } from "./drain-refresh.ts";
+import { REFRESH_AFTER_EDIT, REFRESH_AFTER_REFUSED, queriesToRefreshAfterDrain, refreshAfterHydration } from "./drain-refresh.ts";
+
+describe("refreshAfterHydration", () => {
+  it("marks every restored query stale, not only the cat and feeding lists", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 60_000 } } });
+    const keys = [["cats"], ["feedings"], ["devices"], ["house"], ["feedings-history", "c1"], ["report", "2026-03-01", "2026-03-31", null, "day", "Europe/Berlin"]];
+    for (const k of keys) qc.setQueryData(k, []);
+    await refreshAfterHydration(qc);
+    for (const k of keys) expect(qc.getQueryState(k)?.isInvalidated, JSON.stringify(k)).toBe(true);
+  });
+});
 
 describe("queriesToRefreshAfterDrain", () => {
   it("refreshes nothing after a drain that changed nothing", () => {

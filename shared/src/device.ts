@@ -112,3 +112,13 @@ export type HeartbeatBody = z.infer<typeof HeartbeatBodySchema>;
 export const HeartbeatResponseSchema = z.object({ now: epochMs });
 
 export const DeviceLogsBodySchema = LogsUploadBodySchema;
+
+/** QR login (spec §3.3, §5.2): the token a paired device shows as a QR lives this long and signs in one phone. */
+export const LOGIN_QR_TTL_SEC = 60;
+/** 32 random bytes in base64url without padding (43 chars), as the Worker's mintRefreshToken() makes them. */
+export const LoginQrTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/, "43 base64url chars");
+/** Public body of POST /api/auth/login-qr. Strict: the house comes from the stored token row, never from the caller. */
+export const LoginQrBodySchema = z.object({ deviceId: DeviceIdSchema, token: LoginQrTokenSchema }).strict();
+export type LoginQrBody = z.infer<typeof LoginQrBodySchema>;
+export const LoginTokenCreateResponseSchema = z.object({ token: LoginQrTokenSchema, expiresInSec: z.number().int().positive() });
+export type LoginTokenCreateResponse = z.infer<typeof LoginTokenCreateResponseSchema>;

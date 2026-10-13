@@ -130,6 +130,41 @@ describe("auth store", () => {
     expect(store.getAccessToken()).toBeNull();
     expect(storage.getItem("feedme2:refresh")).toBeNull();
   });
+
+  // Security review (Phase 5a): /qr applies house B's tokens while a refresh for house A is in flight. Only signOut
+  // bumped the epoch, so A's refresh landed afterwards and silently put the phone back in house A.
+  it("tokens applied during an in-flight refresh win over the refresh's result", async () => {
+    const storage = memStorage();
+    storage.setItem("feedme2:refresh", "r9");
+    storage.setItem("feedme2:house", JSON.stringify(house));
+    let release!: (r: Response) => void;
+    const fetchFn = vi.fn(() => new Promise<Response>((res) => { release = res; })) as unknown as typeof fetch;
+    const store = createAuthStore({ storage, fetchFn, now: () => 0 });
+    const pending = store.refresh();
+    const houseB = { ...house, id: "00000000-0000-4000-8000-00000000000b", name: "Cottage" };
+    store.applyTokens({ accessToken: "aB", expiresIn: 900, refreshToken: "rB", house: houseB });
+    release(new Response(JSON.stringify(tokens(2)), { status: 200 }));
+    expect(await pending).toEqual({ ok: false, reason: "rejected" });
+    expect(store.getSnapshot()).toEqual({ status: "signedIn", house: houseB });
+    expect(store.getAccessToken()).toBe("aB");
+    expect(storage.getItem("feedme2:refresh")).toBe("rB");
+  });
+
+  it("a stale refresh refused after new tokens were applied does not sign the new session out", async () => {
+    const storage = memStorage();
+    storage.setItem("feedme2:refresh", "r9");
+    storage.setItem("feedme2:house", JSON.stringify(house));
+    let release!: (r: Response) => void;
+    const fetchFn = vi.fn(() => new Promise<Response>((res) => { release = res; })) as unknown as typeof fetch;
+    const store = createAuthStore({ storage, fetchFn, now: () => 0 });
+    const pending = store.refresh();
+    const houseB = { ...house, id: "00000000-0000-4000-8000-00000000000b", name: "Cottage" };
+    store.applyTokens({ accessToken: "aB", expiresIn: 900, refreshToken: "rB", house: houseB });
+    release(new Response("{}", { status: 401 }));
+    expect(await pending).toEqual({ ok: false, reason: "rejected" });
+    expect(store.getSnapshot()).toEqual({ status: "signedIn", house: houseB });
+    expect(storage.getItem("feedme2:refresh")).toBe("rB");
+  });
 });
 
 describe("crossesSessionBoundary", () => {

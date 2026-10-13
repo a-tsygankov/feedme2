@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import sample from "../../../fixtures/device-state.sample.json";
 import { DeviceSim, SimError, type SimSnapshot } from "./sim.ts";
 
+/** 43 base64url chars, the shape the server mints (32 random bytes). */
+const QR_TOKEN = "Ab-_".repeat(10) + "xyz";
+
 /** Minimal in-memory server honouring the device API contract. */
 function fakeApi() {
   const calls: Array<{ method: string; path: string; body: unknown; headers: Record<string, string> }> = [];
@@ -31,6 +34,7 @@ function fakeApi() {
     if (url.pathname === "/api/device/feedings") return json({ accepted: (body as Array<{ id: string }>).map((i) => i.id), clamped: [], now: Date.now() }, 201);
     if (url.pathname === "/api/device/logs") return new Response(null, { status: 202 });
     if (url.pathname === "/api/device/heartbeat") return json({ now: Date.now() });
+    if (url.pathname === "/api/auth/login-token-create") return json({ token: QR_TOKEN, expiresInSec: 60 });
     return json({ error: "not_found" }, 404);
   };
   return { fetchFn, calls, confirm: () => { confirmed = true; }, bumpEtag: () => { etag = 'W/"0000000000000002"'; }, failNext: (s: number) => { failNext = s; }, failOn: (path: string, s: number) => { failOn.set(path, s); },
@@ -228,6 +232,37 @@ describe("DeviceSim", () => {
     await sim.syncRound();
     expect(sent.filter((m) => m.startsWith("late"))).toHaveLength(500);
     expect(sim.snapshot().logs).toEqual([]);
+  });
+
+  it("asks for a qr login token with its device token and parses the reply", async () => {
+    const api = fakeApi();
+    const sim = await paired(api);
+    const r = await sim.loginToken();
+    expect(r).toEqual({ token: QR_TOKEN, expiresInSec: 60 });
+    const call = api.calls.at(-1)!;
+    expect(call).toMatchObject({ method: "POST", path: "/api/auth/login-token-create" });
+    expect(call.headers.authorization).toBe("Bearer tok");
+  });
+
+  it("refuses a qr login token when unpaired, before any request", async () => {
+    const api = fakeApi();
+    const sim = new DeviceSim({ apiBase: "http://x", fetchFn: api.fetchFn });
+    await expect(sim.loginToken()).rejects.toMatchObject({ name: "SimError", status: 401, message: "not paired; run pair first" });
+    expect(api.calls).toEqual([]);
+  });
+
+  it("rejects a malformed qr login reply", async () => {
+    const fetchFn: typeof fetch = async () => new Response(JSON.stringify({ token: "short", expiresInSec: 60 }), { status: 200 });
+    const sim = DeviceSim.fromSnapshot({ apiBase: "http://x", fetchFn }, { deviceId: "a".repeat(32), token: "tok", houseId: "h", etag: null, state: null, queue: [], logs: [] });
+    await expect(sim.loginToken()).rejects.toThrow();
+  });
+
+  it("builds the qr login url in the fragment, both parts encoded, no double slash", () => {
+    const sim = DeviceSim.fromSnapshot({ apiBase: "http://x" }, { deviceId: "a".repeat(32), token: "tok", houseId: "h", etag: null, state: null, queue: [], logs: [] });
+    // A fragment never reaches a server log or a Referer header; a query string would.
+    expect(sim.loginUrl("https://feedme2-webapp.pages.dev/", QR_TOKEN)).toBe(`https://feedme2-webapp.pages.dev/qr#deviceId=${"a".repeat(32)}&token=${QR_TOKEN}`);
+    // The e2e passes "" to get a path relative to its own base URL.
+    expect(sim.loginUrl("", "a+b/c=")).toBe(`/qr#deviceId=${"a".repeat(32)}&token=a%2Bb%2Fc%3D`);
   });
 
   it("persists the api base in its snapshot", () => {

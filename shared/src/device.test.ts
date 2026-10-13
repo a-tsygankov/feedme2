@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import sample from "../../fixtures/device-state.sample.json";
 import {
-  DeviceFeedingCreateSchema, DeviceIdSchema, DeviceResponseSchema, DeviceStateSchema, HeartbeatBodySchema, PairCheckResponseSchema,
-  PairCheckBodySchema, PairCodeSchema, PairConfirmBodySchema, PairStartBodySchema,
+  DeviceFeedingCreateSchema, DeviceIdSchema, DeviceResponseSchema, DeviceStateSchema, HeartbeatBodySchema, LOGIN_QR_TTL_SEC,
+  LoginQrBodySchema, LoginTokenCreateResponseSchema, PairCheckResponseSchema, PairCheckBodySchema, PairCodeSchema, PairConfirmBodySchema,
+  PairStartBodySchema,
 } from "./device.ts";
 
 const DEV = "0123456789abcdef0123456789abcdef";
@@ -69,5 +70,35 @@ describe("device contracts", () => {
     expect(DeviceFeedingCreateSchema.safeParse({ id: "4b1a0e2d-7c7b-4b7e-9a3a-5c3e2e1f0a11", catId: "4b1a0e2d-7c7b-4b7e-9a3a-5c3e2e1f0a12", fedAt: 1_700_000_000_000, amountMg: 40000, enteredUnit: "g", enteredValue: "40", note: "x" }).success).toBe(false);
     expect(HeartbeatBodySchema.safeParse({ fwVersion: "0.2.0", batteryPct: 101, uptimeSec: 1, resetReason: "POWERON", freeHeap: 1000 }).success).toBe(false);
     expect(HeartbeatBodySchema.safeParse({ fwVersion: "0.2.0", uptimeSec: 1, resetReason: "POWERON", freeHeap: 1000 }).success).toBe(true);
+  });
+
+  describe("qr login", () => {
+    // Same encoding as backend mintRefreshToken(): 32 random bytes, base64url, padding stripped.
+    const mint = () =>
+      btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const TOKEN = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ-_01234";
+
+    it("the token lives 60 seconds", () => {
+      expect(LOGIN_QR_TTL_SEC).toBe(60);
+    });
+    it("accepts a device id and a 43-char base64url token", () => {
+      expect(TOKEN).toHaveLength(43);
+      expect(LoginQrBodySchema.safeParse({ deviceId: "a".repeat(32), token: TOKEN }).success).toBe(true);
+      for (let i = 0; i < 20; i++) expect(LoginQrBodySchema.safeParse({ deviceId: DEV, token: mint() }).success).toBe(true);
+    });
+    it("rejects a short token, base64 (not url) chars, an uppercase device id and an extra key", () => {
+      expect(LoginQrBodySchema.safeParse({ deviceId: DEV, token: TOKEN.slice(1) }).success).toBe(false);
+      expect(LoginQrBodySchema.safeParse({ deviceId: DEV, token: TOKEN + "A" }).success).toBe(false);
+      expect(LoginQrBodySchema.safeParse({ deviceId: DEV, token: "+" + TOKEN.slice(1) }).success).toBe(false);
+      expect(LoginQrBodySchema.safeParse({ deviceId: DEV, token: "/" + TOKEN.slice(1) }).success).toBe(false);
+      expect(LoginQrBodySchema.safeParse({ deviceId: DEV.toUpperCase(), token: TOKEN }).success).toBe(false);
+      expect(LoginQrBodySchema.safeParse({ deviceId: DEV, token: TOKEN, houseId: "h" }).success).toBe(false);
+    });
+    it("the create response carries the token and a positive whole lifetime", () => {
+      expect(LoginTokenCreateResponseSchema.parse({ token: TOKEN, expiresInSec: 60 }).expiresInSec).toBe(60);
+      expect(LoginTokenCreateResponseSchema.safeParse({ token: TOKEN, expiresInSec: 0 }).success).toBe(false);
+      expect(LoginTokenCreateResponseSchema.safeParse({ token: TOKEN, expiresInSec: 1.5 }).success).toBe(false);
+      expect(LoginTokenCreateResponseSchema.safeParse({ token: "short", expiresInSec: 60 }).success).toBe(false);
+    });
   });
 });

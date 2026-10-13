@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { beforeAll, describe, expect, it } from "vitest";
-import { cats, devices, feedings, houses, logEntries, pairAttempts, pendingPairings, refreshTokens } from "../src/db/schema.ts";
+import { cats, devices, feedings, houses, logEntries, loginQrTokens, pairAttempts, pendingPairings, refreshTokens } from "../src/db/schema.ts";
 import { applyAllMigrations, MIGRATIONS } from "./helpers/migrate.ts";
 
 const now = 1_700_000_000_000;
@@ -75,6 +75,24 @@ describe("migration 0001", () => {
   it("records the schema version as the newest migration", async () => {
     const row = await env.DB.prepare("SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1").first<{ name: string }>();
     expect(row?.name).toBe(MIGRATIONS[MIGRATIONS.length - 1]!.name);
+    expect(row?.name).toBe("0003_login_qr_tokens.sql");
+  });
+
+  it("0003 adds login_qr_tokens holding only a SHA-256 hex of each token", async () => {
+    const cols = (await env.DB.prepare("PRAGMA table_info(login_qr_tokens)").all<{ name: string }>()).results.map((r) => r.name);
+    expect(cols.sort()).toEqual(["consumed_at", "created_at", "device_id", "device_token_id", "expires_at", "house_id", "token_hash"]);
+    const HOUSE = "123e4567-e89b-42d3-a456-426614174000";
+    const ins = (hash: string, dev: string, created: number, expires: number, house = HOUSE, tokenId: string | null = "jti-1") =>
+      env.DB.prepare("INSERT INTO login_qr_tokens (token_hash, device_id, house_id, device_token_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(hash, dev, house, tokenId, created, expires).run();
+    await expect(ins("ab".repeat(16), "d".repeat(32), 1, 2)).rejects.toThrow(/CHECK/);
+    await expect(ins("ab".repeat(32), "d".repeat(31), 1, 2)).rejects.toThrow(/CHECK/);
+    await expect(ins("ab".repeat(32), "d".repeat(32), 2, 2)).rejects.toThrow(/CHECK/);
+    await expect(ins("ab".repeat(32), "d".repeat(32), 1, 2, "h")).rejects.toThrow(/CHECK/);
+    await expect(ins("ab".repeat(32), "d".repeat(32), 1, 2, HOUSE, null)).rejects.toThrow(/NOT NULL/);
+    await ins("ab".repeat(32), "d".repeat(32), 1, 2);
+    const idx = (await env.DB.prepare("PRAGMA index_list(login_qr_tokens)").all<{ name: string }>()).results.map((i) => i.name);
+    expect(idx).toEqual(expect.arrayContaining(["login_qr_tokens_device", "login_qr_tokens_expires"]));
   });
 
   it("0002 adds devices and pending_pairings with their constraints", async () => {
@@ -203,6 +221,7 @@ describe("migration 0001", () => {
       ["devices", devices],
       ["pending_pairings", pendingPairings],
       ["pair_attempts", pairAttempts],
+      ["login_qr_tokens", loginQrTokens],
     ] as const)("%s matches PRAGMA table_info", async (table, drizzleTable) => {
       const info = (
         await env.DB.prepare(`PRAGMA table_info(${table})`).all<{ name: string; notnull: number; pk: number }>()

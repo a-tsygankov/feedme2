@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { HouseNameSchema, LoginBodySchema, PinChangeBodySchema, RefreshBodySchema, SetupBodySchema, type TokensResponse } from "@feedme2/shared";
+import { HouseNameSchema, LoginBodySchema, PinChangeBodySchema, RefreshBodySchema, SetupBodySchema } from "@feedme2/shared";
 import type { Bindings } from "../env.ts";
 import { db } from "../db/client.ts";
 import { isUniqueViolation } from "../db/errors.ts";
 import { verifyPin } from "../auth/pin.ts";
-import { ACCESS_TTL_SEC, clock, signAccessToken } from "../auth/tokens.ts";
+import { clock, signAccessToken } from "../auth/tokens.ts";
+import { issueTokens, type HouseRow } from "../auth/issue.ts";
 import { requireHouse, type AuthVars } from "../middleware/auth.ts";
 import { HousesRepo, toApiHouse } from "../repos/houses.ts";
 import { RefreshTokensRepo } from "../repos/refresh-tokens.ts";
@@ -14,7 +15,6 @@ import { validationHook } from "../validation.ts";
 import { log } from "../logger.ts";
 
 type Env = { Bindings: Bindings } & AuthVars;
-type HouseRow = NonNullable<Awaited<ReturnType<HousesRepo["findById"]>>>;
 
 const UNAUTHORIZED = { error: "unauthorized" } as const;
 
@@ -32,19 +32,6 @@ const DUMMY_HASH = "0".repeat(64);
  */
 export function testAuthEnabled(env: Bindings): boolean {
   return env.ENVIRONMENT === "development" || env.ENVIRONMENT === "test";
-}
-
-async function issueTokens(env: Bindings, house: HouseRow, nowMs: number, rotatedFrom?: string): Promise<TokensResponse> {
-  // Sign first: a misconfigured secret throws here, before any refresh row
-  // exists, so a failed login/refresh leaves no orphan token behind.
-  const accessToken = await signAccessToken(house.id, env.AUTH_SECRET, nowMs);
-  const { token } = await new RefreshTokensRepo(db(env.DB)).issue(house.id, nowMs, rotatedFrom);
-  return {
-    accessToken,
-    expiresIn: ACCESS_TTL_SEC,
-    refreshToken: token,
-    house: toApiHouse(house),
-  };
 }
 
 export const authRouter = new Hono<Env>()

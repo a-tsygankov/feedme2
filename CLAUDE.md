@@ -8,7 +8,7 @@ Spec: `docs/superpowers/specs/2026-09-20-feedme2-design.md`. Plans: `docs/superp
 - Report queries live under the `["report"]` key root, never `["feedings"]` (the dashboard rewrites that root as `Feeding[]`). `["report"]` is invalidated after a sync that sent feedings, a cat-page edit or delete, and any house or cat settings change.
 - `backend/` Hono Worker `feedme2-api` on D1 `feedme2-db`. Migrations are hand-written numbered SQL in `backend/migrations/`; never edit one in place, add a new one.
 - `webapp/` React 18 + Vite 5 PWA on Pages `feedme2-webapp`. `/api/*` is proxied by `functions/api/[[path]].ts`. No `dark:` Tailwind utilities: theming is the token layer in `src/styles/tokens/` plus `data-theme` on `<html>`.
-- `tools/device-sim/` workspace package (`@feedme2/device-sim`, not deployed): imports `shared/` as source, speaks `/api/pair/*` and `/api/device/*` like the firmware will, and is used by the Playwright system e2e. Its CLI is documented in its README.
+- `tools/device-sim/` workspace package (`@feedme2/device-sim`, not deployed): imports `shared/` as source, speaks `/api/pair/*`, `/api/device/*` and `/api/auth/login-token-create` like the firmware will, and is used by the Playwright system e2e. Its CLI is documented in its README.
 - `fixtures/` cross-tier test vectors (`unit-vectors.json`, `hunger-vectors.json`, `device-state.sample.json`); counts for the firmware tier, so a change here bumps firmware. `shared/src/{units,hunger}.ts` are the only homes for those rules; the webapp imports them, and `firmware/src/domain/{Units,Hunger}.h` are pinned to the vectors by the Unity tests through `firmware/test/fixtures.h` (relative path `../fixtures/`, so native tests run from `firmware/`).
 - `POST /api/auth/test-login` exists only where `ENVIRONMENT` is `development` or `test` (fail closed). Signed-in e2e specs use it via `requireTestAuth`; `E2E_REQUIRE_AUTH=1` turns a skip into a failure (CI sets it).
 - Backend errors: validation failures are `{error:"invalid_request", issues:[{path,message}]}` (400); every other error is `{error:"<code>"}` (new codes are snake_case; a few Phase 1 ones are still phrases such as `not found` and `name taken`).
@@ -20,7 +20,9 @@ Four tiers, each auto-bumped by `.githooks/pre-commit` (`scripts/bump_versions.p
 ## Rules
 - Device routes (`/api/device/*`) take `houseId` and `deviceId` only from `requireDevice()` (the verified token plus the live `devices` row), never from the body or query.
 - Device tokens carry `jti` = `devices.token_id`, regenerated on every pairing: a forget or re-pair invalidates every older token. `AUTH_SECRET` signs them too, so rotating it unpairs every device.
-- Migration `0002` was edited in place only while unmerged (Phase 2a branch). After a migration reaches `main` never edit it; add a new numbered file.
+- QR login codes (`login_qr_tokens`) are stored hashed, consumed once by one conditional `UPDATE … RETURNING`, and bound to the pairing's `devices.token_id` at mint: a forget or re-pair kills them. Every refused `/api/auth/login-qr` is the same 401.
+- The `/qr` link carries the code in the fragment (`/qr#deviceId=…&token=…`, never the query, so no server log or Referer sees it); `/qr` scrubs it from the address bar before the exchange and asks before moving a phone signed in to another house.
+- Migrations `0002` (Phase 2a) and `0003` (Phase 5a) were edited in place only while unmerged. After a migration reaches `main` never edit it; add a new numbered file.
 - TDD: failing test first, then the minimal code. Comments explain *why* and name the incident when there is one.
 - Integers only in D1 (epoch-ms, milligrams). Client-generated UUID primary keys.
 - Never print secret values. `scripts/setup-secrets.ps1` is committed with placeholders; the real copy is `scripts/setup-secrets.local.ps1` (gitignored).

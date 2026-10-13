@@ -5,9 +5,9 @@
  * from the CLI.
  */
 import {
-  DeviceFeedingsResponseSchema, DeviceStateSchema, EnteredValueSchema, FoodUnitSchema, HeartbeatResponseSchema, LogLevelSchema,
+  DeviceFeedingsResponseSchema, DeviceStateSchema, EnteredValueSchema, FoodUnitSchema, HeartbeatResponseSchema, LoginTokenCreateResponseSchema, LogLevelSchema,
   PairCheckResponseSchema, PairStartResponseSchema,
-  type DeviceFeedingCreate, type DeviceState, type FoodUnit, type HwModel, type LogUploadEntry, type PairCheckResponse, type PairStartResponse,
+  type DeviceFeedingCreate, type DeviceState, type FoodUnit, type HwModel, type LoginTokenCreateResponse, type LogUploadEntry, type PairCheckResponse, type PairStartResponse,
 } from "@feedme2/shared";
 
 export class SimError extends Error {
@@ -167,6 +167,22 @@ export class DeviceSim {
     this.snap.state = state;
     this.snap.etag = r.headers.get("etag");
     return { changed: true, state };
+  }
+
+  /** Spec §5.2 "Login QR (60 s)": a one-time token a phone exchanges for house tokens at /qr. */
+  async loginToken(): Promise<LoginTokenCreateResponse> {
+    // Checked here, not left to the server's 401: an unpaired sim has no token to send, and the message says what to do.
+    if (!this.snap.token) throw new SimError(401, null, "not paired; run pair first");
+    const r = await this.call("/api/auth/login-token-create", { method: "POST" });
+    return LoginTokenCreateResponseSchema.parse(await r.json());
+  }
+
+  /**
+   * The URL the device shows as a QR. The code rides in the fragment, which never reaches a server log or a Referer
+   * header (security review, Phase 5a). `webBase` "" gives a path relative to the caller's own origin (the e2e uses that).
+   */
+  loginUrl(webBase: string, token: string): string {
+    return `${webBase.replace(/\/$/, "")}/qr#deviceId=${encodeURIComponent(this.deviceId)}&token=${encodeURIComponent(token)}`;
   }
 
   /** Queue a feeding like a knob press would; `cat` is a name or an id from the last state. */

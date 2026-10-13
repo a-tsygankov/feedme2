@@ -53,8 +53,10 @@ export function createAuthStore(deps: Deps): AuthStore {
   const read = (k: string) => { try { return deps.storage.getItem(k); } catch { return null; } };
   const write = (k: string, v: string | null) => { try { v === null ? deps.storage.removeItem(k) : deps.storage.setItem(k, v); } catch { /* private mode */ } };
 
-  // Bumped by signOut so a refresh that was already in flight cannot sign the
-  // user back in with the tokens the server rotated for them a moment ago.
+  // Bumped by signOut and applyTokens: a refresh already in flight belongs to the
+  // session it started in. After a sign-out it must not sign the user back in with
+  // the tokens the server rotated a moment ago; after /qr applied another house's
+  // tokens it must not put the phone back in the old house (security review, Phase 5a).
   let epoch = 0;
 
   const storedRefresh = read(REFRESH_KEY);
@@ -81,6 +83,7 @@ export function createAuthStore(deps: Deps): AuthStore {
     subscribe(l) { listeners.add(l); return () => void listeners.delete(l); },
     getSnapshot: () => snapshot,
     applyTokens(t) {
+      epoch++;
       accessToken = t.accessToken;
       accessExpiresAt = deps.now() + t.expiresIn * 1000;
       write(REFRESH_KEY, t.refreshToken);
@@ -117,7 +120,11 @@ export function createAuthStore(deps: Deps): AuthStore {
         } catch {
           return { ok: false, reason: "unreachable" };
         }
-        if (res.status === 401 || res.status === 400) { store.signOut(); return { ok: false, reason: "rejected" }; }
+        if (res.status === 401 || res.status === 400) {
+          // A refusal of the previous session's token says nothing about the session that replaced it.
+          if (epoch === startedEpoch) store.signOut();
+          return { ok: false, reason: "rejected" };
+        }
         if (!res.ok) return { ok: false, reason: "unreachable" };
         let body: unknown;
         try {
@@ -128,6 +135,7 @@ export function createAuthStore(deps: Deps): AuthStore {
         }
         const parsed = TokensResponseSchema.safeParse(body);
         if (!parsed.success) return { ok: false, reason: "unreachable" };
+        // Checked before applying (applyTokens bumps the epoch itself).
         if (epoch !== startedEpoch) return { ok: false, reason: "rejected" };
         store.applyTokens(parsed.data);
         return { ok: true };

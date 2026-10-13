@@ -10,7 +10,7 @@ Household cat-feeding tracker: a knob-driven ESP32 dial (Elecrow CrowPanel 1.28"
 | `backend/` | Hono Worker + D1 | `feedme2-api.atsyg-feedme.workers.dev` |
 | `webapp/` | React 18 + Vite PWA | `feedme2-webapp.pages.dev` |
 | `firmware/` | PlatformIO / LVGL 9 for CrowPanel: `src/{domain,ports,application,adapters,screens,assets}` | flashed over USB (`pio run -e crowpanel -t upload`), later OTA |
-| `tools/device-sim/` | TypeScript fake CrowPanel: speaks `/api/pair/*` and `/api/device/*`; the system e2e imports it, the CLI drives it by hand | not deployed |
+| `tools/device-sim/` | TypeScript fake CrowPanel: speaks `/api/pair/*`, `/api/device/*` and QR login (`/api/auth/login-token-create`); the system e2e imports it, the CLI drives it by hand | not deployed |
 | `fixtures/` | cross-tier test vectors (amount units, hunger levels) and `device-state.sample.json` (the `GET /api/device/state` shape): pinned by the shared tests, to be read by the firmware port | not deployed |
 
 ## Getting started
@@ -46,6 +46,7 @@ pnpm --filter @feedme2/device-sim start pair --api http://127.0.0.1:8787   # pri
 # type the code in Settings -> Devices (or open /settings?pair=<code>#devices), then:
 pnpm --filter @feedme2/device-sim start feed Mochi 40000                  # queue a feeding (mg)
 pnpm --filter @feedme2/device-sim start sync                              # send feedings and logs, fetch state, heartbeat
+pnpm --filter @feedme2/device-sim start login-qr --web http://127.0.0.1:5173   # a one-time sign-in URL for a second phone (60 s)
 ```
 
 The fake device keeps its token and queues in `tools/device-sim/device-sim.json`; see `tools/device-sim/README.md` for every command and the exit codes.
@@ -66,6 +67,18 @@ Every bound, bucket and label is in the **house's** time zone (Settings → time
 Limits: dates must lie in 2000-01-01..2999-12-31 and a range covers at most 732 days (a longer pasted link is cut to its first 732 days); a one-day range charts by hour, up to 92 days by day, up to 400 by week, beyond that by month (the API takes hour buckets for at most 7 days); a day's feeding list shows its latest 200 feedings. Reports are online-only: offline, the last loaded report stays on screen, and with nothing cached the page says "Reports need a connection". The cat page (`/cats/:id`) shows the same numbers for the cat's last 30 days, with a link that opens them in Reports.
 
 The API behind it is `GET /api/reports/summary` and `GET /api/reports/export.csv` (see `handoff.md`); the aggregation is `aggregateReport` in `shared/src/reports.ts`, the same code the tests snapshot over a seeded March 2026.
+
+## QR login
+
+A paired device can sign a phone into its house without the PIN (spec §1.3, §5.2 "Login QR (60 s)"). The device asks the Worker for a one-time code (`POST /api/auth/login-token-create`, device token) and shows it as a QR of `https://feedme2-webapp.pages.dev/qr#deviceId=…&token=…`. The phone that opens it posts the code to `POST /api/auth/login-qr` and lands on the dashboard of the device's house, signed in like a PIN login.
+
+- A code lives **60 seconds** and works **once**: two phones scanning the same QR get one sign-in and one "This sign-in code has expired or was already used", with a link to PIN sign-in.
+- A device has **one live code**: asking for a new one kills the previous QR. Forgetting or re-pairing the device kills its codes too, even a re-pair to the same house.
+- The code rides in the URL **fragment**, which no server log or `Referer` header sees, and `/qr` replaces the address with a bare `/qr` before it exchanges the code, so a failed or abandoned sign-in leaves nothing live in the history. A success then goes to `/`. Links in the older query form (`/qr?deviceId=…&token=…`) still work.
+- A phone **already signed in to another house** is asked first ("You're signed in to X. Sign in to the device's house instead?"); Stay keeps the current house and does not spend the code, Switch signs in to the device's house and clears the old house's cached data.
+- Offline, `/qr` says "No connection" and offers Retry while the code is still within its minute.
+
+The Worker stores only the SHA-256 of each code (`login_qr_tokens`, migration `0003`), answers every refused code with the same 401, and the hourly cron deletes codes about an hour after they expire. The device's Login QR screen waits for the firmware pause to end; until then `tools/device-sim` stands in (`login-qr`, above).
 
 ## Firmware
 

@@ -108,7 +108,7 @@ export function logUploadInit(init: RequestInit): RequestInit {
 
 export const apiFetch = createApiFetch({ fetchFn: (...a) => fetch(...a), auth: authStore, clientId: getClientId() });
 
-/** Public (no token) POST used by setup/login/test-login. */
+/** Public (no token) POST used by setup/login/test-login/login-qr. */
 async function publicPost<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
   let res: Response;
   try {
@@ -138,6 +138,8 @@ export const api = {
   setup: (houseName: string, pin: string): Promise<TokensResponse> => publicPost("/api/auth/setup", { houseName, pin }, TokensResponseSchema),
   login: (houseName: string, pin: string): Promise<TokensResponse> => publicPost("/api/auth/login", { houseName, pin }, TokensResponseSchema),
   testLogin: (houseName: string): Promise<TokensResponse> => publicPost("/api/auth/test-login", { houseName }, TokensResponseSchema),
+  // The token travels in the body, never the query, so no request log or proxy ever records it.
+  loginQr: (deviceId: string, token: string): Promise<TokensResponse> => publicPost("/api/auth/login-qr", { deviceId, token }, TokensResponseSchema),
   // The token is read when the request is built, after apiFetch has refreshed a stale access token: reading it before
   // would send the pre-rotation token and leave the rotated child live (an orphaned session).
   logout: () => apiFetch("/api/auth/logout", { method: "POST", body: () => JSON.stringify({ refreshToken: authStore.getRefreshToken() ?? "" }) }),

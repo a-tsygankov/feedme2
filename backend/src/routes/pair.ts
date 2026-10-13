@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { bodyLimit } from "hono/body-limit";
 import { zValidator } from "@hono/zod-validator";
 import { PairCheckBodySchema, PairConfirmBodySchema, PairStartBodySchema, type PairCheckResponse } from "@feedme2/shared";
 import type { Bindings } from "../env.ts";
@@ -7,6 +6,7 @@ import { db } from "../db/client.ts";
 import { signDeviceToken } from "../auth/device-tokens.ts";
 import { clock, hashToken } from "../auth/tokens.ts";
 import { requireHouse, type AuthVars } from "../middleware/auth.ts";
+import { publicBodyLimit } from "../middleware/body-limit.ts";
 import { DevicesRepo, toApiDevice } from "../repos/devices.ts";
 import { HousesRepo } from "../repos/houses.ts";
 import { PAIR_POLL_SEC, PAIR_REDELIVER_MS, PairingsRepo } from "../repos/pairings.ts";
@@ -22,9 +22,6 @@ type Env = { Bindings: Bindings } & AuthVars;
  * yet). /check serves the token only to the holder of the poll secret the
  * device chose at /start, and only for a short delivery window.
  */
-// Public routes: nothing legitimate is anywhere near this (the largest body is ~150 bytes).
-const publicBodyLimit = bodyLimit({ maxSize: 1024, onError: (c) => c.json({ error: "payload_too_large" }, 413) });
-
 export const pairRouter = new Hono<Env>()
   .post("/start", publicBodyLimit, zValidator("json", PairStartBodySchema, validationHook), async (c) => {
     const { deviceId, hwModel, fwVersion, pollSecret } = c.req.valid("json");

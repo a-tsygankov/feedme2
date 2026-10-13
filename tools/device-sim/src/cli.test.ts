@@ -54,7 +54,7 @@ describe("device-sim CLI login-qr", () => {
     const r = await cli(["--state", snapshot("paired.json", "tok"), "login-qr"]);
     expect(r.stderr).toBe("");
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain(`https://feedme2-webapp.pages.dev/qr?deviceId=${DEVICE}&token=${QR_TOKEN}`);
+    expect(r.stdout).toContain(`https://feedme2-webapp.pages.dev/qr#deviceId=${DEVICE}&token=${QR_TOKEN}`);
     expect(r.stdout).toMatch(/\b60 s\b/);
     expect(seen.at(-1)).toEqual({ path: "/api/auth/login-token-create", auth: "Bearer tok" });
   }, 40_000);
@@ -62,7 +62,7 @@ describe("device-sim CLI login-qr", () => {
   it("uses --web as the web base", async () => {
     const r = await cli(["--state", snapshot("paired-web.json", "tok"), "login-qr", "--web", "http://127.0.0.1:5192/"]);
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain(`http://127.0.0.1:5192/qr?deviceId=${DEVICE}&token=${QR_TOKEN}`);
+    expect(r.stdout).toContain(`http://127.0.0.1:5192/qr#deviceId=${DEVICE}&token=${QR_TOKEN}`);
   }, 40_000);
 
   it("exits 1 when the device is not paired, without calling the api", async () => {

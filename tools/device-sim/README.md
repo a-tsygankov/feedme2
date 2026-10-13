@@ -36,8 +36,11 @@ pnpm --filter @feedme2/device-sim start login-qr --web http://127.0.0.1:5192
 ```
 
 The web base defaults to `https://feedme2-webapp.pages.dev`; `--web` points it at a
-local webapp. Opening the URL signs that browser in; a second open, or one after the
-minute, is refused. The token is not saved in the snapshot. An unpaired sim exits 1
+local webapp. The URL has the form `<web>/qr#deviceId=…&token=…`: the code is in the
+fragment, so it never reaches a server log or a Referer header, and the webapp scrubs it
+from the address bar before exchanging it. Opening the URL signs that browser in (a
+browser already signed in to another house is asked first); a second open, or one after
+the minute, is refused. The token is not saved in the snapshot. An unpaired sim exits 1
 without calling the API.
 
 Other commands: `status`, `log <level> <msg>`, `heartbeat`, `login-qr [--web <url>]`,

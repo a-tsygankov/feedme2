@@ -177,9 +177,12 @@ export class DeviceSim {
     return LoginTokenCreateResponseSchema.parse(await r.json());
   }
 
-  /** The URL the device shows as a QR. `webBase` "" gives a path relative to the caller's own origin (the e2e uses that). */
+  /**
+   * The URL the device shows as a QR. The code rides in the fragment, which never reaches a server log or a Referer
+   * header (security review, Phase 5a). `webBase` "" gives a path relative to the caller's own origin (the e2e uses that).
+   */
   loginUrl(webBase: string, token: string): string {
-    return `${webBase.replace(/\/$/, "")}/qr?deviceId=${encodeURIComponent(this.deviceId)}&token=${encodeURIComponent(token)}`;
+    return `${webBase.replace(/\/$/, "")}/qr#deviceId=${encodeURIComponent(this.deviceId)}&token=${encodeURIComponent(token)}`;
   }
 
   /** Queue a feeding like a knob press would; `cat` is a name or an id from the last state. */

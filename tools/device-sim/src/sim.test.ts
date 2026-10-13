@@ -257,11 +257,12 @@ describe("DeviceSim", () => {
     await expect(sim.loginToken()).rejects.toThrow();
   });
 
-  it("builds the qr login url with both parts encoded and no double slash", () => {
+  it("builds the qr login url in the fragment, both parts encoded, no double slash", () => {
     const sim = DeviceSim.fromSnapshot({ apiBase: "http://x" }, { deviceId: "a".repeat(32), token: "tok", houseId: "h", etag: null, state: null, queue: [], logs: [] });
-    expect(sim.loginUrl("https://feedme2-webapp.pages.dev/", QR_TOKEN)).toBe(`https://feedme2-webapp.pages.dev/qr?deviceId=${"a".repeat(32)}&token=${QR_TOKEN}`);
+    // A fragment never reaches a server log or a Referer header; a query string would.
+    expect(sim.loginUrl("https://feedme2-webapp.pages.dev/", QR_TOKEN)).toBe(`https://feedme2-webapp.pages.dev/qr#deviceId=${"a".repeat(32)}&token=${QR_TOKEN}`);
     // The e2e passes "" to get a path relative to its own base URL.
-    expect(sim.loginUrl("", "a+b/c=")).toBe(`/qr?deviceId=${"a".repeat(32)}&token=a%2Bb%2Fc%3D`);
+    expect(sim.loginUrl("", "a+b/c=")).toBe(`/qr#deviceId=${"a".repeat(32)}&token=a%2Bb%2Fc%3D`);
   });
 
   it("persists the api base in its snapshot", () => {

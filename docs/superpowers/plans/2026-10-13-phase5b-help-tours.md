@@ -35,9 +35,9 @@
 
 **Files:** `webapp/package.json`, `pnpm-lock.yaml`, `webapp/src/styles/tokens/{colors,semantic}.css`, `webapp/tailwind.config.ts` (only if a new step is needed), the design-token test (`webapp/src/lib/design-tokens.test.ts` if present, else the theme test that pins tokens).
 
-- [ ] Add `"driver.js": "1.8.0"` to webapp dependencies; `pnpm install`; confirm `pnpm-lock.yaml` resolves 1.8.0 and nothing else changed.
-- [ ] Add `--surface-help` / `--border-help` for both themes (copy gigsy `webapp/src/styles/tokens/semantic.css` help lines and their dark counterparts) and a failing-then-passing token test asserting both are defined in light and dark.
-- [ ] Commit `build(webapp): driver.js 1.8.0 and help surface tokens`.
+- [x] Add `"driver.js": "1.8.0"` to webapp dependencies; `pnpm install`; confirm `pnpm-lock.yaml` resolves 1.8.0 and nothing else changed.
+- [x] Add `--surface-help` / `--border-help` for both themes (copy gigsy `webapp/src/styles/tokens/semantic.css` help lines and their dark counterparts) and a failing-then-passing token test asserting both are defined in light and dark.
+- [x] Commit `build(webapp): driver.js 1.8.0 and help surface tokens`.
 
 ## Task 1: The help model (pure)
 
@@ -47,16 +47,16 @@
 - `registry.ts`: `helpScenarios: HelpScenario[] = []` for now.
 - Tests: copy `routes.test.ts`, `targets.test.ts` (generic parts), `validate.test.ts`, `environment.test.ts`; drop gigsy-specific id assertions.
 
-- [ ] Copy tests first, run (red: modules missing), copy/adapt modules, run green, `pnpm --filter ./webapp typecheck`.
-- [ ] Commit `feat(webapp): help model — scenarios, targets, routes and validation (ported from gigsy)`.
+- [x] Copy tests first, run (red: modules missing), copy/adapt modules, run green, `pnpm --filter ./webapp typecheck`.
+- [x] Commit `feat(webapp): help model — scenarios, targets, routes and validation (ported from gigsy)`.
 
 ## Task 2: The help runtime
 
 **Files:** create `webapp/src/help/runtime/{TourRenderer.ts,HelpProvider.tsx,HelpSheet.tsx,HelpUnavailableBanner.tsx,HelpMenu.tsx}` and their tests (`TourRenderer.test.ts`, `TourRenderer.driver.test.ts` with the real driver.js, `HelpProvider.test.tsx`, `HelpSheet.test.tsx`, `HelpMenu.test.ts`), `webapp/src/styles/help.css` (imported where gigsy imports it, from the main stylesheet), copied from gigsy with: the popover class and Symbol renamed; `HelpSheet` without `FeedbackForm`; `CATEGORY_LABELS` for feedme2's categories (`Getting started`, `Cats and feeding`, `Reports`, `Devices`, `Settings`, `Install the app`); imports pointed at feedme2's `Button`/`Input`/`Select` and `appLog` (`webapp/src/lib/logger.ts`) — adapt to what exists (feedme2 has `components/Button.tsx`, `Field.tsx`, `Select.tsx`; add a small `Input` only if none fits).
 Wire-up: `HelpProvider` inside the Router wrapping `<Routes>` in `webapp/src/App.tsx`; a header button in `webapp/src/components/AppHeader.tsx` — `<button data-testid="help-link" aria-label="Help" aria-expanded={isOpen} onClick={isOpen ? closeHelp : openHelp}>?</button>`, styled like gigsy's (ringed "?"); screens with their own header (Settings, Reports, CatPage) use the same `AppHeader`, so the button appears everywhere — check and say so.
 
-- [ ] Copy the tests first (adjust only names/imports), run red, port the modules, run `pnpm --filter ./webapp test -- src/help` green (the real-driver test takes ~16 s), typecheck, build.
-- [ ] Commit `feat(webapp): help sheet and driver.js tours (runtime ported from gigsy)`.
+- [x] Copy the tests first (adjust only names/imports), run red, port the modules, run `pnpm --filter ./webapp test -- src/help` green (the real-driver test takes ~16 s), typecheck, build.
+- [x] Commit `feat(webapp): help sheet and driver.js tours (runtime ported from gigsy)`.
 
 ## Task 3: feedme2's topics
 
@@ -74,8 +74,8 @@ Scenarios (all read-only; `click` only where the person's tap is harmless naviga
 7. `read-reports` (reports, start `/reports`): highlight `ReportTitle` + `ReportPrev`/`ReportNext` ("move by the same range"), branch `has-feedings` (`ReportDrill` visible) → highlight `ReportDrill` ("tap a row to drill down: month → week → day → each feeding"), highlight `ReportCsv` end; branch `two-cats` (`ReportCat` visible) → highlight `ReportCat` inserted before the CSV step.
 8. `install-app` (installation, non-executable, variants per environment) — copy gigsy's `install-app.ts` with the app name changed.
 
-- [ ] Registry test first: `validateHelpRegistry(helpScenarios)` returns `[]`; ids are unique and the list above is registered in this order; each scenario's `startRoute` exists in `App.tsx`'s routes. Run red, add scenarios and targets, green.
-- [ ] Commit `feat(webapp): help topics for feeding, cats, units, devices and reports`.
+- [x] Registry test first: `validateHelpRegistry(helpScenarios)` returns `[]`; ids are unique and the list above is registered in this order; each scenario's `startRoute` exists in `App.tsx`'s routes. Run red, add scenarios and targets, green.
+- [x] Commit `feat(webapp): help topics for feeding, cats, units, devices and reports`.
 
 ## Task 4: Help in CI
 
@@ -86,13 +86,25 @@ Scenarios (all read-only; `click` only where the person's tap is harmless naviga
 - `scenarios.spec.ts`: "the registry is structurally valid"; `help: ${id}` per executable scenario asserting `stepsRun > 0` and `branchesTaken` equals `expectedCiBranches`; `help: ${id} (described, not executed)` for `install-app`.
 - `reachability.spec.ts`: help opens from the header on `/` and on `/settings`; a real tour shows `.feedme2-help-popover` with computed `max-width` 320px (help.css loaded) and the target carries `driver-active-element`; the header button closes the sheet it opened; and `expectNoHorizontalOverflow(page)` holds with the popover open.
 
-- [ ] Write the specs, run locally against the full stack (as CI's `webapp-e2e-full` does, wrangler 8787 + vite 5192), green; stop every process you started; add the CI step; commit `test(webapp): every help topic runs end to end in ci`.
+- [x] Write the specs, run locally against the full stack (as CI's `webapp-e2e-full` does, wrangler 8787 + vite 5192), green; stop every process you started; add the CI step; commit `test(webapp): every help topic runs end to end in ci`.
 
 ## Task 5: Docs, verification, PR
 
-- [ ] `handoff.md` (help tours line; the `help` Playwright project), `README.md` (how to add a topic: copy gigsy's `docs/help/README.md` adapted as `docs/help/README.md`), `CLAUDE.md` (help scenarios target `data-testid`s — renaming a test id breaks a tour, which CI now catches; tours never type or write), execution handoff.
+- [x] `handoff.md` (help tours line; the `help` Playwright project), `README.md` (how to add a topic: copy gigsy's `docs/help/README.md` adapted as `docs/help/README.md`), `CLAUDE.md` (help scenarios target `data-testid`s — renaming a test id breaks a tour, which CI now catches; tours never type or write), execution handoff.
 - [ ] Verification: `pnpm -r typecheck && pnpm -r test && python -m unittest discover -s scripts && BASE_REF=origin/main python scripts/check_version_bump.py`, the local e2e (chromium + help projects).
 - [ ] Push `feat/phase5b-help-tours`, PR "Phase 5b: help tours".
+
+## Corrections recorded during execution
+
+- **Task 0, tokens:** `--surface-help` / `--border-help` (sky-100 / sky-200, re-pointed in dark by `colors.css`) already came over with gigsy's token layer in the scaffold. Task 0 added only the test that pins them (defined, resolving in both themes, never the card surface) in `webapp/src/lib/design-tokens.test.ts`; no token, colour step or `tailwind.config.ts` change (`da28571`).
+- **Task 2, `Input`:** no existing component fitted the help search box (it names itself with `aria-label`, no visible label). `0a61d5f` added `webapp/src/components/Input.tsx` (the bare text input) and changed `Field.tsx` to render it, with the same markup and classes, so the two cannot drift. That commit's message has no body; this is its record.
+- **Task 2, modality:** the help sheet got a full-screen backdrop (z-50) that blocks the page behind it and closes help, and focus returns to the header "?" on close (`10cd5e1`). Without it a cat's Feed button above the sheet opened the FeedSheet under help.
+- **Task 3, test ids:** three ids were added for positive branch conditions, all on Settings: `gram-step` and `oz-step` (so a grams or ounces house has something to branch on; `change-units` branches `cans` / `grams` / `ounces`) and `cat-limit` (the "up to 8 cats" note, so `add-a-cat` can branch `house-full` / `room-for-another` before asking for a tap on a greyed-out Add a cat). The target map also gained `CatRow`, `ReportRange`, `ReportChart` (`report-chart-feedings`) and `ReportOffline`.
+- **Task 3, `read-reports`:** the branch on the drill table is `report-showing`, not `has-feedings`: the table is rendered for any range finer than a day with or without feedings (a week always has seven rows). It has two siblings, `one-day` (on the feedings chart) and `report-offline` (ends). The cat filter's branch is `two-cats` with an ordered `one-cat` fallback on the CSV button.
+- **Task 3, other branches:** `feed-a-cat` has a second branch step (`can-feed-other` / `first-feeding`), and `feed-all-cats` a `no-cats-yet` alternative.
+- **Task 4, `.first()`:** the runner's `locatorFor` reads `.first()` rather than keeping gigsy's strict mode, because every cat card repeats `cat-card`, `cat-feed` and `cat-feed-more` and the tour spotlights the first match. Documented in `help-runner.ts` and `docs/help/README.md`.
+- **Task 4, fixture:** seeding is inline in `help-fixtures.ts` through `page.request` (not `e2e/helpers/seed.ts`): grams, two cats, one 40 g feeding each. The feeding time is two minutes ago clamped to the start of today in UTC (`seededFedAt`); the first version used an hour ago, which between 00:00 and 01:00 UTC landed on yesterday and failed `reachability.spec.ts`'s "Today" check every night (`770046a`).
+- **Task 4, CI:** the help step runs in `webapp-e2e-full`, which runs only on pull requests.
 
 ## Self-review against the spec
 

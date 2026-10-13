@@ -19,14 +19,15 @@ export class LoginQrTokensRepo {
   /**
    * A new token replaces every older one of the device, in one batch: the device shows one QR at a time, so a
    * QR left on screen (or photographed) dies as soon as the device asks for the next one. Returns the plaintext,
-   * which only the create response ever carries.
+   * which only the create response ever carries. `deviceTokenId` is the pairing (devices.token_id) the device
+   * authenticated with, so the exchange can refuse a token whose pairing has since been replaced.
    */
-  async create(deviceId: string, houseId: string, nowMs: number): Promise<string> {
+  async create(deviceId: string, houseId: string, deviceTokenId: string, nowMs: number): Promise<string> {
     const token = mintRefreshToken();
     const tokenHash = await hashToken(token);
     await this.db.batch([
       this.db.delete(loginQrTokens).where(eq(loginQrTokens.deviceId, deviceId)),
-      this.db.insert(loginQrTokens).values({ tokenHash, deviceId, houseId, createdAt: nowMs, expiresAt: nowMs + LOGIN_QR_TTL_SEC * 1000, consumedAt: null }),
+      this.db.insert(loginQrTokens).values({ tokenHash, deviceId, houseId, deviceTokenId, createdAt: nowMs, expiresAt: nowMs + LOGIN_QR_TTL_SEC * 1000, consumedAt: null }),
     ]);
     return token;
   }
@@ -36,7 +37,7 @@ export class LoginQrTokensRepo {
    * /qr) are serialised by SQLite and the loser matches zero rows. A read-then-write would let both sign in.
    * The device id is part of the match so a token is only good together with the device that showed it.
    */
-  async consume(deviceId: string, token: string, nowMs: number): Promise<{ houseId: string } | null> {
+  async consume(deviceId: string, token: string, nowMs: number): Promise<{ houseId: string; deviceTokenId: string } | null> {
     const [won] = await this.db
       .update(loginQrTokens)
       .set({ consumedAt: nowMs })
@@ -48,7 +49,7 @@ export class LoginQrTokensRepo {
           gt(loginQrTokens.expiresAt, nowMs),
         ),
       )
-      .returning({ houseId: loginQrTokens.houseId });
+      .returning({ houseId: loginQrTokens.houseId, deviceTokenId: loginQrTokens.deviceTokenId });
     return won ?? null;
   }
 

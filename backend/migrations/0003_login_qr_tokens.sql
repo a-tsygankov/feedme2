@@ -3,7 +3,9 @@
 CREATE TABLE login_qr_tokens (
   token_hash  TEXT PRIMARY KEY CHECK (length(token_hash) = 64),
   device_id   TEXT NOT NULL CHECK (length(device_id) = 32),
-  house_id    TEXT NOT NULL,
+  house_id    TEXT NOT NULL CHECK (length(house_id) = 36),
+  -- devices.token_id (the pairing's jti) when the token was minted: a re-pair, even to the same house, kills it.
+  device_token_id TEXT NOT NULL,
   created_at  INTEGER NOT NULL,
   expires_at  INTEGER NOT NULL CHECK (expires_at > created_at),
   consumed_at INTEGER

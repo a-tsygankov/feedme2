@@ -175,6 +175,7 @@ export const loginQrTokens = sqliteTable(
     tokenHash: text("token_hash").primaryKey(),
     deviceId: text("device_id").notNull(),
     houseId: text("house_id").notNull(),
+    deviceTokenId: text("device_token_id").notNull(),
     createdAt: integer("created_at").notNull(),
     expiresAt: integer("expires_at").notNull(),
     consumedAt: integer("consumed_at"),

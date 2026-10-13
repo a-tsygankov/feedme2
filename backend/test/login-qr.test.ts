@@ -1,5 +1,5 @@
 import { SELF, env } from "cloudflare:test";
-import { LoginTokenCreateResponseSchema, TokensResponseSchema } from "@feedme2/shared";
+import { DebugLogsResponseSchema, LoginTokenCreateResponseSchema, TokensResponseSchema } from "@feedme2/shared";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { clock } from "../src/auth/tokens.ts";
 import { runHousekeeping } from "../src/cron.ts";
@@ -48,6 +48,21 @@ describe("QR login", () => {
     const { d, token } = await deviceWithToken();
     expect((await d.house.fetchAuthed(`/api/devices/${d.deviceId}`, { method: "DELETE" })).status).toBe(204);
     expect((await publicPost("/api/auth/login-qr", { deviceId: d.deviceId, token })).status).toBe(401);
+  });
+
+  // Review fix: a code minted under one pairing must die with it, even when the device is re-paired to the same
+  // house inside the minute (the house check alone let it through).
+  it("is dead once the device is re-paired, even to the same house", async () => {
+    const { d, token } = await deviceWithToken();
+    await pairDevice(d.house, "Kitchen again", d.deviceId);
+    expect((await publicPost("/api/auth/login-qr", { deviceId: d.deviceId, token })).status).toBe(401);
+  });
+
+  it("leaves a 'qr login' line in the house's log feed, attributed to the device", async () => {
+    const { d, token } = await deviceWithToken();
+    expect((await publicPost("/api/auth/login-qr", { deviceId: d.deviceId, token })).status).toBe(200);
+    const feed = DebugLogsResponseSchema.parse(await (await d.house.fetchAuthed(`/api/debug/logs?source=worker`)).json());
+    expect(feed.entries.some((e) => e.msg === "qr login" && e.deviceId === d.deviceId)).toBe(true);
   });
 
   it("is bound to its device id and replaced by a newer token", async () => {

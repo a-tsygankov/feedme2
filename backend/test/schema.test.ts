@@ -80,13 +80,16 @@ describe("migration 0001", () => {
 
   it("0003 adds login_qr_tokens holding only a SHA-256 hex of each token", async () => {
     const cols = (await env.DB.prepare("PRAGMA table_info(login_qr_tokens)").all<{ name: string }>()).results.map((r) => r.name);
-    expect(cols.sort()).toEqual(["consumed_at", "created_at", "device_id", "expires_at", "house_id", "token_hash"]);
-    const ins = (hash: string, dev: string, created: number, expires: number) =>
-      env.DB.prepare("INSERT INTO login_qr_tokens (token_hash, device_id, house_id, created_at, expires_at) VALUES (?, ?, 'h', ?, ?)")
-        .bind(hash, dev, created, expires).run();
+    expect(cols.sort()).toEqual(["consumed_at", "created_at", "device_id", "device_token_id", "expires_at", "house_id", "token_hash"]);
+    const HOUSE = "123e4567-e89b-42d3-a456-426614174000";
+    const ins = (hash: string, dev: string, created: number, expires: number, house = HOUSE, tokenId: string | null = "jti-1") =>
+      env.DB.prepare("INSERT INTO login_qr_tokens (token_hash, device_id, house_id, device_token_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(hash, dev, house, tokenId, created, expires).run();
     await expect(ins("ab".repeat(16), "d".repeat(32), 1, 2)).rejects.toThrow(/CHECK/);
     await expect(ins("ab".repeat(32), "d".repeat(31), 1, 2)).rejects.toThrow(/CHECK/);
     await expect(ins("ab".repeat(32), "d".repeat(32), 2, 2)).rejects.toThrow(/CHECK/);
+    await expect(ins("ab".repeat(32), "d".repeat(32), 1, 2, "h")).rejects.toThrow(/CHECK/);
+    await expect(ins("ab".repeat(32), "d".repeat(32), 1, 2, HOUSE, null)).rejects.toThrow(/NOT NULL/);
     await ins("ab".repeat(32), "d".repeat(32), 1, 2);
     const idx = (await env.DB.prepare("PRAGMA index_list(login_qr_tokens)").all<{ name: string }>()).results.map((i) => i.name);
     expect(idx).toEqual(expect.arrayContaining(["login_qr_tokens_device", "login_qr_tokens_expires"]));

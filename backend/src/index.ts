@@ -12,6 +12,7 @@ import { catsRouter } from "./routes/cats.ts";
 import { debugRouter } from "./routes/debug.ts";
 import { feedingsRouter } from "./routes/feedings.ts";
 import { houseRouter } from "./routes/house.ts";
+import { loginQrRouter } from "./routes/login-qr.ts";
 import { logsRouter } from "./routes/logs.ts";
 import { pairRouter } from "./routes/pair.ts";
 import { reportsRouter } from "./routes/reports.ts";
@@ -111,6 +112,8 @@ app.get("/api/health", (c) => c.json({ ok: true, env: c.env.ENVIRONMENT, ts: Dat
 app.route("/api/version", versionRouter);
 app.route("/api/debug", debugRouter);
 app.route("/api/auth", authRouter);
+// Same prefix as authRouter: both use only route-level middleware, so neither router's routes leak into the other.
+app.route("/api/auth", loginQrRouter);
 app.route("/api/house", houseRouter);
 app.route("/api/cats", catsRouter);
 app.route("/api/feedings", feedingsRouter);
@@ -125,7 +128,7 @@ export { app };
 export default {
   fetch: app.fetch,
   // Hourly ([triggers] in wrangler.toml): log retention and expired
-  // refresh tokens (spec §3.4).
+  // refresh tokens, expired pairings and old QR login tokens (spec §3.4).
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(runHousekeeping(env));
   },

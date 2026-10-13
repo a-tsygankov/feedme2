@@ -66,9 +66,9 @@ Order: 1 → 2 → (3 ∥ 4) → 5 → 6.
   - `LoginTokenCreateResponseSchema = z.object({ token: LoginQrTokenSchema, expiresInSec: z.number().int().positive() })`.
   - Drizzle `loginQrTokens` table: `tokenHash` (text PK), `deviceId`, `houseId`, `createdAt`, `expiresAt`, `consumedAt` (nullable).
 
-- [ ] **Step 1: Failing tests.** In the shared device test: `LoginQrBodySchema` accepts `{deviceId: "a".repeat(32), token: <43 base64url chars>}`, rejects a 42-char token, a token with `+` or `/`, an uppercase device id and an extra key. In `backend/test/schema.test.ts`: the newest migration is `0003_login_qr_tokens.sql`; add `["login_qr_tokens", loginQrTokens]` to the drift-guard list (see how `devices`/`pending_pairings` are listed).
-- [ ] **Step 2: Run** `pnpm --filter @feedme2/shared test` and `pnpm --filter ./backend test -- schema` → FAIL.
-- [ ] **Step 3: Implement.** Migration:
+- [x] **Step 1: Failing tests.** In the shared device test: `LoginQrBodySchema` accepts `{deviceId: "a".repeat(32), token: <43 base64url chars>}`, rejects a 42-char token, a token with `+` or `/`, an uppercase device id and an extra key. In `backend/test/schema.test.ts`: the newest migration is `0003_login_qr_tokens.sql`; add `["login_qr_tokens", loginQrTokens]` to the drift-guard list (see how `devices`/`pending_pairings` are listed).
+- [x] **Step 2: Run** `pnpm --filter @feedme2/shared test` and `pnpm --filter ./backend test -- schema` → FAIL.
+- [x] **Step 3: Implement.** Migration:
 ```sql
 -- QR login (spec §3.1, §3.3): a paired device mints a one-time, 60-second token a phone exchanges for house tokens.
 -- Only the SHA-256 of the token is stored, like refresh_tokens and pending_pairings.poll_secret_hash.
@@ -85,8 +85,8 @@ CREATE INDEX login_qr_tokens_device ON login_qr_tokens (device_id);
 CREATE INDEX login_qr_tokens_expires ON login_qr_tokens (expires_at);
 ```
 Drizzle mirror in `schema.ts` in the same style as `pendingPairings`. Shared schemas as above, exported from `shared/src/device.ts` (already re-exported by `index.ts`).
-- [ ] **Step 4: Run** both suites → green; `pnpm -r typecheck`.
-- [ ] **Step 5: Commit** `feat(backend): login_qr_tokens table and the qr login contracts` (stage the migration, schema.ts, schema.test.ts, shared device files, both package.json).
+- [x] **Step 4: Run** both suites → green; `pnpm -r typecheck`.
+- [x] **Step 5: Commit** `feat(backend): login_qr_tokens table and the qr login contracts` (stage the migration, schema.ts, schema.test.ts, shared device files, both package.json).
 
 ---
 
@@ -106,7 +106,7 @@ Drizzle mirror in `schema.ts` in the same style as `pendingPairings`. Shared sch
   - `POST /api/auth/login-token-create` — `requireDevice()`; body empty; → 200 `{ token, expiresInSec: 60 }`; logs `info "qr login token created"` with the device id (never the token).
   - `POST /api/auth/login-qr` — public, `publicBodyLimit`, body `LoginQrBodySchema` → `consume`; null → 401 `UNAUTHORIZED`; then the device row must exist, not be revoked, and belong to the token's house (`DevicesRepo.getAny(deviceId)`), else 401; then `issueTokens(env, house, now)` → 200 `TokensResponse`; logs `info "qr login"` with house and device ids.
 
-- [ ] **Step 1: Failing tests** `backend/test/login-qr.test.ts` (use `pairDevice()` from `test/helpers/device.ts` and `vi.spyOn(clock, "now")` for time):
+- [x] **Step 1: Failing tests** `backend/test/login-qr.test.ts` (use `pairDevice()` from `test/helpers/device.ts` and `vi.spyOn(clock, "now")` for time):
 ```ts
 import { LoginTokenCreateResponseSchema, TokensResponseSchema } from "@feedme2/shared";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -178,10 +178,10 @@ describe("QR login", () => {
 });
 ```
 Fill the prune test with the pattern in `backend/test/logs.test.ts` (runHousekeeping) and count rows with `env.DB.prepare("SELECT count(*) AS n FROM login_qr_tokens").first()`.
-- [ ] **Step 2: Run** → FAIL (404s).
-- [ ] **Step 3: Implement** per the interfaces. Mount: a small `loginQrRouter` (its own Hono with the device route using `requireDevice()` per route and the public route with `publicBodyLimit`) mounted with `app.route("/api/auth", loginQrRouter)` next to the auth router; confirm both orders route correctly with the tests. Export `issueTokens` from `routes/auth.ts` (move it to `backend/src/auth/issue.ts` if exporting from a route file reads badly).
-- [ ] **Step 4: Run** `pnpm --filter ./backend test && pnpm -r typecheck` → green.
-- [ ] **Step 5: Commit** `feat(backend): one-time qr login tokens minted by a paired device and exchanged for house tokens`.
+- [x] **Step 2: Run** → FAIL (404s).
+- [x] **Step 3: Implement** per the interfaces. Mount: a small `loginQrRouter` (its own Hono with the device route using `requireDevice()` per route and the public route with `publicBodyLimit`) mounted with `app.route("/api/auth", loginQrRouter)` next to the auth router; confirm both orders route correctly with the tests. Export `issueTokens` from `routes/auth.ts` (move it to `backend/src/auth/issue.ts` if exporting from a route file reads badly).
+- [x] **Step 4: Run** `pnpm --filter ./backend test && pnpm -r typecheck` → green.
+- [x] **Step 5: Commit** `feat(backend): one-time qr login tokens minted by a paired device and exchanged for house tokens`.
 
 ---
 
@@ -191,9 +191,9 @@ Fill the prune test with the pattern in `backend/test/logs.test.ts` (runHousekee
 
 **Interfaces:**
 - Produces: `DeviceSim.loginToken(): Promise<{ token: string; expiresInSec: number }>` (via the private `call`, parsed with `LoginTokenCreateResponseSchema`); `DeviceSim.loginUrl(webBase: string, token: string): string` → `${webBase}/qr?deviceId=${deviceId}&token=${token}` (both URL-encoded); CLI `login-qr [--web <base>]` prints the URL and the seconds left (default web base `https://feedme2-webapp.pages.dev`), exits 1 when unpaired.
-- [ ] **Step 1: Failing tests** in the sim's test file (follow its existing fetch-mock pattern): `loginToken()` posts to `/api/auth/login-token-create` with the bearer device token and parses the body; `loginUrl` encodes; the CLI prints the URL for a paired snapshot and exits 1 unpaired.
-- [ ] **Step 2–4:** Run red, implement, run `pnpm --filter @feedme2/device-sim test` and `pnpm -r typecheck` green.
-- [ ] **Step 5: Commit** `feat(device-sim): qr login token and url` (tools is not a tier: no version bump).
+- [x] **Step 1: Failing tests** in the sim's test file (follow its existing fetch-mock pattern): `loginToken()` posts to `/api/auth/login-token-create` with the bearer device token and parses the body; `loginUrl` encodes; the CLI prints the URL for a paired snapshot and exits 1 unpaired.
+- [x] **Step 2–4:** Run red, implement, run `pnpm --filter @feedme2/device-sim test` and `pnpm -r typecheck` green.
+- [x] **Step 5: Commit** `feat(device-sim): qr login token and url` (tools is not a tier: no version bump).
 
 ---
 
@@ -208,9 +208,9 @@ Fill the prune test with the pattern in `backend/test/logs.test.ts` (runHousekee
   - otherwise posts once (guard against React StrictMode double effects with a ref), then `authStore.applyTokens(tokens)` and `navigate("/", { replace: true })` — the replace keeps the token out of history (Review Focus 5);
   - 401 → "This sign-in code has expired or was already used. Show a new one on the device, or sign in with your PIN." + link to `/login`; network error → "No connection. Try again when you're online." with a Retry button (same token, if still within the minute);
   - `data-testid`s: `qr-login`, `qr-login-error`, `qr-login-retry`.
-- [ ] **Step 1: Failing tests** `QrLogin.test.tsx` (MemoryRouter with initialEntries `/qr?deviceId=…&token=…`, a probe route at `/` printing the location, `vi.mock("../lib/api-client.ts")`): success applies tokens and lands on `/` with `replace` (history length unchanged; no token in location); 401 shows the expired message and no navigation; a malformed token never calls the API; StrictMode renders call `api.loginQr` once; signed in to another house → `applyTokens` is called with the new house (the store's boundary handling is existing code; assert the call).
-- [ ] **Step 2–4:** Run red, implement, `pnpm --filter ./webapp test && pnpm --filter ./webapp typecheck && pnpm --filter ./webapp build` green.
-- [ ] **Step 5: Commit** `feat(webapp): qr sign-in landing that exchanges a device code and leaves no token in history`.
+- [x] **Step 1: Failing tests** `QrLogin.test.tsx` (MemoryRouter with initialEntries `/qr?deviceId=…&token=…`, a probe route at `/` printing the location, `vi.mock("../lib/api-client.ts")`): success applies tokens and lands on `/` with `replace` (history length unchanged; no token in location); 401 shows the expired message and no navigation; a malformed token never calls the API; StrictMode renders call `api.loginQr` once; signed in to another house → `applyTokens` is called with the new house (the store's boundary handling is existing code; assert the call).
+- [x] **Step 2–4:** Run red, implement, `pnpm --filter ./webapp test && pnpm --filter ./webapp typecheck && pnpm --filter ./webapp build` green.
+- [x] **Step 5: Commit** `feat(webapp): qr sign-in landing that exchanges a device code and leaves no token in history`.
 
 ---
 
@@ -218,7 +218,7 @@ Fill the prune test with the pattern in `backend/test/logs.test.ts` (runHousekee
 
 **Files:** Create `webapp/e2e/qr-login.spec.ts`.
 
-- [ ] **Step 1: The spec** (copy the pairing part of `webapp/e2e/device-flow.spec.ts`):
+- [x] **Step 1: The spec** (copy the pairing part of `webapp/e2e/device-flow.spec.ts`):
 ```ts
 import { expect, test } from "@playwright/test";
 import { DeviceSim } from "@feedme2/device-sim";
@@ -255,16 +255,28 @@ test("a paired device signs a second phone into its house, once", async ({ page,
   await expect(third.getByTestId("qr-login-error")).toContainText("expired or was already used");
 });
 ```
-- [ ] **Step 2: Run** against the local stack exactly as CI's `webapp-e2e-full` job does (wrangler dev on 8787, vite on 5192, `E2E_BASE_URL=http://127.0.0.1:5192 E2E_REQUIRE_AUTH=1`), then the whole suite; stop every process you started and confirm ports 8787/5192 are free.
-- [ ] **Step 3: Commit** `test(webapp): a device signs a second phone in by qr, once`.
+- [x] **Step 2: Run** against the local stack exactly as CI's `webapp-e2e-full` job does (wrangler dev on 8787, vite on 5192, `E2E_BASE_URL=http://127.0.0.1:5192 E2E_REQUIRE_AUTH=1`), then the whole suite; stop every process you started and confirm ports 8787/5192 are free.
+- [x] **Step 3: Commit** `test(webapp): a device signs a second phone in by qr, once`.
 
 ---
 
 ## Task 6: Docs, verification, PR
 
-- [ ] Docs: `handoff.md` (routes table rows for the two endpoints, `/qr`, migration 0003, versions, log), `README.md` (QR login, the sim's `login-qr` command), `CLAUDE.md` (QR tokens are stored hashed and consumed atomically; `/qr` is public), `tools/device-sim/README.md`, `docs/handoffs/2026-10-13-phase5a-execution-handoff.md`, and the spec correction note (the `login_qr_tokens.token` column is `token_hash`).
+- [x] Docs: `handoff.md` (routes table rows for the two endpoints, `/qr`, migration 0003, versions, log), `README.md` (QR login, the sim's `login-qr` command), `CLAUDE.md` (QR tokens are stored hashed and consumed atomically; `/qr` is public), `tools/device-sim/README.md`, `docs/handoffs/2026-10-13-phase5a-execution-handoff.md`, and the spec correction note (the `login_qr_tokens.token` column is `token_hash`).
 - [ ] Verification: `pnpm -r typecheck && pnpm -r test && python -m unittest discover -s scripts && BASE_REF=origin/main python scripts/check_version_bump.py`, plus the local full-stack e2e.
 - [ ] Push `feat/phase5a-qr-login` and open "Phase 5a: QR login" against main; merging applies migration 0003 in production.
+
+## Corrections recorded during execution
+
+- **The QR URL carries the code in the fragment**: `/qr#deviceId=…&token=…`, not the spec's (§4.1) and this plan's `/qr?deviceId=…&token=…`. A fragment never reaches a server log (Pages, the Worker proxy) or a `Referer` header. `/qr` still reads the query form when there is no fragment. `DeviceSim.loginUrl` builds the fragment form (`29c3587`). Spec correction, pending Andrey's agreement.
+- **The URL is scrubbed before the exchange**, not after it: `/qr` copies `deviceId` and `token` into state and replaces the URL with a bare `/qr` on mount, so a failed, offline or abandoned sign-in leaves no live code in the address bar or history; Retry works from state. A success then replaces `/qr` with `/` (`de040ce`).
+- **A phone already signed in is asked first** ("You're signed in to X. Sign in to the device's house instead?", Switch / Stay). Review Focus 4 assumed a silent switch; that is a login CSRF (a QR or link could move a signed-in phone into someone else's house). Stay goes home without spending the code (`de040ce`).
+- **Codes are bound to the pairing, not only to the house**: `login_qr_tokens.device_token_id` stores `devices.token_id` at mint, and `/login-qr` refuses a code whose pairing has been replaced, so a re-pair within the minute kills older codes even when the device stays in the same house (`101a9c1`). `house_id` gained a `length = 36` CHECK.
+- **`applyTokens` bumps the auth store's session epoch**: a refresh for house A in flight when `/qr` applied house B's tokens can neither put the phone back in A nor, on a 401 for A's old token, sign B out (`de040ce`).
+- **A successful exchange is attributed to the house and device** (`setRequestOrigin`) before `log.info("qr login")`, so the line lands in that house's log feed instead of being dropped as an anonymous request's info line (`101a9c1`).
+- **Migration `0003` was edited in place** (the `device_token_id` column and the `house_id` CHECK) while it was only on this branch; it is frozen once merged.
+- **File moves**: `issueTokens` lives in `backend/src/auth/issue.ts` (shared by `routes/auth.ts` and `routes/login-qr.ts`) and `publicBodyLimit` in `backend/src/middleware/body-limit.ts` (shared by the pair routes and `/login-qr`), not exported from route files.
+- The spec's `login_qr_tokens.token` column is `token_hash` (SHA-256 hex), as the Global Constraints say.
 
 ## Self-review against the spec
 

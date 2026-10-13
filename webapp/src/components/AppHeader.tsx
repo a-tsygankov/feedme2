@@ -2,6 +2,7 @@ import { Logo } from "./Logo.tsx";
 import { useConsole } from "./ConsoleProvider.tsx";
 import { useHouse } from "../hooks/use-house.ts";
 import { useHelp } from "../help/runtime/HelpProvider.tsx";
+import { HELP_SHEET_ID } from "../help/runtime/HelpSheet.tsx";
 import { SyncBadge } from "./SyncBadge.tsx";
 
 /** gigsy's header control: a 44px touch target around a 24px ring.
@@ -32,6 +33,7 @@ export function AppHeader() {
           onClick={helpOpen ? closeHelp : openHelp}
           aria-label="Help"
           aria-expanded={helpOpen}
+          aria-controls={HELP_SHEET_ID}
           title="Help"
           data-testid="help-link"
           className={HELP_CONTROL}

@@ -1091,4 +1091,29 @@ describe("runTour against the real driver.js", () => {
     expect(await waitFor(() => driverResidue().popover === false)).toBe(true);
     expect(onUnavailable).not.toHaveBeenCalled();
   });
+  it("Escape ends the tour without dismissing another active dialog", async () => {
+    document.body.innerHTML = `<a data-testid="settings-link">Settings</a>`;
+    const closeOtherDialog = vi.fn();
+    const onOtherDialogKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeOtherDialog();
+    };
+
+    window.addEventListener("keydown", onOtherDialogKeyDown);
+    try {
+      await start([
+        { action: "highlight", target: HelpTarget.SettingsLink, description: "tour step" },
+      ]);
+      expect(await waitFor(() => popoverText() === "tour step")).toBe(true);
+
+      const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+      document.dispatchEvent(escape);
+
+      expect(escape.defaultPrevented).toBe(true);
+      expect(await waitFor(() => driverResidue().popover === false)).toBe(true);
+      expect(closeOtherDialog).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("keydown", onOtherDialogKeyDown);
+    }
+  });
+
 });

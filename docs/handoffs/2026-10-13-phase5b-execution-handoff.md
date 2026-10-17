@@ -78,8 +78,12 @@ Not run in this phase: CI on the branch (not pushed), the production e2e, and Ta
 
 ## Known limitations (Phase 5b)
 
-- **Escape during `add-a-cat`** closes both the tour and the cat editor: both listen for Escape.
 - **The "help unavailable" banner sits inside `#root`.** It is inert while a house Sheet is open, and it covers the update bar while shown.
+
+## Review follow-up (2026-10-17)
+
+- **Help sheet keyboard focus** now wraps within the modal while it is open, matching its `aria-modal` semantics.
+- **Escape during `add-a-cat`** now ends the tour without bubbling to the cat editor's Sheet, so an in-progress draft stays open.
 - **A pointer tap on "?" while help is open** lands on the backdrop (z-50 over the z-30 header), and the backdrop closes help. This is intended: the person sees the button close what it opened. Only the keyboard reaches the button itself.
 - **What the help suite cannot see.** It proves only the branch CI takes, so the targets on other branches are untested prose: `cat-limit`, `empty-cats`, `can-size`, `oz-step`, `report-range`, `report-chart-feedings` and `report-offline`. Within that branch it proves only the first of repeated ids. It also does not prove that a step's tap leads anywhere (except `open-reports`, via `reachability.spec.ts`) or that the copy is true. See `docs/help/README.md` §6.
 

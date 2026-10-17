@@ -309,6 +309,16 @@ jobs:
           # A skipped signed-in spec is a failure here, not a green run.
           E2E_REQUIRE_AUTH: '1'
         run: pnpm test:e2e
+      # Every help topic, end to end (e2e/help/). Its own project because it
+      # refuses any target but this local stack (help-fixtures.ts,
+      # requireLocalTarget). After the main suite, so a red main run keeps its
+      # own report and snapshots: Playwright clears test-results/ per run.
+      - name: Run the help tours
+        working-directory: webapp
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5192
+          E2E_REQUIRE_AUTH: '1'
+        run: pnpm exec playwright test --project=help
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -318,7 +328,9 @@ jobs:
       - name: Failure snapshots
         if: failure()
         # Playwright's per-failure page snapshot (aria tree + the failing step), printed so a CI-only
-        # failure can be read from the log without downloading the report artifact.
+        # failure can be read from the log without downloading the report artifact. Covers whichever
+        # run failed, the main suite or the help tours: both write to webapp/test-results, and the help
+        # run only starts once the main one has passed.
         run: |
           find webapp/test-results -name error-context.md 2>/dev/null | head -n 6 | while read -r f; do
             echo "::group::$f"; head -c 12000 "$f"; echo; echo "::endgroup::"

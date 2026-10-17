@@ -1,0 +1,120 @@
+/* Ported from gigsy (webapp/src/styles/help.css), class renamed.
+
+   Driver.js ships its own popover look. feedme2, like gigsy, has one
+   button style and two surfaces; an unrestyled popover reads as
+   another product's UI dropped onto the screen. Every colour below is a
+   semantic token (src/styles/tokens/semantic.css) rather than a literal
+   — those tokens repoint themselves under [data-theme="dark"]
+   (src/styles/tokens/colors.css), which a hardcoded hex value cannot.
+
+   --surface-help, not --surface-card: the popover sits ON the screen it
+   is describing, often overlapping a card, and on the card surface the
+   two become one continuous panel with a spotlight cut out of it. The
+   tint is what says the popover is the narrator rather than the app. */
+.feedme2-help-popover.driver-popover {
+  background-color: var(--surface-help);
+  border: 1px solid var(--border-help);
+  border-radius: var(--radius-xl); /* the cards' own rounded-xl, not a bigger one */
+  box-shadow: var(--shadow-sm);
+  color: var(--text-strong);
+  font-family: var(--font-sans); /* the system stack; feedme2 ships no webfont */
+  max-width: 20rem;
+}
+
+.feedme2-help-popover .driver-popover-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
+
+.feedme2-help-popover .driver-popover-description {
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  /* --text-body, not --text-muted: slate-500 measures 4.19:1 against
+     the tinted surface, under the 4.5 body copy needs. */
+  color: var(--text-body);
+}
+
+.feedme2-help-popover .driver-popover-navigation-btns button {
+  background-color: var(--accent-soft-bg);
+  color: var(--accent-soft-text);
+  border: none;
+  border-radius: var(--radius-xl);
+  padding: 0.5rem 0.75rem;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-shadow: none;
+}
+
+.feedme2-help-popover .driver-popover-navigation-btns button:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+
+/* Driver renders Close as its own `.driver-popover-close-btn`, entirely
+   separate from the Next/Previous pair styled above — a click step
+   shows only this button (the tour never presses it for the user), so
+   on that step it is the one and only way out. Driver's own default is
+   `all: unset` plus a near-invisible grey; that is not adequate contrast
+   for the sole exit from a step. */
+.feedme2-help-popover .driver-popover-close-btn {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+/* `:focus` as well as `:hover`, not only the `:focus-visible` ring below:
+   driver.css loads after this file and its
+   `.driver-popover-close-btn:hover,.driver-popover-close-btn:focus`
+   (#2d2d2d) beats the base rule above at equal specificity, (0,2,0),
+   so without this a Close focused by mouse or by driver itself went
+   near-invisible on the dark help surface. The namespace class lifts
+   this to (0,3,0), above driver's. */
+.feedme2-help-popover .driver-popover-close-btn:hover,
+.feedme2-help-popover .driver-popover-close-btn:focus {
+  color: var(--text-strong);
+}
+
+.feedme2-help-popover .driver-popover-close-btn:focus-visible {
+  color: var(--text-strong);
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.feedme2-help-popover .driver-popover-progress-text {
+  font-size: var(--text-xs);
+  /* Same reason as the description, one step further: slate-400 was
+     already thin on a white card and the tint costs it more. */
+  color: var(--text-muted);
+}
+
+/* Driver's own base rule (`.driver-popover-arrow{border:5px solid #fff}`)
+   and its four `-side-*` rules, which turn three of those borders
+   transparent to draw the triangle, share one specificity — (0,1,0).
+   There is therefore no single higher-specificity selector that can
+   recolour the arrow without also beating the transparency and
+   redrawing it as a solid block (which is what a single
+   `.feedme2-help-popover .driver-popover-arrow` override used to do).
+   Matching each side rule's own specificity, plus this namespace class,
+   and touching only the one longhand each side rule leaves alone — the
+   visible edge — lets the two sets of rules add rather than fight. */
+.feedme2-help-popover .driver-popover-arrow-side-top {
+  border-top-color: var(--surface-help);
+}
+.feedme2-help-popover .driver-popover-arrow-side-bottom {
+  border-bottom-color: var(--surface-help);
+}
+.feedme2-help-popover .driver-popover-arrow-side-left {
+  border-left-color: var(--surface-help);
+}
+.feedme2-help-popover .driver-popover-arrow-side-right {
+  border-right-color: var(--surface-help);
+}
+
+/* The spotlight must not rely on colour alone: the cutout itself
+   carries the meaning, and the ring reinforces it. */
+.driver-active-element {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

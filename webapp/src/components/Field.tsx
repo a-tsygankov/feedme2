@@ -1,5 +1,6 @@
 import { useId, type InputHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { Input } from "./Input.tsx";
 
 interface Props extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
@@ -18,15 +19,12 @@ export function Field({ label, error, hint, id, className, "aria-describedby": d
   return (
     <div className="block">
       <label htmlFor={inputId} className="text-sm font-medium text-slate-700">{label}</label>
-      <input
+      <Input
         {...input}
         id={inputId}
         aria-describedby={describedByIds}
         aria-invalid={error ? true : undefined}
-        className={cn(
-          "mt-1 block w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500",
-          className,
-        )}
+        className={cn("mt-1", className)}
       />
       {error ? <p id={noteId} className="mt-1 text-xs text-red-600" role="alert">{error}</p> : hint ? <p id={noteId} className="mt-1 text-xs text-slate-500">{hint}</p> : null}
     </div>

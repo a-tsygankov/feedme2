@@ -9,6 +9,9 @@
 @import "./styles/tokens/motion.css";
 @import "./styles/tokens/semantic.css";
 @import "./styles/tokens/shadcn.css";
+/* After the tokens it reads, before Tailwind: the driver.js popover theme
+ * (help tours). src/lib/design-tokens.test.ts checks this import. */
+@import "./styles/help.css";
 
 @tailwind base;
 @tailwind components;

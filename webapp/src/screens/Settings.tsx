@@ -190,11 +190,11 @@ export function Settings() {
             options={[{ value: "g", label: "Grams" }, { value: "oz", label: "Ounces" }, { value: "can", label: "Cans" }]} />
           {/* Only the controls the chosen unit actually uses. */}
           {unit === "g" ? (
-            <Select label="Gram step" value={String(form.gramStep)} onChange={(e) => commit({ gramStep: Number(e.target.value) as 1 | 5 | 10 })}
+            <Select label="Gram step" value={String(form.gramStep)} data-testid="gram-step" onChange={(e) => commit({ gramStep: Number(e.target.value) as 1 | 5 | 10 })}
               options={[{ value: "1", label: "1 g" }, { value: "5", label: "5 g" }, { value: "10", label: "10 g" }]} />
           ) : null}
           {unit === "oz" ? (
-            <Select label="Ounce step" value={String(form.ozStepHundredths)} onChange={(e) => commit({ ozStepHundredths: Number(e.target.value) as 25 | 50 })}
+            <Select label="Ounce step" value={String(form.ozStepHundredths)} data-testid="oz-step" onChange={(e) => commit({ ozStepHundredths: Number(e.target.value) as 25 | 50 })}
               options={[{ value: "25", label: "¼ oz" }, { value: "50", label: "½ oz" }]} />
           ) : null}
           {unit === "can" ? (
@@ -259,7 +259,7 @@ export function Settings() {
           {catError ? <p className="text-sm text-red-600" role="alert">{catError}</p> : null}
           {onlyOne && catList.length === 1 ? <p className="text-xs text-slate-500">A house keeps at least one cat, so the last one can't be deleted. Feedings are kept when a cat is deleted.</p> : null}
           <Button className="mt-3" onClick={() => setEditing("new")} disabled={atMax} data-testid="cat-add">Add a cat</Button>
-          {atMax ? <p className="text-xs text-slate-500">A house can have up to {MAX_CATS} cats.</p> : null}
+          {atMax ? <p className="text-xs text-slate-500" data-testid="cat-limit">A house can have up to {MAX_CATS} cats.</p> : null}
         </Section>
 
         <Section title="Devices" id="devices">

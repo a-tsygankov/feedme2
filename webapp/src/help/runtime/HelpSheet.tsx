@@ -33,26 +33,50 @@ import { HelpMenu } from "./HelpMenu.tsx";
 /** The dialog's id, for the header help button's `aria-controls`. */
 export const HELP_SHEET_ID = "help-sheet";
 
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function HelpSheet({ onClose }: { onClose: () => void }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Spec §7.5 (gigsy's executable-help spec): help must be
-  // keyboard-operable. HiddenConsole has no Escape handler to copy —
-  // this is new, not borrowed.
+  // Keep keyboard focus within this modal while it is open. Escape closes
+  // it, and Tab wraps at either end so focus never moves behind the scrim.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const dialog = dialogRef.current;
+      if (dialog === null) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+      if (event.shiftKey && currentIndex <= 0) {
+        event.preventDefault();
+        focusable[focusable.length - 1]?.focus();
+      } else if (!event.shiftKey && (currentIndex === focusable.length - 1 || currentIndex === -1)) {
+        event.preventDefault();
+        focusable[0]?.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  // Move focus into the sheet on open, without trapping it there
-  // permanently — a real focus trap is more than this sheet needs, and
-  // HiddenConsole doesn't have one either. On close (Escape, Close, the
-  // backdrop, or the header button pressed again) focus goes back to
-  // whatever had it, normally the header's help-link, as Sheet and
-  // HiddenConsole do; otherwise it falls to <body>.
+  // Move focus into the sheet on open. On close (Escape, Close, the
+  // backdrop, or the header button pressed again) restore focus to
+  // whatever had it, normally the header's help-link.
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     headingRef.current?.focus();
@@ -71,9 +95,11 @@ export function HelpSheet({ onClose }: { onClose: () => void }) {
       />
       <div
         id={HELP_SHEET_ID}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="help-sheet-heading"
+        tabIndex={-1}
         data-testid="help-sheet"
         className="fixed inset-x-0 bottom-0 z-50 max-h-[75dvh] overflow-y-auto rounded-t-2xl
                    border-t border-sky-200 bg-sky-100 p-4 shadow-2xl

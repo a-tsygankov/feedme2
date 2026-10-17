@@ -621,6 +621,7 @@ export async function runTour(
   const teardown = (): void => {
     if (torndown) return;
     torndown = true;
+    window.removeEventListener("keydown", onTourKeyDown, true);
     clearActiveCleanup();
     tour.destroy();
   };
@@ -859,8 +860,28 @@ export async function runTour(
         operable.removeEventListener(eventName, onFire),
       );
     },
-    onDestroyed: clearActiveCleanup,
+    onDestroyed: () => {
+      // Driver.js can end itself through its Close/Done controls. Remove
+      // our Escape handler there too, so a finished tour never intercepts
+      // Escape meant for a dialog that remains open.
+      torndown = true;
+      window.removeEventListener("keydown", onTourKeyDown, true);
+      clearActiveCleanup();
+    },
   });
+
+  // Own Escape handling at window capture phase. Driver.js's default
+  // handler closes the tour, while a nested Sheet also handles Escape
+  // during bubbling; letting both observe the same key would close both
+  // layers and discard the editor's draft. Intercept once, close only the
+  // tour, and leave the dialog mounted.
+  const onTourKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape" || torndown) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    teardown();
+  };
+  window.addEventListener("keydown", onTourKeyDown, true);
 
   tour.drive();
 

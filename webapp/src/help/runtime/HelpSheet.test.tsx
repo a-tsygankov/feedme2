@@ -163,6 +163,24 @@ describe("HelpSheet", () => {
     }
   });
 
+  it("keeps keyboard focus inside the modal sheet", () => {
+    const el = mountOpened();
+    const close = byId<HTMLButtonElement>(el, "help-sheet-close")!;
+    const search = byId<HTMLInputElement>(el, "help-search")!;
+
+    search.focus();
+    const forward = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    document.dispatchEvent(forward);
+    expect(forward.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(close);
+
+    close.focus();
+    const backward = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+    document.dispatchEvent(backward);
+    expect(backward.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(search);
+  });
+
   it("returns focus to what had it after Escape", () => {
     const el = mountOpened();
     act(() => {

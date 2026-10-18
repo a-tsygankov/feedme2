@@ -182,3 +182,27 @@ export const loginQrTokens = sqliteTable(
   },
   (t) => ({ deviceIdx: index("login_qr_tokens_device").on(t.deviceId), expiresIdx: index("login_qr_tokens_expires").on(t.expiresAt) }),
 );
+
+/** Immutable, idempotent device scale observations (migration 0004).
+ * Historical house ownership is captured at ingest, even after re-pairing.
+ */
+export const scaleEvents = sqliteTable(
+  "scale_events",
+  {
+    id: text("id").primaryKey(),
+    houseId: text("house_id").notNull().references(() => houses.id),
+    deviceId: text("device_id").notNull().references(() => devices.id),
+    pairingTokenId: text("pairing_token_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    kind: text("kind", { enum: ["stable_weight", "bowl_removed", "bowl_returned", "sensor_fault"] }).notNull(),
+    observedAt: integer("observed_at").notNull(),
+    receivedAt: integer("received_at").notNull(),
+    calibrationRevision: integer("calibration_revision").notNull(),
+    grossMg: integer("gross_mg"),
+    faultCode: text("fault_code", { enum: ["adc_timeout", "sensor_disconnected", "overload", "calibration_invalid"] }),
+  },
+  (t) => ({
+    houseDeviceTime: index("scale_events_house_device_time").on(t.houseId, t.deviceId, t.observedAt, t.id),
+    devicePairSequence: unique().on(t.deviceId, t.pairingTokenId, t.sequence),
+  }),
+);

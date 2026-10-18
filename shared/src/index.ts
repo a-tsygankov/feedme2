@@ -13,3 +13,6 @@ export * from "./device.ts";
 export * from "./zone.ts";
 export * from "./reports.ts";
 export * from "./csv.ts";
+
+export * from "./scale.ts";
+export * from "./scale-events.ts";

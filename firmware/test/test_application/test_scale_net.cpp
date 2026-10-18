@@ -201,3 +201,27 @@ void test_scale_net_refuses_corrupt_saved_identity() {
     TEST_ASSERT_FALSE(f.service.paired());
     TEST_ASSERT_EQUAL_UINT32(0, f.net.bodies.size());
 }
+
+void test_scale_net_bowl_transitions_are_events_not_feedings() {
+    Fixture f;
+    TEST_ASSERT_TRUE(f.pair());
+    TEST_ASSERT_TRUE(f.service.enqueueBowlTransition(false, kUtc, 1, 0));
+    TEST_ASSERT_TRUE(f.service.enqueueBowlTransition(true, kUtc + 3000, 1, 155000));
+    TEST_ASSERT_EQUAL_UINT32(2, f.service.pending());
+    const auto batch = f.outbox.batch();
+    TEST_ASSERT_EQUAL(ScaleEventKind::BowlRemoved, batch[0].kind);
+    TEST_ASSERT_EQUAL(ScaleEventKind::BowlReturned, batch[1].kind);
+    const auto body = f.outbox.encodeBatch(batch);
+    JsonDocument doc;
+    TEST_ASSERT_FALSE(deserializeJson(doc, body));
+    TEST_ASSERT_EQUAL_STRING("bowl_removed", doc[0]["kind"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("bowl_returned", doc[1]["kind"].as<const char*>());
+    TEST_ASSERT_EQUAL_INT32(155000, doc[1]["grossMg"].as<int32_t>());
+    TEST_ASSERT_FALSE(doc[0]["grossMg"].is<int32_t>());
+    TEST_ASSERT_FALSE(f.service.enqueueBowlTransition(true, kUtc, 0, 155000));
+    TEST_ASSERT_FALSE(f.service.enqueueBowlTransition(true, kUtc, 1, -1));
+    f.net.uploads.push_back(NetResult::fromStatus(201, "{\"accepted\":[],\"now\":1792314000000}"));
+    f.service.syncNow(10000);
+    TEST_ASSERT_EQUAL_UINT32(0, f.service.pending());
+    TEST_ASSERT_EQUAL_STRING(body.c_str(), f.net.bodies[0].c_str());
+}

@@ -13,6 +13,9 @@
 #include "domain/ScaleCalibration.h"
 #include "domain/ScaleStability.h"
 #if defined(SCALE_NETWORK)
+#include "domain/BowlLiftDetector.h"
+#endif
+#if defined(SCALE_NETWORK)
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <LittleFS.h>
@@ -92,6 +95,42 @@ uint32_t stableRevision = 0;
 uint64_t stableAtMs = 0;
 uint64_t lastRecordMs = 0;
 bool lastPaired = false;
+std::optional<BowlLiftDetector> bowlDetector;
+bool bowlWatch = false;
+
+void disableBowlWatch(const char* reason) {
+    if (bowlWatch) Serial.printf("Bowl watch stopped: %s\n", reason);
+    bowlWatch = false;
+    bowlDetector.reset();
+}
+
+void observeBowl(uint64_t atMs, int32_t grossMg, uint32_t revision) {
+    if (!bowlWatch || !bowlDetector || !scaleNet) return;
+    struct timeval tv {};
+    gettimeofday(&tv, nullptr);
+    const int64_t utcMs = static_cast<int64_t>(tv.tv_sec) * 1000 + tv.tv_usec / 1000;
+    if (utcMs < 1704067200000LL || utcMs > 4102444800000LL ||
+        !scaleNet->paired() || scaleNet->blocked()) {
+        disableBowlWatch("clock, pairing or queue not ready");
+        return;
+    }
+    const auto r = bowlDetector->observe(atMs, grossMg, revision);
+    if (r.fault != BowlFault::None) {
+        disableBowlWatch("sensor, calibration or lift timeout; reset required");
+        return;
+    }
+    if (r.event == BowlEvent::None) return;
+    const bool returned = r.event == BowlEvent::Returned;
+    if (!scaleNet->enqueueBowlTransition(returned, utcMs, revision, grossMg)) {
+        disableBowlWatch("queue write failed; investigate flash before restarting");
+        return;
+    }
+    if (returned)
+        Serial.printf("REVIEW-ONLY bowl return: before=%ld after=%ld deltaMg=%ld (unverified bowl; NOT feeding)\n",
+            static_cast<long>(r.beforeMg), static_cast<long>(r.afterMg), static_cast<long>(r.deltaMg));
+    else Serial.printf("Bowl removed, pre-lift grossMg=%ld; queued.\n", static_cast<long>(r.beforeMg));
+}
+
 
 std::string deviceId() {
     uint8_t mac[6] = {};
@@ -154,6 +193,7 @@ void networkCommand(const std::string& line) {
         return;
     }
     if (line == "netstatus") {
+        Serial.printf("bowlWatch=%d\n", bowlWatch);
         Serial.printf("device=%s wifi=%d clock=%d paired=%d pairing=%d blocked=%d pending=%u http=%d error=%s\n",
             deviceId().c_str(), WiFi.status() == WL_CONNECTED, scaleHttps.isOnline(),
             scaleNet->paired(), scaleNet->pairing(), scaleNet->blocked(),
@@ -169,7 +209,29 @@ void networkCommand(const std::string& line) {
         return;
     }
     if (line == "unpair") {
+        disableBowlWatch("unpaired");
         Serial.println(scaleNet->unpair() ? "Unpaired. Previous queue is quarantined." : "NVS erase failed.");
+        return;
+    }
+    if (line == "watch off") {
+        disableBowlWatch("operator stopped");
+        Serial.println("Automatic transition observation disabled.");
+        return;
+    }
+    int absent = 0, present = 0;
+    unsigned long long maxLift = 0;
+    int consumed = 0;
+    if (std::sscanf(line.c_str(), "watch %d %d %llu %n", &absent, &present, &maxLift, &consumed) == 3 &&
+        consumed == static_cast<int>(line.size())) {
+        const BowlDetectionConfig cfg{absent, present, maxLift, saved.maxGrossMg};
+        if (!BowlLiftDetector(cfg).valid() || !samplingEnabled || !estimator ||
+            !scaleNet->paired() || scaleNet->blocked() || !scaleOutbox.active()) {
+            Serial.println("Watch refused: measured thresholds, stable sampling, valid calibration, pairing and queue required.");
+            return;
+        }
+        bowlDetector.emplace(cfg);
+        bowlWatch = true;
+        Serial.println("Bowl watch enabled for this USB session only. Changes are review-only, not feedings.");
         return;
     }
     if (line == "record") {
@@ -245,6 +307,9 @@ void saveCalibration() {
         return;
     }
     saved = pending = candidate;
+#if defined(SCALE_NETWORK)
+    disableBowlWatch("calibration changed");
+#endif
     samplingEnabled = false;
     estimator.reset();
     Serial.printf("Calibration committed revision=%lu; sampling stopped.\n",
@@ -256,7 +321,7 @@ void process(const std::string& line) {
         Serial.println("status | zero | ref <mass_mg> | limit <max_gross_mg> | commit");
         Serial.println("tune <min_samples> <dwell_ms> <spread_mg> <max_gap_ms> | run | stop | clear");
 #if defined(SCALE_NETWORK)
-        Serial.println("wifi <ssid>|<WPA2-password> | forgetwifi | initfs ERASE | netstatus | pair | unpair | record | sync");
+        Serial.println("wifi <ssid>|<WPA2-password> | forgetwifi | initfs ERASE | netstatus | pair | unpair | record | sync | watch <absent_mg> <present_mg> <max_lift_ms> | watch off");
 #endif
         Serial.println("Commands zero/ref use the LAST RAW SAMPLE; verify no load/reference physically.");
         return;
@@ -293,8 +358,15 @@ void process(const std::string& line) {
         return;
     }
     if (line == "commit") { saveCalibration(); return; }
-    if (line == "stop") { samplingEnabled = false; estimator.reset(); Serial.println("Stopped."); return; }
+    if (line == "stop") {
+#if defined(SCALE_NETWORK)
+        disableBowlWatch("sampling stopped");
+#endif
+        samplingEnabled = false; estimator.reset(); Serial.println("Stopped."); return; }
     if (line == "clear") {
+#if defined(SCALE_NETWORK)
+        disableBowlWatch("calibration cleared");
+#endif
         if (nvs.remove("points")) {
             saved = pending = Calibration{};
             zeroCaptured = refCaptured = limitSet = false;
@@ -316,6 +388,9 @@ void process(const std::string& line) {
             return;
         }
         tuning = candidate;
+#if defined(SCALE_NETWORK)
+        disableBowlWatch("stability tuning changed");
+#endif
         estimator.emplace(tuning);
         samplingEnabled = false;
         Serial.println("Tuning accepted. Use run to observe stable windows.");
@@ -328,6 +403,9 @@ void process(const std::string& line) {
             return;
         }
         estimator->reset();
+#if defined(SCALE_NETWORK)
+        disableBowlWatch("sampling restarted");
+#endif
         samplingEnabled = true;
         Serial.println("Stable sampling enabled (serial-only; NO cloud events).");
         return;
@@ -335,7 +413,8 @@ void process(const std::string& line) {
 #if defined(SCALE_NETWORK)
     if (line.rfind("wifi ", 0) == 0 || line == "forgetwifi" || line == "netstatus" ||
         line == "pair" || line == "unpair" || line == "record" || line == "sync" ||
-        line == "initfs ERASE") {
+        line == "initfs ERASE" || line == "watch off" ||
+        line.rfind("watch ", 0) == 0) {
         networkCommand(line);
         return;
     }
@@ -399,13 +478,16 @@ void loop() {
                 estimator->reset();
 #if defined(SCALE_NETWORK)
                 haveStable = false;
+                disableBowlWatch("calibration/ADC fault");
 #endif
                 Serial.printf("FAULT calibrationStatus=%u\n", static_cast<unsigned>(status));
             } else {
                 const auto r = estimator->add(WeightSample{now, mg, saved.revision});
 #if defined(SCALE_NETWORK)
                 haveStable = r.status == StabilityStatus::Stable;
+                if (r.status == StabilityStatus::Fault) disableBowlWatch("stability estimator fault");
                 if (haveStable) {
+                    observeBowl(now, r.grossMg, r.calibrationRevision);
                     stableGrossMg = r.grossMg;
                     stableRevision = r.calibrationRevision;
                     stableAtMs = now;
@@ -423,12 +505,15 @@ void loop() {
         if (estimator) estimator->reset();
 #if defined(SCALE_NETWORK)
         haveStable = false;
+        disableBowlWatch("ADC timeout");
 #endif
         Serial.println("FAULT adc_timeout: HX711 DOUT not ready");
     }
 #if defined(SCALE_NETWORK)
     if (scaleNet) {
         scaleNet->tick(millis());
+        if (bowlWatch && (!scaleNet->paired() || scaleNet->blocked() || !scaleOutbox.active()))
+            disableBowlWatch("pairing revoked or queue unavailable");
         if (scaleNet->paired() != lastPaired) {
             lastPaired = scaleNet->paired();
             Serial.println(lastPaired ? "Pair confirmed; token stored (never printed)." : "Pairing lost; old queue retained.");

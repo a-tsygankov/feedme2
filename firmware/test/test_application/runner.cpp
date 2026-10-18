@@ -119,6 +119,7 @@ void test_scale_net_malformed_201_retains_queue();
 void test_scale_net_offline_does_not_poll_or_upload();
 void test_scale_net_refuses_invalid_time_or_calibration();
 void test_scale_net_refuses_corrupt_saved_identity();
+void test_scale_net_bowl_transitions_are_events_not_feedings();
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -243,5 +244,6 @@ int main() {
     RUN_TEST(test_scale_net_offline_does_not_poll_or_upload);
     RUN_TEST(test_scale_net_refuses_invalid_time_or_calibration);
     RUN_TEST(test_scale_net_refuses_corrupt_saved_identity);
+    RUN_TEST(test_scale_net_bowl_transitions_are_events_not_feedings);
     return UNITY_END();
 }

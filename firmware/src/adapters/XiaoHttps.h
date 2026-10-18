@@ -16,8 +16,9 @@ public:
                                const std::string& pollSecret) override;
     ports::NetResult pairCheck(const std::string& deviceId, const std::string& pollSecret) override;
     ports::NetResult postScaleEvents(const std::string& token, const std::string& jsonArray) override;
+    ports::NetResult checkFirmware(const std::string& token) override;
 private:
-    ports::NetResult post(const std::string& path, const std::string& body,
+    ports::NetResult request(const std::string& method, const std::string& path, const std::string& body,
                           const std::string& token = "");
     std::string baseUrl_;
 };

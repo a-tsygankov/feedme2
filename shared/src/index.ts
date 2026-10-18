@@ -16,3 +16,4 @@ export * from "./csv.ts";
 
 export * from "./scale.ts";
 export * from "./scale-events.ts";
+export * from "./weight-stability.ts";

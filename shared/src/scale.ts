@@ -35,8 +35,8 @@ export type ScaleTransition =
 
 export type ScaleState =
     | { kind: "empty" }
-    | { kind: "present"; last: ScaleObservation }
-    | { kind: "lifted"; before: ScaleObservation }
+    | { kind: "present"; last: ScaleObservation; verifiedBowlProfileId?: string }
+    | { kind: "lifted"; before: ScaleObservation; verifiedBowlProfileId?: string }
     | { kind: "fault"; reason: string };
 
 export const INITIAL_SCALE_STATE: ScaleState = { kind: "empty" };
@@ -45,12 +45,15 @@ export const INITIAL_SCALE_STATE: ScaleState = { kind: "empty" };
  * Called only with a stable, calibrated observation. Presence detection and
  * sensor fault detection belong to the hardware sampling layer.
  *
- * A mismatch in calibration revision is explicitly reviewable. A negative
- * delta is NOT food added. The caller must not create a feeding from it.
+ * A mismatch in calibration revision or verified bowl profile is reviewable.
+ * The caller may provide verifiedBowlProfileId only when bowl identity was
+ * independently confirmed; comparing a full bowl to empty mass is NOT enough.
+ * Without verified identity, every return needs review. A negative delta is
+ * NOT food added. The caller must not create a feeding from it.
  */
 export function advanceScale(
     state: ScaleState,
-    input: { kind: "present"; observation: ScaleObservation } | { kind: "absent" } | { kind: "fault"; reason: string },
+    input: { kind: "present"; observation: ScaleObservation; verifiedBowlProfileId?: string } | { kind: "absent" } | { kind: "fault"; reason: string },
 ): { state: ScaleState; transition: ScaleTransition } {
     const none: ScaleTransition = { kind: "none" };
     if (input.kind === "fault") {
@@ -58,7 +61,7 @@ export function advanceScale(
     }
     if (input.kind === "absent") {
         if (state.kind === "present") {
-            return { state: { kind: "lifted", before: state.last }, transition: { kind: "lifted", before: state.last } };
+            return { state: { kind: "lifted", before: state.last, ...(state.verifiedBowlProfileId ? { verifiedBowlProfileId: state.verifiedBowlProfileId } : {}) }, transition: { kind: "lifted", before: state.last } };
         }
         return { state: state.kind === "lifted" ? state : INITIAL_SCALE_STATE, transition: none };
     }
@@ -66,18 +69,21 @@ export function advanceScale(
     if (!after.stable) {
         throw new Error("advanceScale requires a stable observation");
     }
+    if (input.verifiedBowlProfileId !== undefined) z.string().uuid().parse(input.verifiedBowlProfileId);
     if (state.kind === "lifted") {
         const before = state.before;
         const deltaMg = after.grossMg - before.grossMg;
         const reason = before.calibrationRevision !== after.calibrationRevision
             ? "calibration_changed"
-            : deltaMg < 0 ? "food_removed" : undefined;
+            : deltaMg < 0 ? "food_removed"
+            : !state.verifiedBowlProfileId || !input.verifiedBowlProfileId ? "bowl_unverified"
+            : state.verifiedBowlProfileId !== input.verifiedBowlProfileId ? "bowl_changed" : undefined;
         return {
-            state: { kind: "present", last: after },
+            state: { kind: "present", last: after, ...(input.verifiedBowlProfileId ? { verifiedBowlProfileId: input.verifiedBowlProfileId } : {}) },
             transition: { kind: "returned", before, after, deltaMg, needsReview: reason !== undefined, ...(reason ? { reason } : {}) },
         };
     }
-    return { state: { kind: "present", last: after }, transition: none };
+    return { state: { kind: "present", last: after, ...(input.verifiedBowlProfileId ? { verifiedBowlProfileId: input.verifiedBowlProfileId } : {}) }, transition: none };
 }
 
 /** Compares gross mass with an explicitly registered empty bowl. */

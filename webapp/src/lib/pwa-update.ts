@@ -26,7 +26,7 @@ export interface UpdateStore {
   getSnapshot(): UpdateState;
   /** A new worker is installed and waiting, or (mode "reload") a newer
    * build is served with no service worker to precache it. */
-  markReady(mode?: ApplyMode): void;
+  markReady(mode?: ApplyMode, revision?: string): void;
   dismiss(): void;
   apply(): void;
   /** The active worker changed. */
@@ -43,6 +43,7 @@ export function createUpdateStore(deps: UpdateStoreDeps): UpdateStore {
   let mode: ApplyMode = "worker";
   let applying = false;
   let reloaded = false;
+  let offeredRevision: string | undefined;
   const listeners = new Set<() => void>();
   const setTimer = deps.setTimer ?? ((fn: () => void, ms: number) => void setTimeout(fn, ms));
 
@@ -62,7 +63,11 @@ export function createUpdateStore(deps: UpdateStoreDeps): UpdateStore {
       return () => void listeners.delete(listener);
     },
     getSnapshot: () => state,
-    markReady: (nextMode: ApplyMode = "worker") => {
+    markReady: (nextMode: ApplyMode = "worker", revision?: string) => {
+      // A dismissed reload-only offer must not reappear on every 10-minute
+      // poll. A genuinely newer release (or a newly installed worker) can.
+      if (revision !== undefined && state === "dismissed" && revision === offeredRevision) return;
+      offeredRevision = revision;
       mode = nextMode;
       set("ready");
     },

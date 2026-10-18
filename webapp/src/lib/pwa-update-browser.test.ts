@@ -33,7 +33,7 @@ function setupBrowser(served: string, controlled: boolean, waiting: object | nul
 
 beforeEach(() => {
   vi.resetModules();
-  vi.spyOn(window, "setInterval").mockImplementation(() => 1);
+  vi.spyOn(window, "setInterval").mockImplementation(() => 1 as unknown as ReturnType<typeof setInterval>);
 });
 
 afterEach(() => {

@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <cstring>
 #include <utility>
+#include "domain/Version.h"
 
 namespace feedme2::application {
 namespace {
@@ -45,6 +46,9 @@ bool ScaleNetService::validDeviceId(const std::string& id) {
 bool ScaleNetService::restore() {
     paired_ = false;
     pairing_ = false;
+    firmwareChecked_ = false;
+    firmwareUpdateAvailable_ = false;
+    latestFirmware_.clear();
     token_.clear();
     code_.clear();
     secret_.clear();
@@ -107,6 +111,9 @@ bool ScaleNetService::savePairing(const std::string& token, const std::string& e
     code_.clear();
     secret_.clear();
     lastUploadMs_ = 0;
+    firmwareChecked_ = false;
+    firmwareUpdateAvailable_ = false;
+    latestFirmware_.clear();
     return true;
 }
 
@@ -176,6 +183,34 @@ void ScaleNetService::upload(uint32_t nowMs) {
     } else error_ = r.status == 201 ? "ack_invalid" : "upload_failed";
 }
 
+void ScaleNetService::checkFirmwareNow(uint32_t nowMs) {
+    if (!paired_ || !net_.isOnline()) return;
+    lastFirmwareCheckMs_ = nowMs;
+    firmwareChecked_ = true;
+    const auto r = net_.checkFirmware(token_);
+    firmwareCheckStatus_ = r.status;
+    if (r.status != 200 || r.body.size() > 2048) return;
+    JsonDocument doc;
+    if (deserializeJson(doc, r.body) || !doc.is<JsonObjectConst>() ||
+        !doc["updateAvailable"].is<bool>() || !doc["installSupported"].is<bool>() ||
+        doc["installSupported"].as<bool>()) return;
+    const auto latest = doc["latest"];
+    if (!latest.isNull() && !latest.is<const char*>()) return;
+    if (latest.isNull()) {
+        if (doc["updateAvailable"].as<bool>()) return;
+        latestFirmware_.clear();
+        firmwareUpdateAvailable_ = false;
+        return;
+    }
+    const std::string version = latest.as<const char*>();
+    if (version.size() > 32 || version.empty()) return;
+    // Never trust an arbitrary server-side flag to claim an update.
+    const bool newer = domain::compareVersions(version, fwVersion_) > 0;
+    if (newer != doc["updateAvailable"].as<bool>()) return;
+    latestFirmware_ = version;
+    firmwareUpdateAvailable_ = newer;
+}
+
 void ScaleNetService::syncNow(uint32_t nowMs) {
     if (paired_ && !blocked_ && net_.isOnline()) upload(nowMs);
 }
@@ -184,6 +219,8 @@ void ScaleNetService::tick(uint32_t nowMs) {
     if (!net_.isOnline()) return;
     if (pairing_ && nowMs - lastPollMs_ >= kPollMs) poll(nowMs);
     if (paired_ && !blocked_ && nowMs - lastUploadMs_ >= kRetryMs) upload(nowMs);
+    if (paired_ && (!firmwareChecked_ || nowMs - lastFirmwareCheckMs_ >= kFirmwareCheckMs))
+        checkFirmwareNow(nowMs);
 }
 
 bool ScaleNetService::unpair() {
@@ -195,6 +232,9 @@ bool ScaleNetService::unpair() {
     code_.clear();
     secret_.clear();
     error_.clear();
+    firmwareChecked_ = false;
+    firmwareUpdateAvailable_ = false;
+    latestFirmware_.clear();
     return true;
 }
 

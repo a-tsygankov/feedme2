@@ -21,6 +21,7 @@ public:
     bool hasCompleteRecords(const char* file) override;
 
 private:
+    bool formatOnFail_ = true;
     bool mounted_ = false;
     bool mount();
 };

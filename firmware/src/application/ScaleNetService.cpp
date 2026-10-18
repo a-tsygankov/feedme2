@@ -7,6 +7,20 @@
 
 namespace feedme2::application {
 namespace {
+bool validVersion(const std::string& s) {
+    if (s.size() < 5 || s.size() > 32) return false;
+    int dots = 0;
+    int digits = 0;
+    for (char ch : s) {
+        if (ch == '.') {
+            if (digits == 0) return false;
+            ++dots;
+            digits = 0;
+        } else if (ch >= '0' && ch <= '9') ++digits;
+        else return false;
+    }
+    return dots == 2 && digits > 0;
+}
 bool validCode(const std::string& code) {
     if (code.size() != 6) return false;
     for (char c : code) if (c < '0' || c > '9') return false;
@@ -203,7 +217,7 @@ void ScaleNetService::checkFirmwareNow(uint32_t nowMs) {
         return;
     }
     const std::string version = latest.as<const char*>();
-    if (version.size() > 32 || version.empty()) return;
+    if (!validVersion(version) || !validVersion(fwVersion_)) return;
     // Never trust an arbitrary server-side flag to claim an update.
     const bool newer = domain::compareVersions(version, fwVersion_) > 0;
     if (newer != doc["updateAvailable"].as<bool>()) return;

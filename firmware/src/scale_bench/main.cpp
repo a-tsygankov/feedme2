@@ -178,8 +178,7 @@ void networkCommand(const std::string& line) {
         Serial.println("Wi-Fi connecting; password is not printed.");
         return;
     }
-    if (line == "initfs ERASE" || line == "watch off" ||
-        line.rfind("watch ", 0) == 0) {
+    if (line == "initfs ERASE") {
         if (scaleNet->paired() || scaleNet->pairing()) {
             Serial.println("Refused: unpair before destructive filesystem initialization.");
             return;
@@ -414,7 +413,8 @@ void process(const std::string& line) {
 #if defined(SCALE_NETWORK)
     if (line.rfind("wifi ", 0) == 0 || line == "forgetwifi" || line == "netstatus" ||
         line == "pair" || line == "unpair" || line == "record" || line == "sync" ||
-        line == "initfs ERASE") {
+        line == "initfs ERASE" || line == "watch off" ||
+        line.rfind("watch ", 0) == 0) {
         networkCommand(line);
         return;
     }

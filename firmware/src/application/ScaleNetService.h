@@ -25,6 +25,7 @@ public:
     bool restore();
     bool startPairing(uint32_t nowMs);
     void tick(uint32_t nowMs);
+    void syncNow(uint32_t nowMs);
     bool unpair();
     bool enqueueStable(int64_t utcMs, uint32_t calibrationRevision, int32_t grossMg);
 

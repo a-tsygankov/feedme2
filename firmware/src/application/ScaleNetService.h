@@ -28,6 +28,8 @@ public:
     void syncNow(uint32_t nowMs);
     bool unpair();
     bool enqueueStable(int64_t utcMs, uint32_t calibrationRevision, int32_t grossMg);
+    bool enqueueBowlTransition(bool returned, int64_t utcMs,
+                               uint32_t calibrationRevision, int32_t grossMg);
 
     bool paired() const { return paired_; }
     bool pairing() const { return pairing_; }

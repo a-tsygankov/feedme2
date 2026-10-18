@@ -231,8 +231,14 @@ void ScaleNetService::syncNow(uint32_t nowMs) {
 
 void ScaleNetService::tick(uint32_t nowMs) {
     if (!net_.isOnline()) return;
-    if (pairing_ && nowMs - lastPollMs_ >= kPollMs) poll(nowMs);
-    if (paired_ && !blocked_ && nowMs - lastUploadMs_ >= kRetryMs) upload(nowMs);
+    if (pairing_ && nowMs - lastPollMs_ >= kPollMs) {
+        poll(nowMs);
+        return; // never issue two HTTPS calls in one sampling tick
+    }
+    if (paired_ && !blocked_ && nowMs - lastUploadMs_ >= kRetryMs && outbox_.pending() > 0) {
+        upload(nowMs);
+        return; // preserve telemetry priority over version checks
+    }
     if (paired_ && (!firmwareChecked_ || nowMs - lastFirmwareCheckMs_ >= kFirmwareCheckMs))
         checkFirmwareNow(nowMs);
 }

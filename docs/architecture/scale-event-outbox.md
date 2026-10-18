@@ -21,7 +21,7 @@ This is the **application-layer outbox** for `POST /api/device/scale-events`, no
 ## Failure handling / remaining work
 
 - A malformed queue entry causes activation to fail closed; it is **not silently skipped**. Operator recovery and damaged-file export must be added before unattended deployment.
-- A failed append or NVS sequence reservation disables the outbox until it is reloaded. **Important:** the existing generic LittleFS queue reader drops a trailing unterminated line after a power cut; a partially written event may therefore be lost. Fix tail detection and add real power-cut tests before claiming lossless persistence. Do not blindly append again.
+- A failed append or NVS sequence reservation disables the outbox until it is reloaded. **Important:** the existing generic LittleFS reader normally drops a trailing unterminated line after a power cut. The outbox now checks the final byte first and refuses activation if the tail is incomplete; it does not silently discard the record. Physical power-cut testing and a recovery/export tool are still required before claiming lossless persistence. Do not blindly append again.
 - Old-epoch files remain on flash intentionally for investigation. Implement secure retention/cleanup with explicit policy; do not reassign events across houses.
 - The outbox is **not yet wired into the XIAO bench firmware**, and there is no Wi-Fi uploader, retry scheduler, TLS/pairing provisioning, or cloud event source. Tests prove persistence and response handling using fake storage, not power-cut resilience on real flash.
 - Hardware safety remains independent: overload stops must be installed and physically calibrated before pet use.

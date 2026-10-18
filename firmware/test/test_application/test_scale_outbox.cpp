@@ -16,6 +16,8 @@ constexpr int64_t kUtc = 1792314000000LL;
 struct FailFiles : StubFileQueue {
     bool failAppend = false;
     bool failRewrite = false;
+    bool tailComplete = true;
+    bool hasCompleteRecords(const char*) override { return tailComplete; }
     bool appendLine(const char* file, const std::string& line) override {
         return !failAppend && StubFileQueue::appendLine(file, line);
     }
@@ -240,6 +242,19 @@ void test_scale_outbox_partial_nvs_loss_fails_closed() {
     TEST_ASSERT_TRUE(q.activatePairing(kEpoch1));
     TEST_ASSERT_TRUE(q.enqueue(ScaleEventKind::StableWeight, kUtc, 1, 40000));
     storage.kv.erase(ScaleOutbox::kSequenceKey);
+    ScaleOutbox reboot(files, storage, rnd);
+    TEST_ASSERT_FALSE(reboot.activatePairing(kEpoch1));
+    TEST_ASSERT_EQUAL_UINT32(1, files.files[q.filePath()].size());
+}
+
+void test_scale_outbox_unterminated_tail_fails_closed() {
+    FailFiles files;
+    StubStorage storage;
+    StubRandom rnd;
+    ScaleOutbox q(files, storage, rnd);
+    TEST_ASSERT_TRUE(q.activatePairing(kEpoch1));
+    TEST_ASSERT_TRUE(q.enqueue(ScaleEventKind::StableWeight, kUtc, 1, 40000));
+    files.tailComplete = false;
     ScaleOutbox reboot(files, storage, rnd);
     TEST_ASSERT_FALSE(reboot.activatePairing(kEpoch1));
     TEST_ASSERT_EQUAL_UINT32(1, files.files[q.filePath()].size());

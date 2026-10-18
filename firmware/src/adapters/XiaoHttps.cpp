@@ -100,9 +100,12 @@ ports::NetResult XiaoHttps::postScaleEvents(const std::string& token,
     return request("POST", "/api/device/scale-events", jsonArray, token);
 }
 
-ports::NetResult XiaoHttps::checkFirmware(const std::string& token) {
+ports::NetResult XiaoHttps::checkFirmware(const std::string& token, const std::string& currentVersion) {
     if (token.empty()) return ports::NetResult::fromStatus(0, "not_paired");
-    return request("GET", "/api/device/firmware/check", "", token);
+    if (currentVersion.empty() || currentVersion.size() > 32 ||
+        currentVersion.find_first_not_of("0123456789.") != std::string::npos)
+        return ports::NetResult::fromStatus(0, "invalid_version");
+    return request("GET", "/api/device/firmware/check?current=" + currentVersion, "", token);
 }
 
 }  // namespace feedme2::adapters

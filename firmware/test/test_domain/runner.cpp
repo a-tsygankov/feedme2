@@ -88,6 +88,18 @@ void test_scale_calibration_rejects_invalid_and_rail();
 void test_scale_calibration_negative_and_overload();
 void test_scale_calibration_half_milligram_rounds_up();
 
+// test_bowl_detector.cpp
+void test_bowl_first_placement_does_not_infer_return();
+void test_bowl_lift_return_is_review_only_positive_candidate();
+void test_bowl_negative_delta_never_becomes_food_added();
+void test_bowl_hysteresis_ignores_ambiguous_mass();
+void test_bowl_fault_clears_pending_lift_and_requires_new_baseline();
+void test_bowl_recalibration_during_lift_cannot_create_return();
+void test_bowl_timeout_cannot_create_phantom_return();
+void test_bowl_restart_cannot_create_phantom_return();
+void test_bowl_invalid_configuration_or_input_fails_closed();
+void test_bowl_zero_or_negative_change_still_review_only();
+
 extern "C" void setUp(void) {}
 extern "C" void tearDown(void) {}
 
@@ -155,5 +167,15 @@ int main(int, char**) {
     RUN_TEST(test_scale_calibration_rejects_invalid_and_rail);
     RUN_TEST(test_scale_calibration_negative_and_overload);
     RUN_TEST(test_scale_calibration_half_milligram_rounds_up);
+    RUN_TEST(test_bowl_first_placement_does_not_infer_return);
+    RUN_TEST(test_bowl_lift_return_is_review_only_positive_candidate);
+    RUN_TEST(test_bowl_negative_delta_never_becomes_food_added);
+    RUN_TEST(test_bowl_hysteresis_ignores_ambiguous_mass);
+    RUN_TEST(test_bowl_fault_clears_pending_lift_and_requires_new_baseline);
+    RUN_TEST(test_bowl_recalibration_during_lift_cannot_create_return);
+    RUN_TEST(test_bowl_timeout_cannot_create_phantom_return);
+    RUN_TEST(test_bowl_restart_cannot_create_phantom_return);
+    RUN_TEST(test_bowl_invalid_configuration_or_input_fails_closed);
+    RUN_TEST(test_bowl_zero_or_negative_change_still_review_only);
     return UNITY_END();
 }

@@ -80,7 +80,7 @@ std::string command;
 
 #if defined(SCALE_NETWORK)
 feedme2::adapters::NvsStorage scaleStorage;
-feedme2::adapters::LittleFsQueue scaleFiles;
+feedme2::adapters::LittleFsQueue scaleFiles(/*formatOnFail=*/false);
 feedme2::adapters::EspRandom scaleRandom;
 feedme2::application::ScaleOutbox scaleOutbox(scaleFiles, scaleStorage, scaleRandom);
 feedme2::adapters::XiaoHttps scaleHttps(FEEDME2_BACKEND_URL);

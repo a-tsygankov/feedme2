@@ -18,8 +18,9 @@ public:
     virtual NetResult pairCheck(const std::string& deviceId, const std::string& pollSecret) = 0;
     virtual NetResult postScaleEvents(const std::string& token, const std::string& jsonArray) = 0;
     // Read-only advisory. No download, partition write or install operations.
-    virtual NetResult checkFirmware(const std::string& token) {
+    virtual NetResult checkFirmware(const std::string& token, const std::string& currentVersion) {
         (void)token;
+        (void)currentVersion;
         return NetResult::fromStatus(0, "unsupported");
     }
 };

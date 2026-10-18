@@ -24,8 +24,9 @@ struct FakeScaleNet : IScaleTransport {
     std::vector<std::string> bodies, authTokens, pollSecrets;
     int startCalls = 0, checkCalls = 0;
     bool isOnline() const override { return online; }
-    NetResult checkFirmware(const std::string& token) override {
+    NetResult checkFirmware(const std::string& token, const std::string& currentVersion) override {
         authTokens.push_back(token);
+        (void)currentVersion;
         ++firmwareCalls;
         if (firmwareChecks.empty()) return NetResult::fromStatus(0, "offline");
         const auto r = firmwareChecks.front(); firmwareChecks.pop_front(); return r;

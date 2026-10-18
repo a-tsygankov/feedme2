@@ -206,3 +206,21 @@ export const scaleEvents = sqliteTable(
     devicePairSequence: unique().on(t.deviceId, t.pairingTokenId, t.sequence),
   }),
 );
+
+/** Read-only firmware release advisory registry (migration 0005).
+ * These rows DO NOT authorize binary download or installation.
+ */
+export const firmwareReleases = sqliteTable(
+  "firmware_releases",
+  {
+    id: text("id").primaryKey(),
+    hwModel: text("hw_model").notNull(),
+    version: text("version").notNull(),
+    active: integer("active").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    modelActive: index("firmware_releases_model_active").on(t.hwModel, t.active, t.createdAt),
+    modelVersion: unique().on(t.hwModel, t.version),
+  }),
+);

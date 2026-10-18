@@ -12,6 +12,7 @@ namespace feedme2::adapters {
 // Wi-Fi is down survives a reboot and is sent later (Review Focus 2).
 class LittleFsQueue final : public ports::IFileQueue {
 public:
+    explicit LittleFsQueue(bool formatOnFail = true) : formatOnFail_(formatOnFail) {}
     bool appendLine(const char* file, const std::string& line) override;
     bool readLines(const char* file, std::vector<std::string>& out) override;
     // Writes a temp file and renames it over the original so a power cut
@@ -20,6 +21,7 @@ public:
     bool hasCompleteRecords(const char* file) override;
 
 private:
+    bool formatOnFail_ = true;
     bool mounted_ = false;
     bool mount();
 };

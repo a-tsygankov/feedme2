@@ -9,7 +9,7 @@ bool LittleFsQueue::mount() {
     if (mounted_) return true;
     // formatOnFail: a blank or corrupt partition becomes an empty queue rather
     // than a device that can never log a feeding again.
-    mounted_ = LittleFS.begin(/*formatOnFail=*/true);
+    mounted_ = LittleFS.begin(formatOnFail_);
     if (!mounted_) Serial.println("[feedme2] littlefs mount failed");
     return mounted_;
 }

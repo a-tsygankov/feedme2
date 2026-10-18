@@ -107,6 +107,18 @@ void test_scale_outbox_failed_compaction_keeps_all_pending();
 void test_scale_outbox_rejects_wrong_batch_prefix();
 void test_scale_outbox_partial_nvs_loss_fails_closed();
 void test_scale_outbox_unterminated_tail_fails_closed();
+void test_scale_net_pairing_stores_auth_and_never_prints_token();
+void test_scale_net_restore_uses_same_epoch_after_reboot();
+void test_scale_net_upload_acknowledges_replay_only_on_201();
+void test_scale_net_pair_code_not_a_token();
+void test_scale_net_rejects_invalid_pair_start();
+void test_scale_net_unpair_quarantines_old_events();
+void test_scale_net_401_unpairs_without_deleting_old_queue();
+void test_scale_net_409_blocks_until_operator_unpairs();
+void test_scale_net_malformed_201_retains_queue();
+void test_scale_net_offline_does_not_poll_or_upload();
+void test_scale_net_refuses_invalid_time_or_calibration();
+void test_scale_net_refuses_corrupt_saved_identity();
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -219,5 +231,17 @@ int main() {
     RUN_TEST(test_scale_outbox_rejects_wrong_batch_prefix);
     RUN_TEST(test_scale_outbox_partial_nvs_loss_fails_closed);
     RUN_TEST(test_scale_outbox_unterminated_tail_fails_closed);
+    RUN_TEST(test_scale_net_pairing_stores_auth_and_never_prints_token);
+    RUN_TEST(test_scale_net_restore_uses_same_epoch_after_reboot);
+    RUN_TEST(test_scale_net_upload_acknowledges_replay_only_on_201);
+    RUN_TEST(test_scale_net_pair_code_not_a_token);
+    RUN_TEST(test_scale_net_rejects_invalid_pair_start);
+    RUN_TEST(test_scale_net_unpair_quarantines_old_events);
+    RUN_TEST(test_scale_net_401_unpairs_without_deleting_old_queue);
+    RUN_TEST(test_scale_net_409_blocks_until_operator_unpairs);
+    RUN_TEST(test_scale_net_malformed_201_retains_queue);
+    RUN_TEST(test_scale_net_offline_does_not_poll_or_upload);
+    RUN_TEST(test_scale_net_refuses_invalid_time_or_calibration);
+    RUN_TEST(test_scale_net_refuses_corrupt_saved_identity);
     return UNITY_END();
 }

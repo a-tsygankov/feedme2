@@ -18,6 +18,7 @@ describe("GET /api/device/firmware/check (advisory only)", () => {
   it("is model-scoped, disabled by default and never advertises installation", async () => {
     const d = await pairDevice();
     const id = crypto.randomUUID();
+    try {
     await env.DB.prepare(
       "INSERT INTO firmware_releases (id, hw_model, version, active, created_at) VALUES (?, ?, ?, 0, ?)",
     ).bind(id, "xiao-esp32s3-sense-scale", "0.1.41", Date.now()).run();
@@ -37,5 +38,8 @@ describe("GET /api/device/firmware/check (advisory only)", () => {
       .toEqual({ latest: "0.1.41", updateAvailable: false, installSupported: false });
     expect(await (await d.fetchDevice("/api/device/firmware/check?current=0.1.42")).json())
       .toEqual({ latest: "0.1.41", updateAvailable: false, installSupported: false });
+    } finally {
+      await env.DB.prepare("DELETE FROM firmware_releases WHERE id = ?").bind(id).run();
+    }
   });
 });

@@ -73,6 +73,21 @@ void test_router_replace_root_while_deep_collapses_the_stack();
 void test_arc_charges_over_hold_and_resets_on_release();
 void test_arc_re_press_restarts_from_zero_and_caps_at_hundred();
 
+// test_scale.cpp
+void test_scale_stability_requires_samples_and_dwell();
+void test_scale_stability_uses_median_with_noise();
+void test_scale_stability_resets_on_mass_change();
+void test_scale_stability_resets_on_gap_and_calibration();
+void test_scale_stability_rejects_vibration();
+void test_scale_stability_fault_resets_candidate();
+void test_scale_stability_rejects_time_reversal_and_invalid_config();
+void test_scale_stability_reset_on_reboot();
+void test_scale_stability_even_median_rounds_up();
+void test_scale_calibration_two_point_and_reverse_polarity();
+void test_scale_calibration_rejects_invalid_and_rail();
+void test_scale_calibration_negative_and_overload();
+void test_scale_calibration_half_milligram_rounds_up();
+
 extern "C" void setUp(void) {}
 extern "C" void tearDown(void) {}
 
@@ -127,5 +142,18 @@ int main(int, char**) {
     RUN_TEST(test_router_replace_root_while_deep_collapses_the_stack);
     RUN_TEST(test_arc_charges_over_hold_and_resets_on_release);
     RUN_TEST(test_arc_re_press_restarts_from_zero_and_caps_at_hundred);
+    RUN_TEST(test_scale_stability_requires_samples_and_dwell);
+    RUN_TEST(test_scale_stability_uses_median_with_noise);
+    RUN_TEST(test_scale_stability_resets_on_mass_change);
+    RUN_TEST(test_scale_stability_resets_on_gap_and_calibration);
+    RUN_TEST(test_scale_stability_rejects_vibration);
+    RUN_TEST(test_scale_stability_fault_resets_candidate);
+    RUN_TEST(test_scale_stability_rejects_time_reversal_and_invalid_config);
+    RUN_TEST(test_scale_stability_reset_on_reboot);
+    RUN_TEST(test_scale_stability_even_median_rounds_up);
+    RUN_TEST(test_scale_calibration_two_point_and_reverse_polarity);
+    RUN_TEST(test_scale_calibration_rejects_invalid_and_rail);
+    RUN_TEST(test_scale_calibration_negative_and_overload);
+    RUN_TEST(test_scale_calibration_half_milligram_rounds_up);
     return UNITY_END();
 }

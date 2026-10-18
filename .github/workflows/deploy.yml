@@ -394,6 +394,8 @@ jobs:
         run: pio test -e native
       - name: Build (crowpanel)
         run: pio run -e crowpanel
+      - name: Build (XIAO ESP32S3 Sense HX711 bench)
+        run: pio run -e xiao-scale-bench
       - name: Build (simulator — Wokwi)
         id: simbuild
         run: |

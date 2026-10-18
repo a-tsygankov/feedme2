@@ -92,6 +92,21 @@ void test_app_input_between_round_steps_is_dispatched();
 void test_app_fed_stays_two_seconds_after_its_first_rendered_tick();
 void test_app_offline_device_with_a_queued_feeding_still_sleeps();
 void test_app_timer_wake_waits_for_wifi_only_within_the_join_window();
+void test_scale_outbox_persists_exact_wire_contract();
+void test_scale_outbox_reboot_preserves_queue_and_sequence();
+void test_scale_outbox_replay_201_with_empty_accepted_acknowledges_all();
+void test_scale_outbox_201_subset_accepted_also_acks_replays();
+void test_scale_outbox_never_drops_on_network_or_protocol_failure();
+void test_scale_outbox_pairing_epoch_isolates_previous_house_events();
+void test_scale_outbox_sequence_reservation_survives_append_failure();
+void test_scale_outbox_nvs_write_failure_disables_appending();
+void test_scale_outbox_corrupt_jsonl_fails_closed();
+void test_scale_outbox_invalid_events_are_never_persisted();
+void test_scale_outbox_batch_caps_at_fifty();
+void test_scale_outbox_failed_compaction_keeps_all_pending();
+void test_scale_outbox_rejects_wrong_batch_prefix();
+void test_scale_outbox_partial_nvs_loss_fails_closed();
+void test_scale_outbox_unterminated_tail_fails_closed();
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -189,5 +204,20 @@ int main() {
     RUN_TEST(test_app_fed_stays_two_seconds_after_its_first_rendered_tick);
     RUN_TEST(test_app_offline_device_with_a_queued_feeding_still_sleeps);
     RUN_TEST(test_app_timer_wake_waits_for_wifi_only_within_the_join_window);
+    RUN_TEST(test_scale_outbox_persists_exact_wire_contract);
+    RUN_TEST(test_scale_outbox_reboot_preserves_queue_and_sequence);
+    RUN_TEST(test_scale_outbox_replay_201_with_empty_accepted_acknowledges_all);
+    RUN_TEST(test_scale_outbox_201_subset_accepted_also_acks_replays);
+    RUN_TEST(test_scale_outbox_never_drops_on_network_or_protocol_failure);
+    RUN_TEST(test_scale_outbox_pairing_epoch_isolates_previous_house_events);
+    RUN_TEST(test_scale_outbox_sequence_reservation_survives_append_failure);
+    RUN_TEST(test_scale_outbox_nvs_write_failure_disables_appending);
+    RUN_TEST(test_scale_outbox_corrupt_jsonl_fails_closed);
+    RUN_TEST(test_scale_outbox_invalid_events_are_never_persisted);
+    RUN_TEST(test_scale_outbox_batch_caps_at_fifty);
+    RUN_TEST(test_scale_outbox_failed_compaction_keeps_all_pending);
+    RUN_TEST(test_scale_outbox_rejects_wrong_batch_prefix);
+    RUN_TEST(test_scale_outbox_partial_nvs_loss_fails_closed);
+    RUN_TEST(test_scale_outbox_unterminated_tail_fails_closed);
     return UNITY_END();
 }

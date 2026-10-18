@@ -75,4 +75,20 @@ bool LittleFsQueue::rewrite(const char* file, const std::vector<std::string>& li
     return true;
 }
 
+
+bool LittleFsQueue::hasCompleteRecords(const char* file) {
+    if (!mount()) return false;
+    if (!LittleFS.exists(file)) return true;
+    File f = LittleFS.open(file, FILE_READ);
+    if (!f) return false;
+    const size_t n = f.size();
+    if (n == 0) { f.close(); return true; }
+    if (!f.seek(n - 1)) { f.close(); return false; }
+    const int last = f.read();
+    f.close();
+    // A trailing incomplete JSON record must not be silently dropped by
+    // readLines(), then glued to the next append after a power interruption.
+    return last == '\n';
+}
+
 }  // namespace feedme2::adapters

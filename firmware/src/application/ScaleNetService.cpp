@@ -176,6 +176,10 @@ void ScaleNetService::upload(uint32_t nowMs) {
     } else error_ = r.status == 201 ? "ack_invalid" : "upload_failed";
 }
 
+void ScaleNetService::syncNow(uint32_t nowMs) {
+    if (paired_ && !blocked_ && net_.isOnline()) upload(nowMs);
+}
+
 void ScaleNetService::tick(uint32_t nowMs) {
     if (!net_.isOnline()) return;
     if (pairing_ && nowMs - lastPollMs_ >= kPollMs) poll(nowMs);

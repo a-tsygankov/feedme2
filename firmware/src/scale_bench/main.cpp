@@ -15,6 +15,7 @@
 #if defined(SCALE_NETWORK)
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <LittleFS.h>
 #include <sys/time.h>
 #include <esp_mac.h>
 #include "adapters/EspRandom.h"
@@ -138,6 +139,14 @@ void networkCommand(const std::string& line) {
         Serial.println("Wi-Fi connecting; password is not printed.");
         return;
     }
+    if (line == "initfs ERASE") {
+        if (scaleNet->paired() || scaleNet->pairing()) {
+            Serial.println("Refused: unpair before destructive filesystem initialization.");
+            return;
+        }
+        Serial.println(LittleFS.format() ? "LittleFS formatted by explicit operator request." : "LittleFS format failed.");
+        return;
+    }
     if (line == "forgetwifi") {
         if (!scaleStorage.erase("scale_wifi")) { Serial.println("Wi-Fi erase failed."); return; }
         WiFi.disconnect(true);
@@ -246,7 +255,7 @@ void process(const std::string& line) {
         Serial.println("status | zero | ref <mass_mg> | limit <max_gross_mg> | commit");
         Serial.println("tune <min_samples> <dwell_ms> <spread_mg> <max_gap_ms> | run | stop | clear");
 #if defined(SCALE_NETWORK)
-        Serial.println("wifi <ssid>|<WPA2-password> | forgetwifi | netstatus | pair | unpair | record | sync");
+        Serial.println("wifi <ssid>|<WPA2-password> | forgetwifi | initfs ERASE | netstatus | pair | unpair | record | sync");
 #endif
         Serial.println("Commands zero/ref use the LAST RAW SAMPLE; verify no load/reference physically.");
         return;
@@ -324,7 +333,8 @@ void process(const std::string& line) {
     }
 #if defined(SCALE_NETWORK)
     if (line.rfind("wifi ", 0) == 0 || line == "forgetwifi" || line == "netstatus" ||
-        line == "pair" || line == "unpair" || line == "record" || line == "sync") {
+        line == "pair" || line == "unpair" || line == "record" || line == "sync" ||
+        line == "initfs ERASE") {
         networkCommand(line);
         return;
     }

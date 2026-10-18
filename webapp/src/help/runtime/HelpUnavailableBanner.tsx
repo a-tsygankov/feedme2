@@ -20,7 +20,9 @@
  * prop: "Back to Help" is the secondary button (the one way forward),
  * Close stays ghost, and both keep the app's 44px touch height.
  */
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "../../components/Button.tsx";
+import { updateStore } from "../../lib/pwa-update-browser.ts";
 
 export function HelpUnavailableBanner({
   message,
@@ -31,6 +33,28 @@ export function HelpUnavailableBanner({
   onBackToHelp: () => void;
   onDismiss: () => void;
 }) {
+  const [rootInert, setRootInert] = useState(
+    () => document.getElementById("root")?.hasAttribute("inert") ?? false,
+  );
+  useEffect(() => {
+    const appRoot = document.getElementById("root");
+    if (!appRoot) return;
+    const observer = new MutationObserver(() => {
+      setRootInert(appRoot.hasAttribute("inert"));
+    });
+    observer.observe(appRoot, { attributes: true, attributeFilter: ["inert"] });
+    setRootInert(appRoot.hasAttribute("inert"));
+    return () => observer.disconnect();
+  }, []);
+  const updateState = useSyncExternalStore(
+    updateStore.subscribe,
+    updateStore.getSnapshot,
+    () => "idle",
+  );
+  if (rootInert) return null;
+  const bottomClass = updateState === "ready"
+    ? "bottom-[calc(3rem+env(safe-area-inset-bottom))]"
+    : "bottom-0";
   return (
     <div
       // Not `status`: spec §10 treats this as a dead end the user must
@@ -47,8 +71,8 @@ export function HelpUnavailableBanner({
       // sky, like HelpSheet and the tour popover: this is help failing,
       // not the app failing, and the tint is what carries that. Kept at
       // /95 so it stays the same translucent scrim UpdateBar is.
-      className="fixed inset-x-0 bottom-0 z-[51] border-t border-sky-200 bg-sky-100/95
-                 px-4 py-3 backdrop-blur pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+      className={`fixed inset-x-0 ${bottomClass} z-[51] border-t border-sky-200 bg-sky-100/95
+                 px-4 py-3 backdrop-blur pb-[calc(0.75rem+env(safe-area-inset-bottom))]`}
     >
       <div className="mx-auto flex max-w-lg items-center gap-3">
         <p className="min-w-0 flex-1 text-sm text-slate-700">{message}</p>

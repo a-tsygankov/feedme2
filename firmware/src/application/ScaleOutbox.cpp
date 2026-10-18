@@ -141,7 +141,8 @@ bool ScaleOutbox::activatePairing(const std::string& epoch) {
 
     const std::string path = "/scale-" + epoch + ".jsonl";
     std::vector<std::string> lines;
-    if (!files_.readLines(path.c_str(), lines) || lines.size() > kMaxPending) return false;
+    if (!files_.hasCompleteRecords(path.c_str()) ||
+        !files_.readLines(path.c_str(), lines) || lines.size() > kMaxPending) return false;
     std::vector<ScaleQueuedEvent> decoded;
     decoded.reserve(lines.size());
     uint64_t maxSequence = sequence;

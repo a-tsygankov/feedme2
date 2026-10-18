@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { zValidator } from "@hono/zod-validator";
-import { DeviceFeedingsBodySchema, DeviceLogsBodySchema, HeartbeatBodySchema, type DeviceState } from "@feedme2/shared";
+import { DeviceFeedingsBodySchema, DeviceLogsBodySchema, HeartbeatBodySchema, compareVersions, type DeviceState } from "@feedme2/shared";
 import type { Bindings } from "../env.ts";
 import { db, type Db } from "../db/client.ts";
 import { clock } from "../auth/tokens.ts";
@@ -60,6 +60,22 @@ export async function buildDeviceState(d: Db, houseId: string, device: { id: str
 
 export const deviceRouter = new Hono<Env>()
   .use("*", requireDevice())
+  .get("/firmware/check", async (c) => {
+    // Authenticated, model-scoped, read-only advisory. Never return an
+    // unverified image URL or imply that the device may install firmware.
+    c.header("Cache-Control", "no-store");
+    if (c.var.device.hwModel !== "xiao-esp32s3-sense-scale") {
+      return c.json({ latest: null, updateAvailable: false, installSupported: false });
+    }
+    const row = await c.env.DB.prepare(
+      "SELECT version FROM firmware_releases WHERE hw_model = ? AND active = 1 ORDER BY created_at DESC LIMIT 1",
+    ).bind(c.var.device.hwModel).first<{ version: string }>();
+    const latest = row?.version ?? null;
+    const semver = /^\\d+\\.\\d+\\.\\d+$/;
+    const updateAvailable = latest !== null && semver.test(latest) && semver.test(c.var.device.fwVersion) &&
+      compareVersions(latest, c.var.device.fwVersion) > 0;
+    return c.json({ latest, updateAvailable, installSupported: false });
+  })
   .get("/state", async (c) => {
     const { body, etag } = await buildDeviceState(db(c.env.DB), c.var.houseId, c.var.device, clock.now());
     c.header("ETag", etag);

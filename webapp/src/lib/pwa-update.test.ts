@@ -57,6 +57,16 @@ describe("createUpdateStore", () => {
     expect(store.getSnapshot()).toBe("ready");
   });
 
+  it("does not repeatedly show a dismissed reload-only version on polling", () => {
+    const { store } = make();
+    store.markReady("reload", "0.1.5");
+    store.dismiss();
+    store.markReady("reload", "0.1.5");
+    expect(store.getSnapshot()).toBe("dismissed");
+    store.markReady("reload", "0.1.6");
+    expect(store.getSnapshot()).toBe("ready");
+  });
+
   it("reload mode applies by reloading immediately, without skipWaiting", () => {
     const { store, deps } = make();
     store.markReady("reload");

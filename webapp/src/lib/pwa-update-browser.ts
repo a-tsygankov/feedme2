@@ -36,17 +36,26 @@ async function servedVersion(): Promise<string | null> {
 // No service worker means no precache: a plain reload fetches the new
 // bundle, so "ready" can be honoured with reload() alone.
 async function checkNow(): Promise<void> {
-  const newer = isNewerBuildServed(await servedVersion(), CLIENT_VERSION);
+  const served = await servedVersion();
+  const newer = isNewerBuildServed(served, CLIENT_VERSION);
   if (registration !== null) {
-    if (newer) appLog.info("newer build served, checking service worker");
-    // Cheap and idempotent; run it on every visibility change regardless,
-    // the version poll only adds the log line above.
-    void registration.update();
+    // On first installation (or an uncontrolled page), an installed worker
+    // cannot yet deliver controllerchange to this page. A normal reload is
+    // needed even when the registration itself is healthy.
+    if (newer && navigator.serviceWorker.controller === null) {
+      appLog.info("newer build served on uncontrolled page: offering reload");
+      updateStore.markReady("reload", served ?? undefined);
+    }
+    // Keep checking for an updated SW even if version.json is unreachable.
+    // An update() rejection must not become an unhandled promise rejection.
+    void registration.update().catch((error: unknown) => {
+      appLog.warn("service worker update check failed", { error: String(error) });
+    });
     return;
   }
   if (newer) {
     appLog.info("newer build served, no service worker: offering reload");
-    updateStore.markReady("reload");
+    updateStore.markReady("reload", served ?? undefined);
   }
 }
 
@@ -69,10 +78,15 @@ export function startUpdateWatch(): void {
             if (installing.state === "installed") offerIfUpdate(installing);
           });
         });
+        // Check on startup, not only after the next focus or 10-minute tick.
+        void checkNow();
       })
       .catch((error: unknown) => {
         appLog.warn("service worker registration failed", { error: String(error) });
+        void checkNow(); // reload-only fallback if registration is unavailable
       });
+  } else {
+    void checkNow();
   }
 
   document.addEventListener("visibilitychange", () => {

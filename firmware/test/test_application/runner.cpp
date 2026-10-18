@@ -106,6 +106,7 @@ void test_scale_outbox_batch_caps_at_fifty();
 void test_scale_outbox_failed_compaction_keeps_all_pending();
 void test_scale_outbox_rejects_wrong_batch_prefix();
 void test_scale_outbox_partial_nvs_loss_fails_closed();
+void test_scale_outbox_unterminated_tail_fails_closed();
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -217,5 +218,6 @@ int main() {
     RUN_TEST(test_scale_outbox_failed_compaction_keeps_all_pending);
     RUN_TEST(test_scale_outbox_rejects_wrong_batch_prefix);
     RUN_TEST(test_scale_outbox_partial_nvs_loss_fails_closed);
+    RUN_TEST(test_scale_outbox_unterminated_tail_fails_closed);
     return UNITY_END();
 }

@@ -201,7 +201,7 @@ void ScaleNetService::checkFirmwareNow(uint32_t nowMs) {
     if (!paired_ || !net_.isOnline()) return;
     lastFirmwareCheckMs_ = nowMs;
     firmwareChecked_ = true;
-    const auto r = net_.checkFirmware(token_);
+    const auto r = net_.checkFirmware(token_, fwVersion_);
     firmwareCheckStatus_ = r.status;
     if (r.status != 200 || r.body.size() > 2048) return;
     JsonDocument doc;

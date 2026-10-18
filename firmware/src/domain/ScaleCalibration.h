@@ -29,7 +29,7 @@ public:
             cfg_.referenceRaw > kRawMin && cfg_.referenceRaw < kRawMax &&
             cfg_.zeroRaw != cfg_.referenceRaw &&
             cfg_.referenceMg > 0 && cfg_.referenceMg <= 1000000 &&
-            cfg_.maxGrossMg > 0 && cfg_.maxGrossMg <= 1000000;
+            cfg_.maxGrossMg >= cfg_.referenceMg && cfg_.maxGrossMg <= 1000000;
     }
 
     // No automatic tare. In particular, NEVER zero a bowl that may contain

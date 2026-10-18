@@ -178,7 +178,8 @@ void networkCommand(const std::string& line) {
         gettimeofday(&tv, nullptr);
         const int64_t utcMs = static_cast<int64_t>(tv.tv_sec) * 1000 + tv.tv_usec / 1000;
         if (!samplingEnabled || !haveStable || now - stableAtMs > 2000 ||
-            stableRevision != saved.revision || !scaleHttps.isOnline() ||
+            stableRevision != saved.revision ||
+            utcMs < 1704067200000LL || utcMs > 4102444800000LL ||
             (lastRecordMs && now - lastRecordMs < 60000)) {
             Serial.println("No fresh stable measurement, synced clock, or 60s rate limit not met.");
             return;

@@ -12,6 +12,19 @@
 #include "adapters/Hx711Scale.h"
 #include "domain/ScaleCalibration.h"
 #include "domain/ScaleStability.h"
+#if defined(SCALE_NETWORK)
+#include <ArduinoJson.h>
+#include <WiFi.h>
+#include <sys/time.h>
+#include <esp_mac.h>
+#include "adapters/EspRandom.h"
+#include "adapters/LittleFsQueue.h"
+#include "adapters/NvsStorage.h"
+#include "adapters/XiaoHttps.h"
+#include "application/ScaleNetService.h"
+#include "application/Version.h"
+#include "application/ScaleOutbox.h"
+#endif
 
 using feedme2::adapters::Hx711Scale;
 using namespace feedme2::domain::scale;
@@ -64,6 +77,118 @@ uint64_t lastSampleMs = 0;
 uint64_t lastPrintMs = 0;
 uint64_t lastStablePrintMs = 0;
 std::string command;
+
+#if defined(SCALE_NETWORK)
+feedme2::adapters::NvsStorage scaleStorage;
+feedme2::adapters::LittleFsQueue scaleFiles;
+feedme2::adapters::EspRandom scaleRandom;
+feedme2::application::ScaleOutbox scaleOutbox(scaleFiles, scaleStorage, scaleRandom);
+feedme2::adapters::XiaoHttps scaleHttps(FEEDME2_BACKEND_URL);
+std::optional<feedme2::application::ScaleNetService> scaleNet;
+bool haveStable = false;
+int32_t stableGrossMg = 0;
+uint32_t stableRevision = 0;
+uint64_t stableAtMs = 0;
+uint64_t lastRecordMs = 0;
+bool lastPaired = false;
+
+std::string deviceId() {
+    uint8_t mac[6] = {};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char id[33];
+    std::snprintf(id, sizeof id, "00000000000000000000%02x%02x%02x%02x%02x%02x",
+                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return id;
+}
+
+void connectStoredWifi() {
+    std::string savedWifi;
+    if (!scaleStorage.read("scale_wifi", savedWifi)) return;
+    JsonDocument doc;
+    if (deserializeJson(doc, savedWifi) || !doc["ssid"].is<const char*>() ||
+        !doc["pass"].is<const char*>()) return;
+    const std::string ssid = doc["ssid"].as<const char*>();
+    const std::string password = doc["pass"].as<const char*>();
+    if (ssid.empty() || ssid.size() > 32 || password.size() < 8 || password.size() > 63) return;
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+    WiFi.begin(ssid.c_str(), password.c_str());
+    configTime(0, 0, "time.google.com", "pool.ntp.org");
+}
+
+void networkCommand(const std::string& line) {
+    if (!scaleNet) return;
+    if (line.rfind("wifi ", 0) == 0) {
+        const std::string value = line.substr(5);
+        const size_t sep = value.find('|');
+        if (sep == std::string::npos || sep == 0 || sep > 32 ||
+            value.size() - sep - 1 < 8 || value.size() - sep - 1 > 63) {
+            Serial.println("Usage: wifi <ssid>|<WPA2-password> (USB-only, do not share serial transcript)");
+            return;
+        }
+        JsonDocument doc;
+        doc["ssid"] = value.substr(0, sep);
+        doc["pass"] = value.substr(sep + 1);
+        std::string blob;
+        serializeJson(doc, blob);
+        if (!scaleStorage.write("scale_wifi", blob)) {
+            Serial.println("Wi-Fi credential write failed."); return;
+        }
+        connectStoredWifi();
+        Serial.println("Wi-Fi connecting; password is not printed.");
+        return;
+    }
+    if (line == "forgetwifi") {
+        if (!scaleStorage.erase("scale_wifi")) { Serial.println("Wi-Fi erase failed."); return; }
+        WiFi.disconnect(true);
+        Serial.println("Wi-Fi credentials cleared.");
+        return;
+    }
+    if (line == "netstatus") {
+        Serial.printf("device=%s wifi=%d clock=%d paired=%d pairing=%d blocked=%d pending=%u http=%d error=%s\n",
+            deviceId().c_str(), WiFi.status() == WL_CONNECTED, scaleHttps.isOnline(),
+            scaleNet->paired(), scaleNet->pairing(), scaleNet->blocked(),
+            static_cast<unsigned>(scaleNet->pending()), scaleNet->lastStatus(),
+            scaleNet->lastError().c_str());
+        if (scaleNet->pairing()) Serial.printf("pair code: %s\n", scaleNet->pairCode().c_str());
+        return;
+    }
+    if (line == "pair") {
+        if (scaleNet->startPairing(millis()))
+            Serial.printf("Pair code: %s (confirm in FeedMe2 web app)\n", scaleNet->pairCode().c_str());
+        else Serial.println("Pair failed; check Wi-Fi, NTP, existing pairing and netstatus.");
+        return;
+    }
+    if (line == "unpair") {
+        Serial.println(scaleNet->unpair() ? "Unpaired. Previous queue is quarantined." : "NVS erase failed.");
+        return;
+    }
+    if (line == "record") {
+        const uint64_t now = nowMs();
+        struct timeval tv {};
+        gettimeofday(&tv, nullptr);
+        const int64_t utcMs = static_cast<int64_t>(tv.tv_sec) * 1000 + tv.tv_usec / 1000;
+        if (!samplingEnabled || !haveStable || now - stableAtMs > 2000 ||
+            stableRevision != saved.revision || !scaleHttps.isOnline() ||
+            (lastRecordMs && now - lastRecordMs < 60000)) {
+            Serial.println("No fresh stable measurement, synced clock, or 60s rate limit not met.");
+            return;
+        }
+        if (scaleNet->enqueueStable(utcMs, stableRevision, stableGrossMg)) {
+            lastRecordMs = now;
+            Serial.printf("Queued stable grossMg=%ld; run sync to upload.\n", static_cast<long>(stableGrossMg));
+        } else Serial.println("Enqueue refused; check pairing, queue and netstatus.");
+        return;
+    }
+    if (line == "sync") {
+        scaleNet->syncNow(millis());
+        Serial.printf("Sync result: HTTP=%d pending=%u error=%s\n",
+            scaleNet->lastStatus(), static_cast<unsigned>(scaleNet->pending()),
+            scaleNet->lastError().c_str());
+        return;
+    }
+}
+#endif
 
 void printStatus() {
     Serial.printf("scale bench: raw=%ld haveRaw=%d calibrated=%d pendingValid=%d revision=%lu run=%d\n",
@@ -120,6 +245,9 @@ void process(const std::string& line) {
     if (line == "help") {
         Serial.println("status | zero | ref <mass_mg> | limit <max_gross_mg> | commit");
         Serial.println("tune <min_samples> <dwell_ms> <spread_mg> <max_gap_ms> | run | stop | clear");
+#if defined(SCALE_NETWORK)
+        Serial.println("wifi <ssid>|<WPA2-password> | forgetwifi | netstatus | pair | unpair | record | sync");
+#endif
         Serial.println("Commands zero/ref use the LAST RAW SAMPLE; verify no load/reference physically.");
         return;
     }
@@ -194,6 +322,13 @@ void process(const std::string& line) {
         Serial.println("Stable sampling enabled (serial-only; NO cloud events).");
         return;
     }
+#if defined(SCALE_NETWORK)
+    if (line.rfind("wifi ", 0) == 0 || line == "forgetwifi" || line == "netstatus" ||
+        line == "pair" || line == "unpair" || line == "record" || line == "sync") {
+        networkCommand(line);
+        return;
+    }
+#endif
     Serial.println("Unknown command; type help.");
 }
 
@@ -217,6 +352,13 @@ void setup() {
     if (!nvs.begin("scale-cal", false)) Serial.println("NVS unavailable: calibration cannot persist.");
     loadCalibration();
     Serial.println("FeedMe2 XIAO HX711 USB bench. Type help. Do NOT use with pets.");
+#if defined(SCALE_NETWORK)
+    scaleNet.emplace(scaleHttps, scaleStorage, scaleRandom, scaleOutbox,
+                     deviceId(), feedme2::application::kFirmwareVersion);
+    if (!scaleNet->restore()) Serial.println("ERROR: pairing or queue storage corrupt; uploads disabled.");
+    connectStoredWifi();
+    Serial.println("Secure network bench enabled. Type netstatus; no automatic scale event recording.");
+#endif
 }
 
 void loop() {
@@ -244,9 +386,20 @@ void loop() {
             const auto status = ScaleCalibration(saved).convert(raw, mg);
             if (status != CalibrationStatus::Ok) {
                 estimator->reset();
+#if defined(SCALE_NETWORK)
+                haveStable = false;
+#endif
                 Serial.printf("FAULT calibrationStatus=%u\n", static_cast<unsigned>(status));
             } else {
                 const auto r = estimator->add(WeightSample{now, mg, saved.revision});
+#if defined(SCALE_NETWORK)
+                haveStable = r.status == StabilityStatus::Stable;
+                if (haveStable) {
+                    stableGrossMg = r.grossMg;
+                    stableRevision = r.calibrationRevision;
+                    stableAtMs = now;
+                }
+#endif
                 if (r.status == StabilityStatus::Stable && now - lastStablePrintMs >= kStablePrintMs) {
                     lastStablePrintMs = now;
                     Serial.printf("STABLE grossMg=%ld spreadMg=%ld samples=%u\n",
@@ -257,7 +410,19 @@ void loop() {
     } else if (haveRaw && now - lastSampleMs > kMissingMs && !missingReported) {
         missingReported = true;
         if (estimator) estimator->reset();
+#if defined(SCALE_NETWORK)
+        haveStable = false;
+#endif
         Serial.println("FAULT adc_timeout: HX711 DOUT not ready");
     }
+#if defined(SCALE_NETWORK)
+    if (scaleNet) {
+        scaleNet->tick(millis());
+        if (scaleNet->paired() != lastPaired) {
+            lastPaired = scaleNet->paired();
+            Serial.println(lastPaired ? "Pair confirmed; token stored (never printed)." : "Pairing lost; old queue retained.");
+        }
+    }
+#endif
     delay(2);
 }

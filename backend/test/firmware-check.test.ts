@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { applyAllMigrations } from "./helpers/migrate.ts";
 import { pairDevice } from "./helpers/device.ts";
@@ -8,7 +8,7 @@ describe("GET /api/device/firmware/check (advisory only)", () => {
 
   it("rejects anonymous requests and malformed current versions", async () => {
     const d = await pairDevice();
-    const unauth = await fetch("http://feedme2/api/device/firmware/check?current=0.1.40");
+    const unauth = await SELF.fetch("http://feedme2/api/device/firmware/check?current=0.1.40");
     expect(unauth.status).toBe(401);
     await env.DB.prepare("UPDATE devices SET hw_model = ? WHERE id = ?")
       .bind("xiao-esp32s3-sense-scale", d.deviceId).run();

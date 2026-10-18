@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const logger = { info: vi.fn(), warn: vi.fn() };
+const logger = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn() }));
 vi.mock("./logger.ts", () => ({ appLog: logger }));
 vi.mock("./versions.ts", () => ({ CLIENT_VERSION: "0.1.4" }));
 

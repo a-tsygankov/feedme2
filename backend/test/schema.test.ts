@@ -75,7 +75,7 @@ describe("migration 0001", () => {
   it("records the schema version as the newest migration", async () => {
     const row = await env.DB.prepare("SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1").first<{ name: string }>();
     expect(row?.name).toBe(MIGRATIONS[MIGRATIONS.length - 1]!.name);
-    expect(row?.name).toBe("0004_scale_events.sql");
+    expect(row?.name).toBe("0005_firmware_release_advisory.sql");
   });
 
   it("0003 adds login_qr_tokens holding only a SHA-256 hex of each token", async () => {

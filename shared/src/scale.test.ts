@@ -18,7 +18,25 @@ describe("scale domain", () => {
         const lifted = advanceScale(present.state, { kind: "absent" });
         expect(lifted.transition.kind).toBe("lifted");
         const returned = advanceScale(lifted.state, { kind: "present", observation: { ...base, sequence: 2, grossMg: 155_000 } });
+        expect(returned.transition).toMatchObject({ kind: "returned", deltaMg: 30_000, needsReview: true, reason: "bowl_unverified" });
+    });
+
+    it("accepts an unreviewed positive delta only for the same independently verified bowl", () => {
+        const bowl = base.id;
+        const present = advanceScale(INITIAL_SCALE_STATE, { kind: "present", observation: base, verifiedBowlProfileId: bowl });
+        const lifted = advanceScale(present.state, { kind: "absent" });
+        const returned = advanceScale(lifted.state, { kind: "present", observation: { ...base, sequence: 2, grossMg: 155_000 }, verifiedBowlProfileId: bowl });
         expect(returned.transition).toMatchObject({ kind: "returned", deltaMg: 30_000, needsReview: false });
+    });
+
+    it("requires review when a different bowl is returned", () => {
+        const present = advanceScale(INITIAL_SCALE_STATE, { kind: "present", observation: base, verifiedBowlProfileId: base.id });
+        const lifted = advanceScale(present.state, { kind: "absent" });
+        const returned = advanceScale(lifted.state, {
+            kind: "present", observation: { ...base, sequence: 2, grossMg: 155_000 },
+            verifiedBowlProfileId: "a81277a1-f0e7-4eb9-bd52-59f8f2527a02",
+        });
+        expect(returned.transition).toMatchObject({ kind: "returned", needsReview: true, reason: "bowl_changed" });
     });
 
     it("does not mistake negative delta for food added", () => {

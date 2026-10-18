@@ -27,6 +27,7 @@ describe("device contracts", () => {
   });
   it("pair/start requires a known hardware model and a semver fw", () => {
     expect(PairStartBodySchema.safeParse({ deviceId: DEV, hwModel: "crowpanel-1.28", fwVersion: "0.2.0", pollSecret: SECRET }).success).toBe(true);
+    expect(PairStartBodySchema.safeParse({ deviceId: DEV, hwModel: "xiao-esp32s3-sense-scale", fwVersion: "0.1.39", pollSecret: SECRET }).success).toBe(true);
     expect(PairStartBodySchema.safeParse({ deviceId: DEV, hwModel: "toaster", fwVersion: "0.2.0", pollSecret: SECRET }).success).toBe(false);
     expect(PairStartBodySchema.safeParse({ deviceId: DEV, hwModel: "simulator", fwVersion: "v1", pollSecret: SECRET }).success).toBe(false);
   });

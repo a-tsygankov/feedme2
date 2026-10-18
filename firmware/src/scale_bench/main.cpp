@@ -51,6 +51,9 @@ Hx711Scale adc(SCALE_HX711_DOUT_PIN, SCALE_HX711_SCK_PIN);
 Preferences nvs;
 Calibration saved{};
 Calibration pending{};
+bool zeroCaptured = false;
+bool refCaptured = false;
+bool limitSet = false;
 StabilityConfig tuning{};
 std::optional<WeightStabilityEstimator> estimator;
 bool samplingEnabled = false;
@@ -81,10 +84,15 @@ void loadCalibration() {
         return;
     }
     saved = pending = record.config;
+    zeroCaptured = refCaptured = limitSet = true;
     Serial.printf("Loaded calibration revision=%lu\n", static_cast<unsigned long>(saved.revision));
 }
 
 void saveCalibration() {
+    if (!zeroCaptured || !refCaptured || !limitSet) {
+        Serial.println("Refused: capture zero, reference and software limit explicitly.");
+        return;
+    }
     if (saved.revision >= 2147483647u) {
         Serial.println("Revision exhausted; refuse calibration commit.");
         return;
@@ -119,6 +127,10 @@ void process(const std::string& line) {
     if (line == "zero") {
         if (!haveRaw || nowMs() - lastSampleMs > 1000) { Serial.println("No fresh ADC sample."); return; }
         pending.zeroRaw = lastRaw;
+        zeroCaptured = true;
+        refCaptured = false;
+        pending.referenceRaw = 0;
+        pending.referenceMg = 0;
         Serial.println("Pending zero recorded. Place a known reference mass, then ref <mg>.");
         return;
     }
@@ -127,7 +139,9 @@ void process(const std::string& line) {
     if (std::sscanf(line.c_str(), "ref %lld %n", &number, &consumed) == 1 &&
         consumed == static_cast<int>(line.size()) && number > 0 && number <= 1000000) {
         if (!haveRaw || nowMs() - lastSampleMs > 1000) { Serial.println("No fresh ADC sample."); return; }
+        if (!zeroCaptured) { Serial.println("Capture zero first."); return; }
         pending.referenceRaw = lastRaw;
+        refCaptured = true;
         pending.referenceMg = static_cast<int32_t>(number);
         Serial.println("Pending reference recorded; set limit and commit.");
         return;
@@ -136,6 +150,7 @@ void process(const std::string& line) {
     if (std::sscanf(line.c_str(), "limit %lld %n", &number, &consumed) == 1 &&
         consumed == static_cast<int>(line.size()) && number > 0 && number <= 1000000) {
         pending.maxGrossMg = static_cast<int32_t>(number);
+        limitSet = true;
         Serial.println("Pending software limit set (NOT a mechanical overload stop).");
         return;
     }
@@ -144,6 +159,7 @@ void process(const std::string& line) {
     if (line == "clear") {
         if (nvs.remove("points")) {
             saved = pending = Calibration{};
+            zeroCaptured = refCaptured = limitSet = false;
             estimator.reset();
             samplingEnabled = false;
             Serial.println("Calibration cleared.");

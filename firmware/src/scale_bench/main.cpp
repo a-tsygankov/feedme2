@@ -99,7 +99,7 @@ std::optional<BowlLiftDetector> bowlDetector;
 bool bowlWatch = false;
 
 void disableBowlWatch(const char* reason) {
-    if (bowlWatch) Serial.printf("Bowl watch stopped: %s\\n", reason);
+    if (bowlWatch) Serial.printf("Bowl watch stopped: %s\n", reason);
     bowlWatch = false;
     bowlDetector.reset();
 }
@@ -126,9 +126,9 @@ void observeBowl(uint64_t atMs, int32_t grossMg, uint32_t revision) {
         return;
     }
     if (returned)
-        Serial.printf("REVIEW-ONLY bowl return: before=%ld after=%ld deltaMg=%ld (unverified bowl; NOT feeding)\\n",
+        Serial.printf("REVIEW-ONLY bowl return: before=%ld after=%ld deltaMg=%ld (unverified bowl; NOT feeding)\n",
             static_cast<long>(r.beforeMg), static_cast<long>(r.afterMg), static_cast<long>(r.deltaMg));
-    else Serial.printf("Bowl removed, pre-lift grossMg=%ld; queued.\\n", static_cast<long>(r.beforeMg));
+    else Serial.printf("Bowl removed, pre-lift grossMg=%ld; queued.\n", static_cast<long>(r.beforeMg));
 }
 
 
@@ -193,7 +193,7 @@ void networkCommand(const std::string& line) {
         return;
     }
     if (line == "netstatus") {
-        Serial.printf("bowlWatch=%d\\n", bowlWatch);
+        Serial.printf("bowlWatch=%d\n", bowlWatch);
         Serial.printf("device=%s wifi=%d clock=%d paired=%d pairing=%d blocked=%d pending=%u http=%d error=%s\n",
             deviceId().c_str(), WiFi.status() == WL_CONNECTED, scaleHttps.isOnline(),
             scaleNet->paired(), scaleNet->pairing(), scaleNet->blocked(),

@@ -203,4 +203,11 @@ bool ScaleNetService::enqueueStable(int64_t utcMs, uint32_t revision, int32_t mg
         outbox_.enqueue(ScaleEventKind::StableWeight, utcMs, revision, mg);
 }
 
+bool ScaleNetService::enqueueBowlTransition(bool returned, int64_t utcMs,
+                                            uint32_t revision, int32_t grossMg) {
+    return paired_ && !blocked_ && outbox_.active() &&
+        outbox_.enqueue(returned ? ScaleEventKind::BowlReturned : ScaleEventKind::BowlRemoved,
+                        utcMs, revision, returned ? grossMg : 0);
+}
+
 }  // namespace feedme2::application

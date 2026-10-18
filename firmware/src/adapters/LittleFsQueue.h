@@ -17,6 +17,7 @@ public:
     // Writes a temp file and renames it over the original so a power cut
     // mid-rewrite leaves either the old queue or the new one, never a torn file.
     bool rewrite(const char* file, const std::vector<std::string>& lines) override;
+    bool hasCompleteRecords(const char* file) override;
 
 private:
     bool mounted_ = false;

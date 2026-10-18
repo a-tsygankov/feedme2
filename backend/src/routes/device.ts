@@ -68,14 +68,14 @@ export const deviceRouter = new Hono<Env>()
       return c.json({ latest: null, updateAvailable: false, installSupported: false });
     }
     const current = c.req.query("current");
-    if (!current || !/^\\d+\\.\\d+\\.\\d+$/.test(current) || current.length > 32) {
+    if (!current || !/^\d+\.\d+\.\d+$/.test(current) || current.length > 32) {
       return c.json({ error: "invalid_firmware_version" }, 400);
     }
     const row = await c.env.DB.prepare(
       "SELECT version FROM firmware_releases WHERE hw_model = ? AND active = 1 ORDER BY created_at DESC LIMIT 1",
     ).bind(c.var.device.hwModel).first<{ version: string }>();
     const latest = row?.version ?? null;
-    const semver = /^\\d+\\.\\d+\\.\\d+$/;
+    const semver = /^\d+\.\d+\.\d+$/;
     const updateAvailable = latest !== null && semver.test(latest) && semver.test(current) &&
       compareVersions(latest, current) > 0;
     return c.json({ latest, updateAvailable, installSupported: false });

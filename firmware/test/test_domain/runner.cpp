@@ -100,6 +100,12 @@ void test_bowl_restart_cannot_create_phantom_return();
 void test_bowl_invalid_configuration_or_input_fails_closed();
 void test_bowl_zero_or_negative_change_still_review_only();
 
+// OTA preflight policy (no image installation)
+void test_ota_preflight_accepts_only_independently_verified_manifest();
+void test_ota_preflight_rejects_model_downgrade_and_bad_versions();
+void test_ota_preflight_rejects_slot_size_digest_and_signature();
+void test_ota_preflight_rejects_unprovisioned_verifier_and_invalid_base64_tail();
+
 extern "C" void setUp(void) {}
 extern "C" void tearDown(void) {}
 
@@ -177,5 +183,9 @@ int main(int, char**) {
     RUN_TEST(test_bowl_restart_cannot_create_phantom_return);
     RUN_TEST(test_bowl_invalid_configuration_or_input_fails_closed);
     RUN_TEST(test_bowl_zero_or_negative_change_still_review_only);
+    RUN_TEST(test_ota_preflight_accepts_only_independently_verified_manifest);
+    RUN_TEST(test_ota_preflight_rejects_model_downgrade_and_bad_versions);
+    RUN_TEST(test_ota_preflight_rejects_slot_size_digest_and_signature);
+    RUN_TEST(test_ota_preflight_rejects_unprovisioned_verifier_and_invalid_base64_tail);
     return UNITY_END();
 }

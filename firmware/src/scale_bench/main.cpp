@@ -199,6 +199,9 @@ void networkCommand(const std::string& line) {
             scaleNet->paired(), scaleNet->pairing(), scaleNet->blocked(),
             static_cast<unsigned>(scaleNet->pending()), scaleNet->lastStatus(),
             scaleNet->lastError().c_str());
+        Serial.printf("firmware current=%s latest=%s updateAvailable=%d checkHttp=%d installSupported=0\n",
+            feedme2::application::kFirmwareVersion, scaleNet->latestFirmware().c_str(),
+            scaleNet->firmwareUpdateAvailable(), scaleNet->firmwareCheckStatus());
         if (scaleNet->pairing()) Serial.printf("pair code: %s\n", scaleNet->pairCode().c_str());
         return;
     }
@@ -250,6 +253,13 @@ void networkCommand(const std::string& line) {
             lastRecordMs = now;
             Serial.printf("Queued stable grossMg=%ld; run sync to upload.\n", static_cast<long>(stableGrossMg));
         } else Serial.println("Enqueue refused; check pairing, queue and netstatus.");
+        return;
+    }
+    if (line == "fwcheck") {
+        scaleNet->checkFirmwareNow(millis());
+        Serial.printf("firmware current=%s latest=%s updateAvailable=%d checkHttp=%d installSupported=0\n",
+            feedme2::application::kFirmwareVersion, scaleNet->latestFirmware().c_str(),
+            scaleNet->firmwareUpdateAvailable(), scaleNet->firmwareCheckStatus());
         return;
     }
     if (line == "sync") {
@@ -321,7 +331,7 @@ void process(const std::string& line) {
         Serial.println("status | zero | ref <mass_mg> | limit <max_gross_mg> | commit");
         Serial.println("tune <min_samples> <dwell_ms> <spread_mg> <max_gap_ms> | run | stop | clear");
 #if defined(SCALE_NETWORK)
-        Serial.println("wifi <ssid>|<WPA2-password> | forgetwifi | initfs ERASE | netstatus | pair | unpair | record | sync | watch <absent_mg> <present_mg> <max_lift_ms> | watch off");
+        Serial.println("wifi <ssid>|<WPA2-password> | forgetwifi | initfs ERASE | netstatus | pair | unpair | record | sync | fwcheck | watch <absent_mg> <present_mg> <max_lift_ms> | watch off");
 #endif
         Serial.println("Commands zero/ref use the LAST RAW SAMPLE; verify no load/reference physically.");
         return;
@@ -412,7 +422,7 @@ void process(const std::string& line) {
     }
 #if defined(SCALE_NETWORK)
     if (line.rfind("wifi ", 0) == 0 || line == "forgetwifi" || line == "netstatus" ||
-        line == "pair" || line == "unpair" || line == "record" || line == "sync" ||
+        line == "pair" || line == "unpair" || line == "record" || line == "sync" || line == "fwcheck" ||
         line == "initfs ERASE" || line == "watch off" ||
         line.rfind("watch ", 0) == 0) {
         networkCommand(line);

@@ -40,12 +40,13 @@ bool XiaoHttps::isOnline() const {
     return validEndpoint(baseUrl_) && WiFi.status() == WL_CONNECTED && utcClockReady();
 }
 
-ports::NetResult XiaoHttps::post(const std::string& path, const std::string& body,
-                                 const std::string& token) {
+ports::NetResult XiaoHttps::request(const std::string& method, const std::string& path,
+                                    const std::string& body, const std::string& token) {
     if (!validEndpoint(baseUrl_)) return ports::NetResult::fromStatus(0, "invalid_https_endpoint");
     if (WiFi.status() != WL_CONNECTED) return ports::NetResult::fromStatus(0, "offline");
     if (!utcClockReady()) return ports::NetResult::fromStatus(0, "clock_unsynced");
-    if (body.empty() || body.size() > 32 * 1024)
+    if ((method != "GET" && method != "POST") ||
+        (method == "POST" && body.empty()) || body.size() > 32 * 1024)
         return ports::NetResult::fromStatus(0, "invalid_request_size");
     WiFiClientSecure tls;
     tls.setCACert(kScaleCaRoots);  // chain AND hostname validation; never setInsecure
@@ -57,7 +58,7 @@ ports::NetResult XiaoHttps::post(const std::string& path, const std::string& bod
         return ports::NetResult::fromStatus(0, "https_begin_failed");
     http.addHeader("Content-Type", "application/json");
     if (!token.empty()) http.addHeader("Authorization", String("Bearer ") + token.c_str());
-    const int status = http.sendRequest("POST",
+    const int status = method == "GET" ? http.GET() : http.sendRequest("POST",
         reinterpret_cast<uint8_t*>(const_cast<char*>(body.data())), body.size());
     std::string response;
     if (status > 0) {
@@ -83,20 +84,28 @@ ports::NetResult XiaoHttps::pairStart(const std::string& id, const std::string& 
     doc["hwModel"] = "xiao-esp32s3-sense-scale";
     doc["fwVersion"] = fw;
     doc["pollSecret"] = secret;
-    return post("/api/pair/start", json(doc));
+    return request("POST", "/api/pair/start", json(doc));
 }
 
 ports::NetResult XiaoHttps::pairCheck(const std::string& id, const std::string& secret) {
     JsonDocument doc;
     doc["deviceId"] = id;
     doc["pollSecret"] = secret;
-    return post("/api/pair/check", json(doc));
+    return request("POST", "/api/pair/check", json(doc));
 }
 
 ports::NetResult XiaoHttps::postScaleEvents(const std::string& token,
                                             const std::string& jsonArray) {
     if (token.empty()) return ports::NetResult::fromStatus(0, "not_paired");
-    return post("/api/device/scale-events", jsonArray, token);
+    return request("POST", "/api/device/scale-events", jsonArray, token);
+}
+
+ports::NetResult XiaoHttps::checkFirmware(const std::string& token, const std::string& currentVersion) {
+    if (token.empty()) return ports::NetResult::fromStatus(0, "not_paired");
+    if (currentVersion.empty() || currentVersion.size() > 32 ||
+        currentVersion.find_first_not_of("0123456789.") != std::string::npos)
+        return ports::NetResult::fromStatus(0, "invalid_version");
+    return request("GET", "/api/device/firmware/check?current=" + currentVersion, "", token);
 }
 
 }  // namespace feedme2::adapters

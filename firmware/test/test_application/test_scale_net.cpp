@@ -19,10 +19,18 @@ const std::string kConfirmed = "{\"status\":\"confirmed\",\"deviceToken\":\"sign
 
 struct FakeScaleNet : IScaleTransport {
     bool online = true;
-    std::deque<NetResult> starts, checks, uploads;
+    std::deque<NetResult> starts, checks, uploads, firmwareChecks;
+    int firmwareCalls = 0;
     std::vector<std::string> bodies, authTokens, pollSecrets;
     int startCalls = 0, checkCalls = 0;
     bool isOnline() const override { return online; }
+    NetResult checkFirmware(const std::string& token, const std::string& currentVersion) override {
+        authTokens.push_back(token);
+        (void)currentVersion;
+        ++firmwareCalls;
+        if (firmwareChecks.empty()) return NetResult::fromStatus(0, "offline");
+        const auto r = firmwareChecks.front(); firmwareChecks.pop_front(); return r;
+    }
     NetResult pairStart(const std::string&, const std::string&, const std::string& secret) override {
         ++startCalls;
         pollSecrets.push_back(secret);
@@ -224,4 +232,39 @@ void test_scale_net_bowl_transitions_are_events_not_feedings() {
     f.service.syncNow(10000);
     TEST_ASSERT_EQUAL_UINT32(0, f.service.pending());
     TEST_ASSERT_EQUAL_STRING(body.c_str(), f.net.bodies[0].c_str());
+}
+
+void test_scale_net_firmware_advisory_checks_once_then_every_six_hours() {
+    Fixture f;
+    TEST_ASSERT_TRUE(f.pair());
+    f.net.firmwareChecks.push_back(NetResult::fromStatus(200,
+        "{\"latest\":\"0.1.40\",\"updateAvailable\":true,\"installSupported\":false}"));
+    f.service.tick(1000);
+    TEST_ASSERT_EQUAL(1, f.net.firmwareCalls);
+    TEST_ASSERT_TRUE(f.service.firmwareUpdateAvailable());
+    TEST_ASSERT_EQUAL_STRING("0.1.40", f.service.latestFirmware().c_str());
+    f.service.tick(60000);
+    TEST_ASSERT_EQUAL(1, f.net.firmwareCalls);
+    f.net.firmwareChecks.push_back(NetResult::fromStatus(200,
+        "{\"latest\":\"0.1.39\",\"updateAvailable\":false,\"installSupported\":false}"));
+    f.service.tick(1000 + ScaleNetService::kFirmwareCheckMs);
+    TEST_ASSERT_EQUAL(2, f.net.firmwareCalls);
+    TEST_ASSERT_FALSE(f.service.firmwareUpdateAvailable());
+}
+
+void test_scale_net_firmware_advisory_rejects_malformed_and_install_claims() {
+    Fixture f;
+    TEST_ASSERT_TRUE(f.pair());
+    f.net.firmwareChecks.push_back(NetResult::fromStatus(200,
+        "{\"latest\":\"0.1.40\",\"updateAvailable\":true,\"installSupported\":true}"));
+    f.service.checkFirmwareNow(1000);
+    TEST_ASSERT_FALSE(f.service.firmwareUpdateAvailable());
+    f.net.firmwareChecks.push_back(NetResult::fromStatus(200,
+        "{\"latest\":\"0.1.40-evil\",\"updateAvailable\":true,\"installSupported\":false}"));
+    f.service.checkFirmwareNow(2000);
+    TEST_ASSERT_FALSE(f.service.firmwareUpdateAvailable());
+    f.net.firmwareChecks.push_back(NetResult::fromStatus(200,
+        "{\"latest\":\"0.1.40\",\"updateAvailable\":false,\"installSupported\":false}"));
+    f.service.checkFirmwareNow(3000);
+    TEST_ASSERT_FALSE(f.service.firmwareUpdateAvailable());
 }
